@@ -797,7 +797,7 @@
           <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
           <div id="here">
             <h4>这台电脑上</h4>
-            <label class="switch"><span>登录 Windows 后自动启动<small>往「启动」文件夹放一个小脚本，关掉就删掉</small></span><input type="checkbox" id="autostart" role="switch" /></label>
+            <label class="switch"><span>登录 Windows 后自动启动<small>开机后自己在后台跑起来；任务管理器的「启动应用」里也能看到它</small></span><input type="checkbox" id="autostart" role="switch" /></label>
             <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
           </div>
         </form>
@@ -868,7 +868,7 @@
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
-          gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击 promo\\remote\\station.vbs。'],
+          gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击桌面上的「渲染站」。'],
           busy: ['渲染中', `正在渲染：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
           idle: ['在线', '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 用 ask.mjs 发来任务，就会在这里开始渲。`],
           connecting: ['连接中', '正在连接 lemon…', `ssh ${target}`],

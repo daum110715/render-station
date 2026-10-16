@@ -41,7 +41,7 @@ for (const p of port ? [] : PORTS) {
   }
 }
 if (!port) {
-  console.error("no render worker on lemon: on the owner's machine the render station is not running, or is paused (promo/remote/station.vbs)");
+  console.error("no render worker on lemon: on the owner's machine the render station is not running, or is paused (promo/remote/渲染站.exe)");
   process.exit(1);
 }
 

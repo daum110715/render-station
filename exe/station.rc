@@ -1,0 +1,34 @@
+// 渲染站.exe's resources: its icon (the first, as Explorer shows it), the tray's icons by state
+// (station.c numbers them), the manifest and the name Windows shows for it. The .ico files are
+// drawn by build.mjs.
+#include <windows.h>
+
+1 ICON "busy.ico"
+2 ICON "idle.ico"
+3 ICON "wait.ico"
+4 ICON "bad.ico"
+5 ICON "off.ico"
+
+1 24 "station.manifest"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404b0"
+    BEGIN
+      VALUE "FileDescription", "渲染站"
+      VALUE "ProductName", "qiqi.help 渲染站"
+      VALUE "FileVersion", "1.0"
+      VALUE "OriginalFilename", "渲染站.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0804, 1200
+  END
+END

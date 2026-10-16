@@ -1,13 +1,13 @@
 // 渲染站, the render station, on the owner's machine: keeps the render worker (worker.mjs) and the
 // reverse SSH tunnel to lemon up, through sleep, wake and lost networks, and shows both in a small
 // window (station.html, at http://127.0.0.1:7799): what it is doing, what ssh and render.mjs print
-// as they print it, the jobs lately done, the settings. The tray icon (station.ps1; station.vbs to
-// double-click, with no terminal) starts it and starts it again if it stops. Its settings, the
-// paths render.mjs needs and how to reach lemon, are in .tools/remote/config.json; what it did, in
-// station.log.
+// as they print it, the jobs lately done, the settings. The tray icon, 渲染站.exe (exe/station.c),
+// starts it and starts it again if it stops, and keeps what the settings ask of Windows (starting
+// with it, the shortcuts), as /tray tells it. Its settings, the paths render.mjs needs and how to
+// reach lemon, are in .tools/remote/config.json; what it did, in station.log.
 // usage: node promo/remote/station.mjs
 import { createServer } from 'node:http';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,11 +98,24 @@ const view = () => ({
   workerError,
   config,
   missing: NEEDED.filter((k) => !config.env[k]),
-  autostart: autostartOn(),
-  shortcut: shortcutOn(),
-  canShortcut: !!folders,
+  // what the tray icon is to keep: both, unless switched off
+  autostart: config.autostart !== false,
+  shortcut: config.shortcut !== false,
+  canShortcut: win,
   platform: process.platform,
 });
+/** for the tray icon, a line each: the mode, its tip, the pause item, the newest job and what to
+ *  say of it, starting with Windows and the shortcuts (1 or 0) */
+function trayView() {
+  const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
+  const tip = { busy: `渲染中：${job?.what}`, idle: `空闲，已连上 lemon:${tunnel.port}`, connecting: '正在连接 lemon', retry: '连不上 lemon，会自己重试', auth: 'lemon 不让登录，点开看看', off: '已暂停接单' }[mode] ?? mode;
+  const last = jobs[0];
+  const tell = !last ? ['', ''] : last.ok ? ['渲染完成', `${last.what}，用了 ${took(last.ms)}，已交回 lemon。`] : ['渲染失败', `${last.what}。输出在渲染站的「任务」里。`];
+  const v = view();
+  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0']
+    .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
+    .join('\n');
+}
 function push() {
   if (pending) return;
   pending = setTimeout(() => {
@@ -275,53 +288,6 @@ setInterval(() => {
   tick = now;
 }, 5000);
 
-// ——— with Windows: a script in the Startup folder that starts the tray icon ———
-const startup = win && process.env.APPDATA ? join(process.env.APPDATA, 'Microsoft/Windows/Start Menu/Programs/Startup/qiqi-render-station.vbs') : null;
-function autostartOn() {
-  return !!startup && existsSync(startup);
-}
-function setAutostart(on) {
-  if (!startup) return;
-  if (!on) return rmSync(startup, { force: true });
-  const ps1 = join(here, 'station.ps1');
-  const vbs = `' qiqi.help 渲染站：登录后在后台启动（渲染站的设置里可以关掉）\r\nCreateObject("WScript.Shell").Run "powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""${ps1}""", 0, False\r\n`;
-  // UTF-16 with its mark, so a path in any script reads right
-  writeFileSync(startup, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(vbs, 'utf16le')]));
-}
-
-// ——— as an app: 渲染站 on the desktop and in the Start menu, with the tray's icon ———
-const NAME = '渲染站.lnk';
-let folders = null;
-const ps = (script, env = {}) =>
-  new Promise((done) =>
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; ${script}`], { windowsHide: true, env: { ...process.env, ...env } }, (e, out) => done(e ? null : out)),
-  );
-if (win)
-  ps("[Environment]::GetFolderPath('Desktop'); [Environment]::GetFolderPath('Programs')").then((out) => {
-    const [Desktop, Programs] = (out ?? '').split(/\r?\n/).map((s) => s.trim());
-    if (Desktop && Programs) folders = { Desktop, Programs };
-    push();
-  });
-function shortcutOn() {
-  return !!folders && existsSync(join(folders.Desktop, NAME));
-}
-async function setShortcut(on) {
-  if (!folders) return;
-  for (const where of [folders.Desktop, folders.Programs]) {
-    const file = join(where, NAME);
-    if (!on) rmSync(file, { force: true });
-    else
-      await ps('$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:Q_LNK); $s.TargetPath = $env:Q_TARGET; $s.Arguments = $env:Q_ARGS; $s.WorkingDirectory = $env:Q_DIR; $s.IconLocation = $env:Q_ICON; $s.Description = $env:Q_NOTE; $s.Save()', {
-        Q_LNK: file,
-        Q_TARGET: join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'wscript.exe'),
-        Q_ARGS: `"${join(here, 'station.vbs')}"`,
-        Q_DIR: here,
-        Q_ICON: `${join(dir, 'station.ico')},0`,
-        Q_NOTE: 'qiqi.help 宣传片的渲染站',
-      });
-  }
-}
-
 // ——— the window's server ———
 const fonts = {
   '/fonts/lxgw/': join(repo, 'node_modules/lxgw-wenkai-webfont'),
@@ -359,6 +325,7 @@ const ui = createServer(async (req, res) => {
   if (req.method === 'GET') {
     if (path === '/') return send(res, join(here, 'station.html'));
     if (path === '/state') return json(res, view());
+    if (path === '/tray') return res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(trayView());
     if (path === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
       res.write(`data: ${JSON.stringify(view())}\n\nevent: lines\ndata: ${JSON.stringify(feed)}\n\n`);
@@ -402,11 +369,13 @@ const ui = createServer(async (req, res) => {
       note('station', '设置已保存');
       restart();
     } else if (path === '/autostart') {
-      setAutostart(!!data.on);
+      config.autostart = !!data.on;
+      save();
       note('station', data.on ? '登录 Windows 后自动启动：开' : '登录 Windows 后自动启动：关');
     } else if (path === '/shortcut') {
-      await setShortcut(!!data.on);
-      note('station', data.on ? '桌面和开始菜单里放好了「渲染站」' : '桌面和开始菜单里的「渲染站」拿掉了');
+      config.shortcut = !!data.on;
+      save();
+      note('station', data.on ? '桌面和开始菜单里放上「渲染站」' : '桌面和开始菜单里的「渲染站」拿掉');
     } else if (path === '/quit') {
       json(res, { ok: true });
       return quit();
