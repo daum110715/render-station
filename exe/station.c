@@ -30,6 +30,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <dwmapi.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
@@ -40,7 +41,10 @@
 #define RUN_NAME L"qiqi 渲染站"
 #define LINK_NAME L"渲染站.lnk"
 #define TITLE L"渲染站"
-enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_LOG, CMD_QUIT };
+enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_BROWSER, CMD_LOG, CMD_QUIT };
+// the window's timers, and its word to itself to give up on WebView2
+enum { TIMER_RETRY = 2, TIMER_WATCH };
+#define WM_GIVE_UP (WM_APP + 2)
 // the icons, as station.rc numbers them less one
 enum { ICON_BUSY, ICON_IDLE, ICON_WAIT, ICON_BAD, ICON_OFF, ICONS };
 
@@ -68,6 +72,30 @@ static ICoreWebView2 *wv;
 typedef HRESULT(STDAPICALLTYPE *CreateEnv)(PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions *, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *);
 static CreateEnv createEnv;
 static int dpi = 96, dark;
+static ICoreWebView2Environment *wenv;
+static int navTries, crashes;
+static wchar_t logPath[MAX_PATH + 64];
+// a line in the station's log (station.log, beside station.mjs's own): how the window went
+static void say(const wchar_t *fmt, ...) {
+  if (!logPath[0]) return;
+  wchar_t text[600];
+  va_list ap;
+  va_start(ap, fmt);
+  _vsnwprintf(text, 599, fmt, ap);
+  va_end(ap);
+  text[599] = 0;
+  SYSTEMTIME t;
+  GetSystemTime(&t);
+  char line[2000];
+  int n = snprintf(line, sizeof line, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ  ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+  n += WideCharToMultiByte(CP_UTF8, 0, text, -1, line + n, (int)sizeof line - n - 2, NULL, NULL) - 1;
+  line[n++] = '\n';
+  HANDLE f = CreateFileW(logPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (f == INVALID_HANDLE_VALUE) return;
+  DWORD wrote;
+  WriteFile(f, line, n, &wrote, NULL);
+  CloseHandle(f);
+}
 #define DIP(v) MulDiv(v, dpi, 96)
 static wchar_t toggleText[32] = L"暂停接单", lastMode[16], lastKey[64];
 
@@ -197,8 +225,9 @@ static void closeFrame(void) {
     DestroyWindow(h);
   }
 }
-// it could not be made: Edge's, as before
+// it could not be made, or shows nothing: a browser's, as before
 static void fallBack(void) {
+  say(L"窗口：改用浏览器打开");
   closeFrame();
   openEdge();
 }
@@ -253,10 +282,48 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
 static ICoreWebView2WebMessageReceivedEventHandlerVtbl messageTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onMessage };
 static ICoreWebView2WebMessageReceivedEventHandler messageHandler = { &messageTable };
 
+// the page loaded, or not (the station starting still): again a second later, six times
+static HRESULT STDMETHODCALLTYPE onNavigated(ICoreWebView2NavigationCompletedEventHandler *self, ICoreWebView2 *sender, ICoreWebView2NavigationCompletedEventArgs *args) {
+  (void)self;
+  (void)sender;
+  BOOL ok = FALSE;
+  COREWEBVIEW2_WEB_ERROR_STATUS status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+  ICoreWebView2NavigationCompletedEventArgs_get_IsSuccess(args, &ok);
+  ICoreWebView2NavigationCompletedEventArgs_get_WebErrorStatus(args, &status);
+  if (!frame) return S_OK;
+  if (ok) {
+    KillTimer(frame, TIMER_WATCH);
+    say(L"窗口：页面打开了");
+    return S_OK;
+  }
+  say(L"窗口：页面没打开（WebErrorStatus %d），第 %d 次", (int)status, navTries + 1);
+  if (++navTries < 6) SetTimer(frame, TIMER_RETRY, 1000, NULL);
+  else PostMessageW(frame, WM_GIVE_UP, 0, 0);
+  return S_OK;
+}
+static ICoreWebView2NavigationCompletedEventHandlerVtbl navigatedTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onNavigated };
+static ICoreWebView2NavigationCompletedEventHandler navigatedHandler = { &navigatedTable };
+// WebView2's own processes: the page's gone, loaded again; worse, or again and again, a browser's
+static HRESULT STDMETHODCALLTYPE onFailed(ICoreWebView2ProcessFailedEventHandler *self, ICoreWebView2 *sender, ICoreWebView2ProcessFailedEventArgs *args) {
+  (void)self;
+  (void)sender;
+  COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+  ICoreWebView2ProcessFailedEventArgs_get_ProcessFailedKind(args, &kind);
+  say(L"窗口：WebView2 的进程出了问题（ProcessFailedKind %d）", (int)kind);
+  if (!frame) return S_OK;
+  if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED && ++crashes < 3 && wv) ICoreWebView2_Reload(wv);
+  else PostMessageW(frame, WM_GIVE_UP, 0, 0);
+  return S_OK;
+}
+static ICoreWebView2ProcessFailedEventHandlerVtbl failedTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onFailed };
+static ICoreWebView2ProcessFailedEventHandler failedHandler = { &failedTable };
+
 static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *self, HRESULT result, ICoreWebView2Controller *made) {
   (void)self;
   if (FAILED(result) || !made || !frame) {
-    fallBack();
+    say(L"窗口：WebView2 没建起来（0x%08lx）", (unsigned long)result);
+    if (frame) PostMessageW(frame, WM_GIVE_UP, 0, 0);
+    else openEdge();
     return S_OK;
   }
   ctl = made;
@@ -284,12 +351,20 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   }
   EventRegistrationToken token;
   ICoreWebView2_add_WebMessageReceived(wv, &messageHandler, &token);
+  ICoreWebView2_add_NavigationCompleted(wv, &navigatedHandler, &token);
+  ICoreWebView2_add_ProcessFailed(wv, &failedHandler, &token);
+  ShowWindow(frame, SW_SHOWNORMAL);
+  SetForegroundWindow(frame);
   RECT rc;
   GetClientRect(frame, &rc);
   ICoreWebView2Controller_put_Bounds(ctl, rc);
+  ICoreWebView2Controller_put_IsVisible(ctl, TRUE);
+  say(L"窗口：WebView2 建好了，%ldx%ld，打开页面", rc.right - rc.left, rc.bottom - rc.top);
+  navTries = 0;
+  crashes = 0;
   ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
-  ShowWindow(frame, SW_SHOWNORMAL);
-  SetForegroundWindow(frame);
+  // nothing to show for it in twelve seconds: a browser's window instead
+  SetTimer(frame, TIMER_WATCH, 12000, NULL);
   ICoreWebView2Controller_MoveFocus(ctl, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
   return S_OK;
 }
@@ -298,7 +373,17 @@ static ICoreWebView2CreateCoreWebView2ControllerCompletedHandler controllerHandl
 
 static HRESULT STDMETHODCALLTYPE onEnvironment(ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *self, HRESULT result, ICoreWebView2Environment *env) {
   (void)self;
-  if (FAILED(result) || !env || !frame || FAILED(ICoreWebView2Environment_CreateCoreWebView2Controller(env, frame, &controllerHandler))) fallBack();
+  if (SUCCEEDED(result) && env && !wenv) {
+    // kept: the next window is made from it at once
+    wenv = env;
+    ICoreWebView2Environment_AddRef(wenv);
+  }
+  HRESULT made = E_FAIL;
+  if (SUCCEEDED(result) && env && frame) made = ICoreWebView2Environment_CreateCoreWebView2Controller(env, frame, &controllerHandler);
+  if (FAILED(made)) {
+    say(L"窗口：WebView2 起不来（0x%08lx / 0x%08lx）", (unsigned long)result, (unsigned long)made);
+    fallBack();
+  }
   return S_OK;
 }
 static ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerVtbl environmentTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onEnvironment };
@@ -332,6 +417,17 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     m->ptMinTrackSize.y = DIP(560);
     return 0;
   }
+  case WM_TIMER:
+    KillTimer(h, wp);
+    if (wp == TIMER_RETRY && wv) ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
+    if (wp == TIMER_WATCH) {
+      say(L"窗口：12 秒了页面还没出来");
+      fallBack();
+    }
+    return 0;
+  case WM_GIVE_UP:
+    fallBack();
+    return 0;
   case WM_CLOSE:
     closeFrame();
     return 0;
@@ -343,7 +439,7 @@ static int makeFrame(void) {
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
   int w = DIP(840), h = DIP(940);
   if (h > work.bottom - work.top - DIP(32)) h = work.bottom - work.top - DIP(32);
-  frame = CreateWindowExW(0, L"QiqiRenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX,
+  frame = CreateWindowExW(0, L"QiqiRenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
   // the edge dark with the page, the corners round (Windows 11)
@@ -367,10 +463,14 @@ static void openWindow(void) {
   shownAt = now;
   if (gaveUp) return openLog();
   if (createEnv && makeFrame()) {
+    if (wenv && SUCCEEDED(ICoreWebView2Environment_CreateCoreWebView2Controller(wenv, frame, &controllerHandler))) return;
     wchar_t data[MAX_PATH + 32];
     FMT(data, L"%ls\\.tools\\remote\\webview2", repo);
-    if (SUCCEEDED(createEnv(NULL, data, NULL, &environmentHandler))) return;
-  }
+    HRESULT hr = createEnv(NULL, data, NULL, &environmentHandler);
+    if (SUCCEEDED(hr)) return;
+    say(L"窗口：WebView2 起不来（0x%08lx）", (unsigned long)hr);
+  } else
+    say(createEnv ? L"窗口：建不了窗口" : L"窗口：没有 WebView2Loader.dll");
   fallBack();
 }
 
@@ -553,6 +653,7 @@ static void menu(int x, int y) {
   AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_TOGGLE, toggleText);
   AppendMenuW(m, MF_STRING | (up && !off ? 0 : MF_GRAYED), CMD_RECONNECT, L"重新连接");
   AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+  AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_BROWSER, L"在浏览器里打开");
   AppendMenuW(m, MF_STRING, CMD_LOG, L"查看日志");
   AppendMenuW(m, MF_STRING, CMD_QUIT, L"退出渲染站");
   SetMenuDefaultItem(m, CMD_OPEN, FALSE);
@@ -592,6 +693,9 @@ static LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case CMD_RECONNECT:
       post("/reconnect");
       tick();
+      break;
+    case CMD_BROWSER:
+      ShellExecuteW(NULL, L"open", L"http://127.0.0.1:7799/", NULL, NULL, SW_SHOWNORMAL);
       break;
     case CMD_LOG:
       openLog();
@@ -717,6 +821,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     MessageBoxW(NULL, L"渲染站.exe 要留在仓库的 promo\\remote 文件夹里，和 station.mjs 放在一起。\n\n桌面上的「渲染站」是它的快捷方式，以后从那里打开就行。", TITLE, MB_ICONERROR);
     return 1;
   }
+  FMT(logPath, L"%ls\\.tools\\remote\\station.log", repo);
   if (!findNode()) {
     MessageBoxW(NULL, L"没找到 Node.js。装好 Node.js（nodejs.org，选 LTS）之后再打开渲染站。", TITLE, MB_ICONERROR);
     return 1;
