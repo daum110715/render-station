@@ -1170,6 +1170,11 @@
         font-size: 13px;
         color: var(--ink-2);
       }
+      .version {
+        margin-top: -4px;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
       .foot {
         margin-top: 24px;
         font-size: 12px;
@@ -1361,6 +1366,7 @@
               <h4>这台电脑上</h4>
               <label class="switch"><span>自动更新<small>跟着仓库的新版本走；仓库里有你自己的改动时不动它</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
               <div class="update"><span id="u-state">还没查过</span><button type="button" class="link" id="u-check">现在检查</button></div>
+              <div class="version" id="version"></div>
               <div id="here">
                 <label class="switch"><span>登录 Windows 后自动启动<small>开机后自己在后台跑起来；任务管理器的「启动应用」里也能看到它</small></span><input type="checkbox" id="autostart" role="switch" /></label>
                 <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
@@ -1584,6 +1590,7 @@
         const said = { idle: '还没查过', checking: '正在查有没有新版本…', current: '已经是最新', updated: u.message, blocked: u.message, waiting: u.message, error: u.message }[u.state] ?? '';
         set('u-state', `${said}${u.at && u.state !== 'checking' ? `（${clock(u.at)}）` : ''}`);
         $('#u-check').hidden = u.state === 'checking';
+        set('version', S.version ? `当前版本 ${S.version.commit}，${day(S.version.at)}提交` : '');
       }
 
       // ——— this machine: a line of the last two minutes each, sliding left as it goes ———

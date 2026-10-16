@@ -152,6 +152,15 @@ const git = (args) =>
     ),
   );
 let update = { state: 'idle', at: null, message: '' };
+// the commit this checkout is at, for the settings page
+let version = null;
+async function readVersion() {
+  const head = await git(['log', '-1', '--format=%h %ct']);
+  if (!head.ok) return;
+  const [commit, t] = head.out.split(' ');
+  version = { commit, at: Number(t) * 1000 };
+  push();
+}
 let trayAgain = false;
 let updateAfterJob = false;
 async function checkUpdate() {
@@ -179,6 +188,7 @@ async function checkUpdate() {
   const changed = (await git(['diff', '--name-only', 'HEAD', up.out])).out.split(/\r?\n/);
   const merged = await git(['merge', '--ff-only', '--quiet', up.out]);
   if (!merged.ok) return done('error', `更新没成功：${merged.err}`);
+  await readVersion();
   note('station', `更新到最新版：${behind.out} 个新提交`);
   done('updated', `${behind.out} 个新提交，已更新`);
   if (changed.some((f) => /^promo\/remote\/(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
@@ -237,6 +247,7 @@ const view = () => ({
   machine,
   shelf,
   update,
+  version,
   autoUpdate: config.autoUpdate !== false,
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
@@ -571,6 +582,7 @@ ui.on('error', (e) => {
 ui.listen(UI, '127.0.0.1', () => {
   note('station', `渲染站启动，窗口在 http://127.0.0.1:${UI}`);
   restock();
+  readVersion();
   startWorker();
   connect();
   setInterval(sample, 2000);
