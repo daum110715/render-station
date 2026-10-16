@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>渲染站</title>
     <link rel="icon" id="favicon" href="data:," />
-    <!-- 渲染站's window (station.mjs serves it): how the worker and the tunnel to lemon are doing, what
-         they print as they print it, the jobs lately done, the settings. In the site's own look, light
-         or dark as the system is. -->
+    <!-- 渲染站's window (station.mjs serves it, at http://127.0.0.1:7799, in 渲染站.exe's own window or
+         any browser): how the worker and the tunnel to lemon are doing and this machine with them,
+         what the jobs made, what they print as they print it, the settings. In the site's own look,
+         light or dark as the system is. -->
     <link rel="stylesheet" href="/fonts/lxgw/lxgwwenkai-regular.css" />
     <style>
       @font-face {
@@ -18,6 +19,7 @@
       }
       :root {
         --bg: #f8f6f5;
+        --side: #f1ecf0;
         --paper: #ffffff;
         --well: #f4eff3;
         --ink: #2b2430;
@@ -30,14 +32,19 @@
         --bad: #d4563a;
         --off: #9a8a9d;
         --shadow: 0 1px 2px rgb(43 36 48 / 0.05), 0 12px 32px -20px rgb(43 36 48 / 0.3);
+        --lift: 0 2px 6px rgb(43 36 48 / 0.08), 0 22px 44px -24px rgb(43 36 48 / 0.45);
         --hand: 'LXGW WenKai', 'KaiTi', serif;
         --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
         --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+        --out: cubic-bezier(0.22, 1, 0.36, 1);
+        --io: cubic-bezier(0.65, 0, 0.35, 1);
+        --rail: 212px;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --bg: #171216;
+          --side: #120e11;
           --paper: #211a20;
           --well: #1c161b;
           --ink: #efe8ee;
@@ -50,6 +57,7 @@
           --bad: #ec6a46;
           --off: #7d6f80;
           --shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+          --lift: 0 2px 8px rgb(0 0 0 / 0.4), 0 24px 48px -24px rgb(0 0 0 / 0.7);
           color-scheme: dark;
         }
       }
@@ -58,10 +66,12 @@
       }
       html,
       body {
+        height: 100%;
         background: var(--bg);
       }
       body {
         margin: 0;
+        overflow: hidden;
         color: var(--ink);
         font: 14px/1.6 var(--ui);
         -webkit-font-smoothing: antialiased;
@@ -81,11 +91,6 @@
       body[data-mode='gone'] {
         --state: var(--bad);
       }
-      .app {
-        max-width: 760px;
-        margin: 0 auto;
-        padding: 24px 28px 30px;
-      }
       .hand {
         font-family: var(--hand);
         font-weight: 400;
@@ -97,23 +102,74 @@
       [hidden] {
         display: none !important;
       }
+      button {
+        padding: 7px 17px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--paper);
+        color: var(--ink);
+        font: 15px/1.4 var(--hand);
+        cursor: pointer;
+        transition:
+          border-color 0.25s var(--out),
+          color 0.25s var(--out),
+          background-color 0.25s var(--out),
+          transform 0.25s var(--out),
+          box-shadow 0.25s var(--out);
+      }
+      button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button:active {
+        transform: scale(0.97);
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--paper);
+      }
+      button.primary:hover {
+        color: var(--paper);
+        box-shadow: 0 6px 18px -8px var(--accent);
+      }
+      button.link {
+        padding: 3px 4px;
+        border: 0;
+        background: none;
+        font: 12.5px var(--ui);
+        color: var(--accent);
+      }
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+      }
 
-      /* ——— the title bar, in 渲染站.exe's own window (it has no other) ——— */
+      /* ——— the frame: a rail and the page; in 渲染站.exe's window, the title bar's buttons too ——— */
+      .shell {
+        display: grid;
+        grid-template-columns: var(--rail) minmax(0, 1fr);
+        height: 100%;
+      }
       .titlebar {
         position: fixed;
         top: 0;
-        left: 0;
+        left: var(--rail);
         right: 0;
         z-index: 20;
         display: flex;
         justify-content: flex-end;
         height: 36px;
-        background: color-mix(in srgb, var(--bg) 84%, transparent);
-        backdrop-filter: blur(12px);
+        background: color-mix(in srgb, var(--bg) 80%, transparent);
+        backdrop-filter: blur(14px);
         user-select: none;
-      }
-      .framed .app {
-        padding-top: 42px;
       }
       .titlebar .tb {
         display: grid;
@@ -130,6 +186,9 @@
         background: var(--well);
         color: var(--ink);
       }
+      .titlebar .tb:active {
+        transform: none;
+      }
       .titlebar .tb.close:hover {
         background: #c42b1c;
         color: #fff;
@@ -141,54 +200,129 @@
         stroke: currentColor;
         stroke-width: 1;
       }
-
-      /* ——— the name, and how it is ——— */
-      .top {
-        user-select: none;
+      .side {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 18px;
+        flex-direction: column;
+        gap: 26px;
+        padding: 24px 14px 18px;
+        background: var(--side);
+        border-right: 1px solid var(--line);
+        user-select: none;
+      }
+      .framed .side {
+        padding-top: 40px;
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 12px;
-        min-width: 0;
+        gap: 11px;
+        padding: 0 8px;
       }
       .logo {
         flex: none;
-        width: 36px;
-        height: 36px;
+        width: 34px;
+        height: 34px;
       }
       .logo circle {
         fill: var(--accent);
+        transition: fill 0.4s;
       }
       .logo path {
         fill: var(--paper);
       }
-      h1 {
-        margin: 0;
-        font-size: 26px;
-        line-height: 1.15;
+      .brand b {
+        display: block;
+        font: 400 23px/1.15 var(--hand);
       }
-      .brand p {
-        margin: 1px 0 0;
-        font-size: 12px;
+      .brand small {
+        display: block;
+        margin-top: 1px;
+        font-size: 11.5px;
         color: var(--ink-3);
+      }
+      .nav {
+        position: relative;
+        display: grid;
+        gap: 4px;
+      }
+      .nav button {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 42px;
+        padding: 0 13px;
+        border: 0;
+        border-radius: 11px;
+        background: none;
+        font: 16px/1 var(--hand);
+        color: var(--ink-2);
+        text-align: left;
+      }
+      .nav button:hover,
+      .nav button[aria-selected='true'] {
+        color: var(--ink);
+      }
+      .nav button:active {
+        transform: none;
+      }
+      .nav svg {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: color 0.3s;
+      }
+      .nav button[aria-selected='true'] svg {
+        color: var(--accent);
+      }
+      .nav .count {
+        margin-left: auto;
+        font: 12px var(--ui);
+        color: var(--ink-3);
+      }
+      .nav .badge {
+        margin-left: auto;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--wait);
+      }
+      /* the page shown, a lit plate sliding under its name */
+      .slider {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 42px;
+        border-radius: 11px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+        transition: transform 0.5s var(--out);
+      }
+      .side-foot {
+        display: grid;
+        gap: 8px;
+        margin-top: auto;
+        padding: 0 6px;
       }
       .pill {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        flex: none;
-        padding: 5px 13px 5px 11px;
+        gap: 9px;
+        width: fit-content;
+        padding: 6px 13px 6px 11px;
         border: 1px solid var(--line);
         border-radius: 999px;
         background: var(--paper);
         font-size: 12.5px;
         color: var(--ink-2);
+        transition: border-color 0.4s;
       }
       .dot {
         position: relative;
@@ -196,7 +330,7 @@
         height: 8px;
         border-radius: 50%;
         background: var(--state);
-        transition: background-color 0.3s;
+        transition: background-color 0.4s;
       }
       body[data-mode='busy'] .dot::after,
       body[data-mode='connecting'] .dot::after {
@@ -205,7 +339,7 @@
         inset: -4px;
         border-radius: 50%;
         border: 1px solid var(--state);
-        animation: ring 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+        animation: ring 1.6s var(--out) infinite;
       }
       @keyframes ring {
         from {
@@ -214,31 +348,100 @@
         }
         to {
           opacity: 0;
-          transform: scale(1.5);
+          transform: scale(1.6);
         }
       }
-
-      /* ——— what is going on ——— */
-      .card {
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        box-shadow: var(--shadow);
+      .main {
+        position: relative;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--line) transparent;
       }
+      .page {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 28px 34px 40px;
+      }
+      .framed .page {
+        padding-top: 44px;
+      }
+      .page.enter {
+        animation: rise 0.5s var(--out) both;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+      }
+      .head {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .head h2 {
+        margin: 0;
+        font: 400 27px/1.2 var(--hand);
+      }
+      .head .sub {
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .head .end {
+        margin-left: auto;
+      }
+      h3 {
+        margin: 0;
+        font: 400 18px/1.3 var(--hand);
+      }
+      .empty {
+        margin: 0;
+        padding: 34px 18px;
+        font-size: 13px;
+        color: var(--ink-3);
+        text-align: center;
+      }
+
+      /* ——— 总览: how it is ——— */
       .hero {
+        position: relative;
         display: grid;
-        grid-template-columns: 128px 1fr;
-        gap: 26px;
+        grid-template-columns: 156px 1fr;
+        gap: 30px;
         align-items: center;
-        padding: 22px 26px 22px 22px;
-        background:
-          radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--state) 9%, transparent), transparent 58%),
-          var(--paper);
+        padding: 26px 30px 26px 26px;
+        overflow: hidden;
+      }
+      /* the state's colour, as a light behind */
+      .hero::before {
+        content: '';
+        position: absolute;
+        right: -14%;
+        top: -60%;
+        width: 62%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--state);
+        opacity: 0.11;
+        filter: blur(70px);
+        transition: background-color 0.8s var(--io);
+      }
+      body[data-mode='busy'] .hero::before {
+        animation: breathe 3.6s var(--io) infinite alternate;
+      }
+      @keyframes breathe {
+        to {
+          opacity: 0.2;
+          transform: scale(1.08);
+        }
+      }
+      .hero > * {
+        position: relative;
       }
       .meter {
-        position: relative;
-        width: 128px;
-        height: 128px;
+        width: 156px;
+        height: 156px;
       }
       .meter svg {
         width: 100%;
@@ -247,7 +450,7 @@
       }
       .meter circle {
         fill: none;
-        stroke-width: 5;
+        stroke-width: 6;
       }
       .meter .track {
         stroke: var(--well);
@@ -255,13 +458,15 @@
       .meter .arc {
         stroke: var(--state);
         stroke-linecap: round;
+        filter: drop-shadow(0 0 5px color-mix(in srgb, var(--state) 45%, transparent));
         transition:
-          stroke-dashoffset 0.6s cubic-bezier(0.65, 0, 0.35, 1),
-          stroke 0.3s,
-          opacity 0.3s;
+          stroke-dashoffset 0.9s var(--out),
+          stroke-dasharray 0.6s var(--out),
+          stroke 0.5s,
+          opacity 0.5s;
       }
       .meter.spin svg {
-        animation: spin 1.15s linear infinite;
+        animation: spin 1.2s linear infinite;
       }
       @keyframes spin {
         from {
@@ -279,35 +484,34 @@
         text-align: center;
       }
       .meter-in b {
-        font: 500 30px/1.1 var(--ui);
+        font: 500 36px/1.1 var(--ui);
         font-variant-numeric: tabular-nums;
       }
       .meter-in b.word {
-        font: 400 23px/1.2 var(--hand);
+        font: 400 27px/1.2 var(--hand);
       }
       .meter-in small {
-        margin-top: 3px;
-        font-size: 11.5px;
+        margin-top: 4px;
+        font-size: 12px;
         color: var(--ink-3);
       }
       .say {
         min-width: 0;
       }
-      h2 {
-        margin: 0 0 4px;
-        font-size: 24px;
-        line-height: 1.35;
+      .say h2 {
+        margin: 0 0 6px;
+        font: 400 27px/1.35 var(--hand);
         overflow-wrap: anywhere;
       }
       #detail {
         margin: 0;
-        font-size: 13px;
+        font-size: 13.5px;
         color: var(--ink-2);
         overflow-wrap: anywhere;
       }
       #nums {
-        margin: 6px 0 0;
-        font-size: 12px;
+        margin: 7px 0 0;
+        font-size: 12.5px;
         color: var(--ink-3);
       }
       #nums:empty {
@@ -318,69 +522,44 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 10px;
-        margin-top: 16px;
-      }
-      button {
-        padding: 7px 17px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--paper);
-        color: var(--ink);
-        font: 15px/1.4 var(--hand);
-        cursor: pointer;
-        transition:
-          border-color 0.2s,
-          color 0.2s,
-          background-color 0.2s,
-          opacity 0.2s;
-      }
-      button:hover {
-        border-color: var(--accent);
-        color: var(--accent);
-      }
-      button:focus-visible,
-      input:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
-      button.primary {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: var(--paper);
-      }
-      button.primary:hover {
-        color: var(--paper);
-        opacity: 0.88;
+        margin-top: 18px;
       }
       .notice {
         margin: 14px 0 0;
-        padding: 10px 14px;
+        padding: 11px 15px;
         border-left: 2px solid var(--wait);
         background: var(--paper);
-        border-radius: 0 8px 8px 0;
+        border-radius: 0 10px 10px 0;
         font-size: 13px;
       }
-
-      /* ——— the numbers ——— */
       .stats {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 12px;
-        margin-top: 14px;
+        gap: 14px;
+        margin-top: 16px;
       }
       .stat {
         min-width: 0;
-        padding: 12px 15px 11px;
+        padding: 14px 16px 13px;
+        transition:
+          transform 0.35s var(--out),
+          box-shadow 0.35s var(--out);
       }
-      .stat span {
+      .stat:hover,
+      .chart:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--lift);
+      }
+      .stat span,
+      .chart span {
         display: block;
         font-size: 12px;
         color: var(--ink-3);
       }
       .stat b {
         display: block;
-        margin-top: 1px;
-        font: 500 22px/1.3 var(--ui);
+        margin-top: 2px;
+        font: 500 24px/1.3 var(--ui);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
         overflow: hidden;
@@ -394,96 +573,408 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-
-      /* ——— the three pages ——— */
-      .tabs {
-        display: flex;
-        gap: 26px;
+      /* this machine, its last two minutes */
+      .machine {
         margin-top: 26px;
-        border-bottom: 1px solid var(--line);
       }
-      .tabs button {
+      .machine .head {
+        margin-bottom: 12px;
+      }
+      .charts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 14px;
+      }
+      .chart {
         position: relative;
-        padding: 6px 1px 10px;
-        border: 0;
-        border-radius: 0;
-        background: none;
-        font: 18px/1.3 var(--hand);
+        min-width: 0;
+        padding: 14px 16px 0;
+        overflow: hidden;
+        transition:
+          transform 0.35s var(--out),
+          box-shadow 0.35s var(--out);
+      }
+      .chart b {
+        display: block;
+        font: 500 24px/1.3 var(--ui);
+        font-variant-numeric: tabular-nums;
+      }
+      .chart small {
+        position: absolute;
+        right: 16px;
+        top: 15px;
+        max-width: 55%;
+        font-size: 11px;
+        color: var(--ink-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chart svg {
+        display: block;
+        width: calc(100% + 32px);
+        height: 62px;
+        margin: 6px -16px 0;
+      }
+      .chart .line {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        vector-effect: non-scaling-stroke;
+      }
+      .chart .area {
+        stroke: none;
+      }
+      .c-cpu {
+        color: var(--accent);
+      }
+      .c-mem {
+        color: var(--ok);
+      }
+      .c-gpu {
+        color: var(--wait);
+      }
+      .chart b,
+      .chart span {
+        color: var(--ink);
+      }
+      .chart span {
         color: var(--ink-3);
       }
-      .tabs button:hover {
-        color: var(--ink);
+      /* the jobs */
+      .recent {
+        margin-top: 26px;
       }
-      .tabs button[aria-selected='true'] {
-        color: var(--ink);
+      .recent .head {
+        margin-bottom: 12px;
       }
-      .tabs button[aria-selected='true']::after {
-        content: '';
+      ol {
+        margin: 0;
+        padding: 4px 0;
+        list-style: none;
+      }
+      li + li {
+        border-top: 1px solid var(--line);
+      }
+      .job {
+        display: grid;
+        grid-template-columns: 3.2em 1fr auto auto auto;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 18px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background-color 0.25s var(--out);
+      }
+      .job:hover {
+        background: var(--well);
+      }
+      .job:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
+      .job .at,
+      .job .took {
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .job .what {
+        font: 15px/1.4 var(--hand);
+        overflow-wrap: anywhere;
+      }
+      .tag {
+        padding: 1px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .tag.ok {
+        color: var(--ok);
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+      }
+      .tag.bad {
+        color: var(--bad);
+        background: color-mix(in srgb, var(--bad) 12%, transparent);
+      }
+      .job .open,
+      .acts button {
+        padding: 2px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+      .acts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: -2px 18px 10px;
+      }
+      .fold {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 0.4s var(--out);
+      }
+      .fold.open {
+        grid-template-rows: 1fr;
+      }
+      .fold > div {
+        overflow: hidden;
+      }
+      pre {
+        margin: 0 18px 14px;
+        padding: 10px 12px;
+        max-height: 240px;
+        overflow: auto;
+        background: var(--well);
+        border-radius: 9px;
+        font: 11.5px/1.55 var(--mono);
+        color: var(--ink-2);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      /* ——— 画廊: what the jobs made ——— */
+      .group + .group {
+        margin-top: 26px;
+      }
+      .group-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 12px;
+        margin-bottom: 10px;
+      }
+      .group-head b {
+        font: 400 17px/1.3 var(--hand);
+      }
+      .group-head span {
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+      }
+      .tile {
+        position: relative;
+        display: block;
+        aspect-ratio: 16 / 9;
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--well);
+        box-shadow: var(--shadow);
+        transition:
+          transform 0.45s var(--out),
+          box-shadow 0.45s var(--out),
+          border-color 0.3s;
+      }
+      .tile:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--lift);
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+      }
+      .tile:active {
+        transform: translateY(-1px) scale(0.99);
+      }
+      .tile img,
+      .tile video {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition:
+          transform 0.8s var(--out),
+          opacity 0.5s;
+      }
+      .tile img {
+        opacity: 0;
+      }
+      .tile img.in {
+        opacity: 1;
+      }
+      .tile:hover img,
+      .tile:hover video {
+        transform: scale(1.04);
+      }
+      .tile .cap {
         position: absolute;
         left: 0;
         right: 0;
-        bottom: -1px;
-        height: 2px;
-        border-radius: 2px;
-        background: var(--accent);
+        bottom: 0;
+        padding: 18px 11px 7px;
+        background: linear-gradient(transparent, rgb(20 14 19 / 0.62));
+        color: #fff;
+        font: 12px/1.3 var(--ui);
+        text-align: left;
       }
-      .tabs .count {
-        margin-left: 6px;
-        font: 12px var(--ui);
-        color: var(--ink-3);
-      }
-      .badge {
+      .tile .play {
         position: absolute;
-        top: 7px;
-        right: -9px;
-        width: 6px;
-        height: 6px;
+        right: 9px;
+        top: 9px;
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
         border-radius: 50%;
-        background: var(--wait);
+        background: rgb(20 14 19 / 0.5);
+        backdrop-filter: blur(6px);
+        transition: opacity 0.3s;
       }
-      .panel {
+      .tile .play svg {
+        width: 11px;
+        height: 11px;
+        fill: #fff;
+        margin-left: 2px;
+      }
+      .tile:hover .play {
+        opacity: 0;
+      }
+      /* one, large */
+      .lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: grid;
+        grid-template-rows: 1fr auto;
+        place-items: center;
+        padding: 52px 72px 18px;
+        background: rgb(16 11 15 / 0.82);
+        backdrop-filter: blur(18px);
+        opacity: 0;
+        transition: opacity 0.3s var(--out);
+      }
+      .lightbox.on {
+        opacity: 1;
+      }
+      .lb-stage {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+      }
+      .lb-stage img,
+      .lb-stage video {
+        max-width: 100%;
+        max-height: 100%;
+        border-radius: 10px;
+        box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.8);
+        transform: scale(0.96);
+        opacity: 0;
+        transition:
+          transform 0.45s var(--out),
+          opacity 0.3s var(--out);
+      }
+      .lightbox.on .lb-stage .in {
+        transform: none;
+        opacity: 1;
+      }
+      .lb-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 10px 16px;
         padding-top: 14px;
+        color: #efe8ee;
+        font-size: 13px;
+      }
+      .lb-bar .n {
+        color: #9a8a9d;
+      }
+      .lightbox button {
+        border-color: rgb(255 255 255 / 0.18);
+        background: rgb(255 255 255 / 0.06);
+        color: #efe8ee;
+      }
+      .lightbox button:hover {
+        border-color: rgb(255 255 255 / 0.4);
+        background: rgb(255 255 255 / 0.12);
+        color: #fff;
+      }
+      .lb-nav,
+      .lb-close {
+        position: absolute;
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border-radius: 50%;
+      }
+      .lb-nav svg,
+      .lb-close svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .lb-nav.prev {
+        left: 16px;
+        top: 50%;
+      }
+      .lb-nav.next {
+        right: 16px;
+        top: 50%;
+      }
+      .lb-close {
+        right: 16px;
+        top: 12px;
       }
 
-      /* what is said and printed */
+      /* ——— 动态: what is said and printed ——— */
       .bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
       }
       .chips {
+        position: relative;
         display: flex;
-        gap: 6px;
+        gap: 4px;
+        padding: 3px;
+        border-radius: 999px;
+        background: var(--well);
       }
       .chips button {
-        padding: 3px 13px;
+        position: relative;
+        z-index: 1;
+        padding: 3px 14px;
+        border: 0;
         border-radius: 999px;
         background: transparent;
-        font: 13px/1.5 var(--ui);
+        font: 13px/1.6 var(--ui);
         color: var(--ink-2);
       }
       .chips button[aria-pressed='true'] {
-        background: var(--paper);
-        border-color: var(--line);
         color: var(--ink);
+      }
+      .chips button:active {
+        transform: none;
+      }
+      .chips .knob {
+        position: absolute;
+        top: 3px;
+        bottom: 3px;
+        left: 0;
+        border-radius: 999px;
+        background: var(--paper);
         box-shadow: var(--shadow);
-      }
-      .chips button[aria-pressed='false'] {
-        border-color: transparent;
-      }
-      button.link {
-        padding: 3px 4px;
-        border: 0;
-        background: none;
-        font: 12.5px var(--ui);
-        color: var(--accent);
+        transition:
+          transform 0.45s var(--out),
+          width 0.45s var(--out);
       }
       .term {
-        height: 380px;
+        height: calc(100vh - 190px);
+        min-height: 300px;
         overflow: auto;
-        padding: 12px 16px;
+        padding: 14px 18px;
         font-size: 13px;
         line-height: 1.65;
         scrollbar-width: thin;
@@ -499,6 +990,13 @@
         gap: 10px;
         align-items: baseline;
         padding: 1px 0;
+        animation: line-in 0.35s var(--out);
+      }
+      @keyframes line-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
       }
       .ln time {
         font-size: 11.5px;
@@ -541,94 +1039,14 @@
         margin-left: -11px;
       }
 
-      /* the jobs */
-      ol {
-        margin: 0;
-        padding: 4px 0;
-        list-style: none;
-      }
-      li + li {
-        border-top: 1px solid var(--line);
-      }
-      .job {
-        display: grid;
-        grid-template-columns: 3.2em 1fr auto auto auto;
-        align-items: center;
-        gap: 14px;
-        padding: 12px 18px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: background-color 0.2s;
-      }
-      .job:hover {
-        background: var(--well);
-      }
-      .job:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: -2px;
-      }
-      .job .open,
-      .acts button {
-        padding: 2px 12px;
-        border-radius: 999px;
-        font-size: 13px;
-      }
-      .acts {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: -2px 18px 10px;
-      }
-      .job .at,
-      .job .took {
-        font-size: 12px;
-        color: var(--ink-3);
-      }
-      .job .what {
-        font: 15px/1.4 var(--hand);
-        overflow-wrap: anywhere;
-      }
-      .tag {
-        padding: 1px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-      }
-      .tag.ok {
-        color: var(--ok);
-        background: color-mix(in srgb, var(--ok) 12%, transparent);
-      }
-      .tag.bad {
-        color: var(--bad);
-        background: color-mix(in srgb, var(--bad) 12%, transparent);
-      }
-      pre {
-        margin: 0 18px 14px;
-        padding: 10px 12px;
-        max-height: 220px;
-        overflow: auto;
-        background: var(--well);
-        border-radius: 8px;
-        font: 11.5px/1.55 var(--mono);
-        color: var(--ink-2);
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      .empty {
-        margin: 0;
-        padding: 26px 18px;
-        font-size: 13px;
-        color: var(--ink-3);
-        text-align: center;
-      }
-
-      /* the settings */
+      /* ——— 设置 ——— */
       form {
         display: grid;
         gap: 14px;
-        padding: 18px 20px 20px;
+        padding: 20px 22px 22px;
       }
       h4 {
-        margin: 6px 0 -2px;
+        margin: 8px 0 -2px;
         font: 16px/1.4 var(--hand);
         color: var(--ink);
       }
@@ -650,14 +1068,17 @@
         width: 100%;
         padding: 8px 11px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 9px;
         background: var(--bg);
         color: var(--ink);
         font: 13px var(--ui);
-        transition: border-color 0.2s;
+        transition:
+          border-color 0.25s,
+          box-shadow 0.25s;
       }
       input[type='text']:focus {
         border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
         outline: none;
       }
       input.missing {
@@ -684,7 +1105,7 @@
         font-size: 12px;
         color: var(--ink-3);
       }
-      #here {
+      .group-set {
         display: grid;
         gap: 4px;
         margin-top: 6px;
@@ -693,25 +1114,25 @@
         appearance: none;
         position: relative;
         flex: none;
-        width: 36px;
-        height: 20px;
+        width: 38px;
+        height: 22px;
         margin: 0;
         border-radius: 999px;
         background: var(--line);
         cursor: pointer;
-        transition: background-color 0.2s;
+        transition: background-color 0.3s var(--out);
       }
       input[type='checkbox']::before {
         content: '';
         position: absolute;
         top: 2px;
         left: 2px;
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
         background: #fff;
-        box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
-        transition: transform 0.2s cubic-bezier(0.65, 0, 0.35, 1);
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+        transition: transform 0.35s var(--out);
       }
       input[type='checkbox']:checked {
         background: var(--accent);
@@ -729,31 +1150,69 @@
         font-size: 12.5px;
         color: var(--ok);
         opacity: 0;
-        transition: opacity 0.3s;
+        transform: translateX(-4px);
+        transition:
+          opacity 0.35s var(--out),
+          transform 0.35s var(--out);
       }
       #saved.on {
         opacity: 1;
+        transform: none;
       }
-      footer {
-        margin-top: 22px;
+      .update {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 0 0;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      .foot {
+        margin-top: 24px;
         font-size: 12px;
         color: var(--ink-3);
         text-align: center;
       }
 
-      @media (max-width: 640px) {
+      /* narrow: the rail shows its icons only */
+      @media (max-width: 760px) {
+        :root {
+          --rail: 68px;
+        }
+        .brand > div,
+        .nav button span,
+        .nav .count,
+        .side-foot .link,
+        .pill span {
+          display: none;
+        }
+        .brand,
+        .side-foot {
+          justify-content: center;
+          padding: 0;
+        }
+        .nav button {
+          justify-content: center;
+          padding: 0;
+        }
+        .pill {
+          padding: 8px;
+        }
+        .page {
+          padding: 22px 20px 32px;
+        }
         .stats {
           grid-template-columns: repeat(2, 1fr);
         }
       }
-      @media (max-width: 480px) {
-        .app {
-          padding: 18px 16px 24px;
-        }
+      @media (max-width: 560px) {
         .hero {
           grid-template-columns: 1fr;
           justify-items: start;
-          padding: 20px;
+          padding: 22px;
         }
         .ln {
           grid-template-columns: 4.7em 1fr;
@@ -777,101 +1236,158 @@
       <button type="button" class="tb" id="tb-min" aria-label="最小化"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>
       <button type="button" class="tb close" id="tb-close" aria-label="关闭"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg></button>
     </div>
-    <div class="app">
-      <header class="top">
+    <div class="shell">
+      <aside class="side" id="side">
         <div class="brand">
           <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" /><path d="M12.5 9 23.5 16 12.5 23z" /></svg>
           <div>
-            <h1 class="hand">渲染站</h1>
-            <p>qiqi.help 宣传片 · 在这台电脑上替 lemon 渲染</p>
+            <b>渲染站</b>
+            <small>qiqi.help 宣传片</small>
           </div>
         </div>
-        <span class="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
-      </header>
-
-      <section class="hero card" aria-live="polite">
-        <div class="meter" id="meter">
-          <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" /><circle class="arc" id="arc" cx="60" cy="60" r="52" /></svg>
-          <div class="meter-in"><b id="big" class="word">…</b><small id="small"></small></div>
+        <nav class="nav" role="tablist" aria-label="页面">
+          <i class="slider" id="slider"></i>
+          <button type="button" role="tab" data-page="home" title="总览">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0" /><path d="M12 15.5l3.6-4.2" /><path d="M4 19h16" /></svg><span>总览</span>
+          </button>
+          <button type="button" role="tab" data-page="gallery" title="画廊">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17.5l5-4.5 4 3.5 3-2.5 4.5 3.8" /></svg><span>画廊</span><b class="count num" id="n-gallery"></b>
+          </button>
+          <button type="button" role="tab" data-page="feed" title="动态">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 5 12 2.5-6h4" /></svg><span>动态</span>
+          </button>
+          <button type="button" role="tab" data-page="settings" title="设置">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9.5M18.5 7H20M4 17h3.5M12.5 17H20" /><circle cx="16" cy="7" r="2.2" /><circle cx="10" cy="17" r="2.2" /></svg><span>设置</span><i class="badge" id="badge" hidden></i>
+          </button>
+        </nav>
+        <div class="side-foot">
+          <span class="pill" id="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
+          <button type="button" class="link" id="in-browser" hidden>在浏览器里打开 ↗</button>
         </div>
-        <div class="say">
-          <h2 class="hand" id="headline">正在启动…</h2>
-          <p id="detail"></p>
-          <p id="nums" class="num"></p>
-          <div class="actions">
-            <button type="button" id="toggle">暂停接单</button>
-            <button type="button" id="reconnect" hidden>重新连接</button>
+      </aside>
+
+      <main class="main" id="main">
+        <!-- 总览 -->
+        <section class="page" id="page-home">
+          <div class="hero card" aria-live="polite">
+            <div class="meter" id="meter">
+              <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" /><circle class="arc" id="arc" cx="60" cy="60" r="52" /></svg>
+              <div class="meter-in"><b id="big" class="word">…</b><small id="small"></small></div>
+            </div>
+            <div class="say">
+              <h2 id="headline">正在启动…</h2>
+              <p id="detail"></p>
+              <p id="nums" class="num"></p>
+              <div class="actions">
+                <button type="button" id="toggle">暂停接单</button>
+                <button type="button" id="reconnect" hidden>重新连接</button>
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
-
-      <p class="notice" id="notice" hidden></p>
-
-      <div class="stats">
-        <div class="stat card"><span>隧道</span><b id="s-tunnel">—</b><small id="s-tunnel-sub"></small></div>
-        <div class="stat card"><span>今天</span><b id="s-today">0</b><small id="s-today-sub">个任务</small></div>
-        <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">还没有</small></div>
-        <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
-      </div>
-
-      <nav class="tabs" role="tablist">
-        <button type="button" role="tab" data-tab="feed">动态</button>
-        <button type="button" role="tab" data-tab="jobs">任务<span class="count num" id="jobs-count"></span></button>
-        <button type="button" role="tab" data-tab="settings">设置<i class="badge" id="badge" hidden></i></button>
-      </nav>
-
-      <section class="panel" id="tab-feed">
-        <div class="bar">
-          <div class="chips">
-            <button type="button" data-filter="all" aria-pressed="true">全部</button>
-            <button type="button" data-filter="render" aria-pressed="false">渲染</button>
-            <button type="button" data-filter="tunnel" aria-pressed="false">连接</button>
+          <p class="notice" id="notice" hidden></p>
+          <div class="stats">
+            <div class="stat card"><span>隧道</span><b id="s-tunnel">—</b><small id="s-tunnel-sub"></small></div>
+            <div class="stat card"><span>今天</span><b id="s-today">0</b><small id="s-today-sub">个任务</small></div>
+            <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">还没有</small></div>
+            <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
           </div>
-          <button type="button" class="link" id="to-end" hidden>回到最新 ↓</button>
-        </div>
-        <div class="term card" id="term" role="log"></div>
-      </section>
 
-      <section class="panel" id="tab-jobs" hidden>
-        <div class="card">
-          <ol id="jobs"></ol>
-          <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里：点一下看它的输出，点「打开」看渲出来的东西。</p>
-        </div>
-      </section>
+          <section class="machine">
+            <div class="head"><h3>这台电脑</h3><span class="sub" id="m-sub"></span></div>
+            <div class="charts">
+              <div class="chart card c-cpu" id="c-cpu"><span>处理器</span><b>—</b><small></small></div>
+              <div class="chart card c-mem" id="c-mem"><span>内存</span><b>—</b><small></small></div>
+              <div class="chart card c-gpu" id="c-gpu" hidden><span>显卡</span><b>—</b><small></small></div>
+            </div>
+          </section>
 
-      <section class="panel" id="tab-settings" hidden>
-        <form class="card" id="form" autocomplete="off">
-          <h4>渲染用的东西</h4>
-          <label><span>录像目录<code>PROMO_WORK</code></span><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
-          <label><span>站点构建<code>PROMO_SITE</code></span><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
-          <label><span>Chrome<code>PROMO_CHROME</code></span><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
-          <label><span>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code></span><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
-          <label><span>临时浏览器配置<code>PROMO_PROFILES</code></span><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
-          <label class="switch"><span>用显卡画<small>不开就用软件绘制，慢很多</small></span><input type="checkbox" name="PROMO_GPU" role="switch" /></label>
-          <h4>连接 lemon</h4>
-          <div class="two">
-            <label>SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
-            <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+          <section class="recent">
+            <div class="head"><h3>最近的任务</h3><span class="sub" id="jobs-sub"></span></div>
+            <div class="card">
+              <ol id="jobs"></ol>
+              <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里：点一下看它的输出，点「打开」看渲出来的东西。</p>
+            </div>
+          </section>
+          <p class="foot">关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</p>
+        </section>
+
+        <!-- 画廊 -->
+        <section class="page" id="page-gallery" hidden>
+          <div class="head">
+            <h2>画廊</h2>
+            <span class="sub" id="g-sub"></span>
+            <button type="button" class="link end" id="g-folder" hidden>打开文件夹</button>
           </div>
-          <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
-          <div id="here">
-            <h4>这台电脑上</h4>
-            <label class="switch"><span>登录 Windows 后自动启动<small>开机后自己在后台跑起来；任务管理器的「启动应用」里也能看到它</small></span><input type="checkbox" id="autostart" role="switch" /></label>
-            <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
-          </div>
-        </form>
-      </section>
+          <div id="groups"></div>
+          <p class="empty card" id="g-empty">这里会摆出这台电脑渲出来的单帧、封面和片段，最近 30 次的。</p>
+        </section>
 
-      <footer>关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</footer>
+        <!-- 动态 -->
+        <section class="page" id="page-feed" hidden>
+          <div class="head">
+            <h2>动态</h2>
+            <span class="sub">连接的经过，ssh 和 render.mjs 的输出</span>
+          </div>
+          <div class="bar">
+            <div class="chips" id="chips">
+              <i class="knob" id="knob"></i>
+              <button type="button" data-filter="all" aria-pressed="true">全部</button>
+              <button type="button" data-filter="render" aria-pressed="false">渲染</button>
+              <button type="button" data-filter="tunnel" aria-pressed="false">连接</button>
+            </div>
+            <button type="button" class="link" id="to-end" hidden>回到最新 ↓</button>
+          </div>
+          <div class="term card" id="term" role="log"></div>
+        </section>
+
+        <!-- 设置 -->
+        <section class="page" id="page-settings" hidden>
+          <div class="head"><h2>设置</h2></div>
+          <form class="card" id="form" autocomplete="off">
+            <h4>渲染用的东西</h4>
+            <label><span>录像目录<code>PROMO_WORK</code></span><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
+            <label><span>站点构建<code>PROMO_SITE</code></span><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
+            <label><span>Chrome<code>PROMO_CHROME</code></span><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
+            <label><span>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code></span><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
+            <label><span>临时浏览器配置<code>PROMO_PROFILES</code></span><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
+            <label class="switch"><span>用显卡画<small>不开就用软件绘制，慢很多</small></span><input type="checkbox" name="PROMO_GPU" role="switch" /></label>
+            <h4>连接 lemon</h4>
+            <div class="two">
+              <label>SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
+              <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+            </div>
+            <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
+            <div class="group-set">
+              <h4>这台电脑上</h4>
+              <label class="switch"><span>自动更新<small>跟着仓库的新版本走；仓库里有你自己的改动时不动它</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
+              <div class="update"><span id="u-state">还没查过</span><button type="button" class="link" id="u-check">现在检查</button></div>
+              <div id="here">
+                <label class="switch"><span>登录 Windows 后自动启动<small>开机后自己在后台跑起来；任务管理器的「启动应用」里也能看到它</small></span><input type="checkbox" id="autostart" role="switch" /></label>
+                <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
+              </div>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <div class="lightbox" id="lightbox" hidden>
+      <div class="lb-stage" id="lb-stage"></div>
+      <div class="lb-bar"><span id="lb-cap"></span><span class="n num" id="lb-n"></span><button type="button" id="lb-open">用系统打开</button><button type="button" id="lb-show">在文件夹里显示</button></div>
+      <button type="button" class="lb-nav prev" id="lb-prev" aria-label="上一个"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" /></svg></button>
+      <button type="button" class="lb-nav next" id="lb-next" aria-label="下一个"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg></button>
+      <button type="button" class="lb-close" id="lb-close" aria-label="关闭"><svg viewBox="0 0 16 16"><path d="m3.5 3.5 9 9m0-9-9 9" /></svg></button>
     </div>
 
     <script>
       const $ = (s) => document.querySelector(s);
       const KEYS = ['PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
       const C = 2 * Math.PI * 52;
+      const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
       let S = null;
       let filled = false;
       let gone = false;
+      let page0 = null;
       const open = new Set();
       const flying = new Set();
       // in 渲染站.exe's window: its title bar is this page's, and it opens what a job made
@@ -884,6 +1400,11 @@
         return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
       };
       const stamp = (t) => `${clock(t)}:${pad(new Date(t).getSeconds())}`;
+      const day = (t) => {
+        const d = new Date(t);
+        const today = new Date();
+        return d.toDateString() === today.toDateString() ? `今天 ${clock(t)}` : `${d.getMonth() + 1}月${d.getDate()}日 ${clock(t)}`;
+      };
       const took = (ms) => {
         const s = Math.round(ms / 1000);
         return ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} 秒` : `${Math.floor(s / 60)} 分 ${pad(s % 60)} 秒`;
@@ -900,8 +1421,34 @@
         return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
       };
       const set = (id, text) => {
-        const el = document.getElementById(id);
+        const el = typeof id === 'string' ? document.getElementById(id) : id;
         if (el.textContent !== text) el.textContent = text;
+      };
+      // a number that runs to its new value rather than jumps
+      const runs = new WeakMap();
+      function count(el, to, fmt = (v) => String(Math.round(v))) {
+        const was = runs.get(el);
+        if (was && was.to === to) return;
+        const from = was ? was.value : 0;
+        const run = { value: from, to };
+        runs.set(el, run);
+        if (still || from === to) {
+          run.value = to;
+          return set(el, fmt(to));
+        }
+        const t0 = performance.now();
+        const step = (now) => {
+          if (runs.get(el) !== run) return;
+          const p = Math.min(1, (now - t0) / 700);
+          run.value = from + (to - from) * (1 - (1 - p) ** 3);
+          set(el, fmt(run.value));
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+      const word = (el, text) => {
+        runs.delete(el);
+        set(el, text);
       };
       const post = (path, body) =>
         fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
@@ -921,6 +1468,9 @@
       function render(s) {
         if (s) S = s;
         if (!S) return;
+        // the page changed on disk (an update): this one again, as it is now
+        if (page0 == null) page0 = S.page;
+        else if (S.page && S.page !== page0) return location.reload();
         const t = S.tunnel;
         const j = S.job;
         const now = Date.now();
@@ -946,49 +1496,39 @@
         // the ring: how far the job is, the wait before trying again, or just the state
         let p = 0;
         let spin = false;
-        let big = '—';
         let small = '';
-        let word = true;
-        if (mode === 'busy') {
-          if (j.total > 0) {
-            p = Math.min(1, j.n / j.total);
-            big = `${Math.floor(p * 100)}%`;
-            word = false;
-            small = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}`;
-          } else {
-            spin = true;
-            big = '准备';
-            small = '还没出帧';
-          }
-        } else if (mode === 'idle') {
-          p = 1;
-          big = '在线';
-          small = `lemon:${t.port}`;
-        } else if (mode === 'connecting') {
-          spin = true;
-          big = '连接';
-          small = `lemon:${t.port ?? ''}`;
+        const big = $('#big');
+        if (mode === 'busy' && j.total > 0) {
+          p = Math.min(1, j.n / j.total);
+          big.className = '';
+          count(big, Math.floor(p * 100), (v) => `${Math.round(v)}%`);
+          small = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}`;
         } else if (mode === 'retry') {
           p = t.wait ? Math.min(1, (secs * 1000) / t.wait) : 0;
-          big = String(secs);
-          word = false;
+          big.className = '';
+          word(big, String(secs));
           small = '秒后重连';
-        } else if (mode === 'auth') {
-          p = 1;
-          big = '登不上';
-        } else if (mode === 'off') {
-          big = '暂停';
-        } else if (mode === 'gone') {
-          big = '停了';
-          small = '等它重启';
+        } else {
+          big.className = 'word';
+          const label = { busy: '准备', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', gone: '停了' }[mode] ?? '…';
+          word(big, label);
+          if (mode === 'busy') {
+            spin = true;
+            small = '还没出帧';
+          } else if (mode === 'idle') {
+            p = 1;
+            small = `lemon:${t.port}`;
+          } else if (mode === 'connecting') {
+            spin = true;
+            small = `lemon:${t.port ?? ''}`;
+          } else if (mode === 'auth') p = 1;
+          else if (mode === 'gone') small = '等它重启';
         }
         const arc = $('#arc');
         $('#meter').classList.toggle('spin', spin);
         arc.style.strokeDasharray = spin ? `${C * 0.26} ${C}` : `${C} ${C}`;
         arc.style.strokeDashoffset = spin ? '0' : String(C * (1 - p));
         arc.style.opacity = spin || p > 0 ? '1' : '0';
-        set('big', big);
-        $('#big').className = word ? 'word' : '';
         set('small', small);
 
         if (j && j.total > 0 && j.frames) {
@@ -998,7 +1538,7 @@
         else set('nums', '');
 
         const toggle = $('#toggle');
-        toggle.textContent = t.state === 'off' ? '继续接单' : '暂停接单';
+        set(toggle, t.state === 'off' ? '继续接单' : '暂停接单');
         toggle.classList.toggle('primary', t.state === 'off');
         toggle.hidden = gone;
         $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
@@ -1012,29 +1552,95 @@
           set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录不上', off: '关着' }[t.state] ?? ''));
         }
         const all = S.today.done + S.today.failed;
-        set('s-today', String(all));
+        count($('#s-today'), all);
         set('s-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，都完成了' : '个任务');
         const last = S.jobs[0];
         set('s-last', last ? took(last.ms) : '—');
         set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '完成' : '失败'}` : '还没有');
         const rate = j?.ms ?? S.jobs.find((x) => x.rate)?.rate;
-        set('s-rate', rate ? String(rate) : '—');
+        if (rate) count($('#s-rate'), rate);
+        else word($('#s-rate'), '—');
 
         const notice = $('#notice');
         notice.hidden = gone || !S.missing.length;
         if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。不填的话，任务会失败。`;
         $('#badge').hidden = !S.missing.length;
-        set('jobs-count', S.jobs.length ? String(S.jobs.length) : '');
+        set('jobs-sub', S.jobs.length ? `${S.jobs.length} 个，最新的在上面` : '');
 
+        charts();
         renderJobs();
+        renderShelf();
         if (!filled) fill();
         for (const k of KEYS) $(`[name=${k}]`).classList.toggle('missing', S.missing.includes(k));
         $('#here').hidden = S.platform !== 'win32';
         $('#shortcut-row').hidden = !S.canShortcut;
-        if (!flying.has('autostart')) $('#autostart').checked = S.autostart;
-        if (!flying.has('shortcut')) $('#shortcut').checked = S.shortcut;
+        for (const [id, on] of [
+          ['autostart', S.autostart],
+          ['shortcut', S.shortcut],
+          ['autoupdate', S.autoUpdate],
+        ])
+          if (!flying.has(id)) $(`#${id}`).checked = on;
+        const u = S.update;
+        const said = { idle: '还没查过', checking: '正在查有没有新版本…', current: '已经是最新', updated: u.message, blocked: u.message, waiting: u.message, error: u.message }[u.state] ?? '';
+        set('u-state', `${said}${u.at && u.state !== 'checking' ? `（${clock(u.at)}）` : ''}`);
+        $('#u-check').hidden = u.state === 'checking';
       }
 
+      // ——— this machine: a line of the last two minutes each, sliding left as it goes ———
+      const W = 240;
+      const H = 62;
+      const STEP = W / 59;
+      let sampled = 0;
+      function curve(values) {
+        const n = values.length;
+        const pts = values.map((v, i) => [W - (n - 1 - i) * STEP, H - 3 - (v / 100) * (H - 10)]);
+        let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+        // through every point, smoothly (Catmull-Rom as Béziers)
+        for (let i = 0; i < n - 1; i++) {
+          const [p0, p1, p2, p3] = [pts[i - 1] ?? pts[i], pts[i], pts[i + 1], pts[i + 2] ?? pts[i + 1]];
+          const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+          const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+          d += ` C${c1.map((v) => v.toFixed(1))} ${c2.map((v) => v.toFixed(1))} ${p2.map((v) => v.toFixed(1))}`;
+        }
+        return { line: d, area: `${d} L${pts[n - 1][0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z` };
+      }
+      function chart(el, values, sub) {
+        if (!el.querySelector('svg')) {
+          const id = `g-${el.id}`;
+          el.insertAdjacentHTML(
+            'beforeend',
+            `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity="0.28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><g><path class="area" fill="url(#${id})"/><path class="line"/></g></svg>`,
+          );
+        }
+        el.querySelector('small').textContent = sub ?? '';
+        if (!values?.length) return;
+        count(el.querySelector('b'), values.at(-1), (v) => `${Math.round(v)}%`);
+        if (values.length < 2) return;
+        const { line, area } = curve(values);
+        const g = el.querySelector('g');
+        el.querySelector('.line').setAttribute('d', line);
+        el.querySelector('.area').setAttribute('d', area);
+        if (still) return;
+        // drawn a step to the right, then slid back over the two seconds to the next sample
+        g.style.transition = 'none';
+        g.style.transform = `translateX(${STEP}px)`;
+        g.getBoundingClientRect();
+        g.style.transition = 'transform 2s linear';
+        g.style.transform = 'translateX(0)';
+      }
+      function charts() {
+        const m = S.machine;
+        if (!m || m.t === sampled) return;
+        sampled = m.t;
+        const gb = (b) => `${(b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0)} GB`;
+        set('m-sub', `${m.cores} 个核心 · ${gb(m.memTotal)} 内存`);
+        chart($('#c-cpu'), m.cpu, m.cpuName.replace(/\s+/g, ' ').replace(/\(R\)|\(TM\)|CPU|Processor/gi, '').trim());
+        chart($('#c-mem'), m.mem, `已用 ${gb((m.memTotal * (m.mem.at(-1) ?? 0)) / 100)}`);
+        $('#c-gpu').hidden = !m.gpu;
+        if (m.gpu) chart($('#c-gpu'), m.gpu, m.gpuName ?? '');
+      }
+
+      // ——— the jobs ———
       function renderJobs() {
         const list = $('#jobs');
         $('#empty').hidden = S.jobs.length > 0;
@@ -1069,7 +1675,7 @@
             // what it made, kept on this machine too
             const kept = j.paths?.length ? j.paths : null;
             if (kept) {
-              const b = button('打开', () => reveal(kept[0]));
+              const b = button('打开', () => showKept(kept[0]));
               b.className = 'open';
               row.append(b);
             }
@@ -1085,20 +1691,161 @@
             });
             li.append(row);
             if (open.has(j.id)) {
+              const fold = document.createElement('div');
+              fold.className = 'fold';
+              const inner = document.createElement('div');
               if (kept) {
                 const acts = document.createElement('div');
                 acts.className = 'acts';
-                acts.append(...kept.slice(0, 6).map((path) => button(`打开 ${path.split(/[\\/]/).pop()}`, () => reveal(path))), button('在文件夹里显示', () => reveal(kept[0], true)));
-                li.append(acts);
+                acts.append(button('在画廊里看', () => showKept(kept[0])), button('在文件夹里显示', () => reveal(kept[0], true)));
+                inner.append(acts);
               }
               const pre = document.createElement('pre');
               pre.textContent = (j.files?.length ? `交回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
-              li.append(pre);
+              inner.append(pre);
+              fold.append(inner);
+              li.append(fold);
+              requestAnimationFrame(() => requestAnimationFrame(() => fold.classList.add('open')));
             }
             return li;
           }),
         );
       }
+
+      // ——— 画廊 ———
+      let items = [];
+      const caption = (name) => {
+        const base = name.split('/').pop();
+        if (/^cover-4x3\./.test(base)) return '4:3 封面';
+        if (/^cover\./.test(base)) return '16:9 封面';
+        if (/\.mp4$/.test(base)) return '片段';
+        const t = base.match(/^(\d+(?:\.\d+)?)\.jpg$/);
+        return t ? `${t[1]} 秒` : base;
+      };
+      function renderShelf() {
+        const shelf = S.shelf ?? [];
+        const groups = $('#groups');
+        const key = shelf.map((g) => g.name).join('|');
+        set('n-gallery', shelf.length ? String(shelf.reduce((n, g) => n + g.files.length, 0)) : '');
+        if (groups.dataset.key === key) return;
+        groups.dataset.key = key;
+        $('#g-empty').hidden = shelf.length > 0;
+        $('#g-folder').hidden = !shelf.length;
+        set('g-sub', shelf.length ? `${shelf.length} 次任务，最新的在上面` : '');
+        items = shelf.flatMap((g) => g.files.map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
+        groups.replaceChildren(
+          ...shelf.map((g) => {
+            const sec = document.createElement('section');
+            sec.className = 'group';
+            const head = document.createElement('div');
+            head.className = 'group-head';
+            const b = document.createElement('b');
+            b.textContent = g.what;
+            const meta = document.createElement('span');
+            meta.textContent = `${day(g.at)}${g.ms ? ` · 用了 ${took(g.ms)}` : ''}`;
+            head.append(b, meta);
+            const tiles = document.createElement('div');
+            tiles.className = 'tiles';
+            for (const f of g.files) {
+              const tile = document.createElement('button');
+              tile.type = 'button';
+              tile.className = 'tile';
+              tile.title = f.name;
+              if (/\.mp4$/.test(f.name)) {
+                const v = document.createElement('video');
+                v.src = `${f.url}#t=0.1`;
+                v.muted = true;
+                v.loop = true;
+                v.playsInline = true;
+                v.preload = 'metadata';
+                tile.append(v);
+                tile.insertAdjacentHTML('beforeend', '<i class="play"><svg viewBox="0 0 10 12"><path d="M0 0l10 6-10 6z"/></svg></i>');
+                // plays where it is while the pointer is on it
+                tile.addEventListener('mouseenter', () => v.play().catch(() => {}));
+                tile.addEventListener('mouseleave', () => {
+                  v.pause();
+                  v.currentTime = 0.1;
+                });
+              } else {
+                const img = document.createElement('img');
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                img.alt = '';
+                img.addEventListener('load', () => img.classList.add('in'), { once: true });
+                img.src = f.url;
+                tile.append(img);
+              }
+              const cap = document.createElement('span');
+              cap.className = 'cap';
+              cap.textContent = caption(f.name);
+              tile.append(cap);
+              tile.addEventListener('click', () => lightbox(items.findIndex((i) => i.path === f.path)));
+              tiles.append(tile);
+            }
+            sec.append(head, tiles);
+            return sec;
+          }),
+        );
+      }
+      // from a job's row: to its picture in the gallery, large
+      function showKept(path) {
+        const i = items.findIndex((it) => it.path === path);
+        if (i < 0) return reveal(path);
+        show('gallery');
+        lightbox(i);
+      }
+      $('#g-folder').addEventListener('click', () => items[0] && reveal(items[0].path, true));
+
+      // ——— one, large ———
+      const box = $('#lightbox');
+      let at = -1;
+      function lightbox(i) {
+        if (i < 0 || !items.length) return;
+        at = (i + items.length) % items.length;
+        const it = items[at];
+        const stage = $('#lb-stage');
+        const media = document.createElement(/\.mp4$/.test(it.name) ? 'video' : 'img');
+        media.src = it.url;
+        if (media.tagName === 'VIDEO') {
+          media.controls = true;
+          media.autoplay = true;
+          media.loop = true;
+        }
+        const appear = () => requestAnimationFrame(() => media.classList.add('in'));
+        media.addEventListener(media.tagName === 'VIDEO' ? 'loadeddata' : 'load', appear, { once: true });
+        stage.replaceChildren(media);
+        set('lb-cap', `${it.what} · ${it.cap}`);
+        set('lb-n', `${at + 1} / ${items.length}`);
+        if (box.hidden) {
+          box.hidden = false;
+          requestAnimationFrame(() => box.classList.add('on'));
+        }
+      }
+      function closeBox() {
+        box.classList.remove('on');
+        const v = box.querySelector('video');
+        if (v) v.pause();
+        setTimeout(() => {
+          if (!box.classList.contains('on')) {
+            box.hidden = true;
+            $('#lb-stage').replaceChildren();
+          }
+        }, 300);
+      }
+      $('#lb-prev').addEventListener('click', () => lightbox(at - 1));
+      $('#lb-next').addEventListener('click', () => lightbox(at + 1));
+      $('#lb-close').addEventListener('click', closeBox);
+      $('#lb-open').addEventListener('click', () => reveal(items[at].path));
+      $('#lb-show').addEventListener('click', () => reveal(items[at].path, true));
+      box.addEventListener('click', (e) => {
+        if (e.target === box || e.target.id === 'lb-stage') closeBox();
+      });
+      addEventListener('keydown', (e) => {
+        if (box.hidden) return;
+        if (e.key === 'Escape') closeBox();
+        else if (e.key === 'ArrowLeft') lightbox(at - 1);
+        else if (e.key === 'ArrowRight') lightbox(at + 1);
+      });
 
       function fill() {
         filled = true;
@@ -1107,10 +1854,11 @@
         f.elements.PROMO_GPU.checked = S.config.env.PROMO_GPU === '1';
         f.elements.target.value = S.config.ssh.target ?? '';
         f.elements.port.value = S.config.ssh.port ?? '';
-        if (S.missing.length) show('settings');
+        // what is missing, unless another page was asked for
+        if (S.missing.length && !location.hash) show('settings');
       }
 
-      // ——— the feed: what is said, and what ssh and render.mjs print ———
+      // ——— 动态: what is said, and what ssh and render.mjs print ———
       const term = $('#term');
       const lines = [];
       let filter = 'all';
@@ -1147,7 +1895,7 @@
           if (shows(item)) term.append(line(item));
         }
         while (lines.length > 600) lines.shift().el?.remove();
-        if (stick) term.scrollTop = term.scrollHeight;
+        if (stick) term.scrollTo({ top: term.scrollHeight, behavior: still ? 'auto' : 'smooth' });
         else $('#to-end').hidden = false;
       }
       function rebuild() {
@@ -1159,34 +1907,65 @@
         if (atEnd()) $('#to-end').hidden = true;
       });
       $('#to-end').addEventListener('click', () => {
-        term.scrollTop = term.scrollHeight;
+        term.scrollTo({ top: term.scrollHeight, behavior: 'smooth' });
         $('#to-end').hidden = true;
       });
+      // the filter's knob slides under the one pressed
+      const knob = $('#knob');
+      const place = (b) => {
+        knob.style.width = `${b.offsetWidth}px`;
+        knob.style.transform = `translateX(${b.offsetLeft}px)`;
+      };
       for (const b of document.querySelectorAll('[data-filter]'))
         b.addEventListener('click', () => {
           filter = b.dataset.filter;
           for (const o of document.querySelectorAll('[data-filter]')) o.setAttribute('aria-pressed', o === b);
+          place(b);
           rebuild();
         });
 
       // ——— the pages ———
       const tabs = [...document.querySelectorAll('[role=tab]')];
+      let current = null;
       function show(name) {
+        if (name === current) return;
+        current = name;
+        tabs.forEach((b, i) => {
+          const on = b.dataset.page === name;
+          b.setAttribute('aria-selected', on);
+          if (on) $('#slider').style.transform = `translateY(${i * (b.offsetHeight + 4)}px)`;
+        });
         for (const b of tabs) {
-          b.setAttribute('aria-selected', b.dataset.tab === name);
-          $(`#tab-${b.dataset.tab}`).hidden = b.dataset.tab !== name;
+          const sec = $(`#page-${b.dataset.page}`);
+          const on = b.dataset.page === name;
+          sec.hidden = !on;
+          if (on) {
+            sec.classList.remove('enter');
+            sec.offsetWidth;
+            sec.classList.add('enter');
+          }
         }
+        $('#main').scrollTop = 0;
         try {
-          localStorage.setItem('station-tab', name);
+          localStorage.setItem('station-page', name);
         } catch {}
-        if (name === 'feed') term.scrollTop = term.scrollHeight;
+        // in a browser, the address says the page too (#gallery…)
+        history.replaceState(null, '', name === 'home' ? location.pathname : `#${name}`);
+        if (name === 'feed') {
+          place(document.querySelector('[data-filter][aria-pressed="true"]'));
+          term.scrollTop = term.scrollHeight;
+        }
       }
-      for (const b of tabs) b.addEventListener('click', () => show(b.dataset.tab));
-      let first = 'feed';
+      for (const b of tabs) b.addEventListener('click', () => show(b.dataset.page));
+      addEventListener('hashchange', () => {
+        const name = location.hash.slice(1) || 'home';
+        if (tabs.some((t) => t.dataset.page === name)) show(name);
+      });
+      let first = location.hash.slice(1) || 'home';
       try {
-        first = localStorage.getItem('station-tab') || 'feed';
+        if (!location.hash) first = localStorage.getItem('station-page') || 'home';
       } catch {}
-      show(tabs.some((b) => b.dataset.tab === first) ? first : 'feed');
+      show(tabs.some((b) => b.dataset.page === first) ? first : 'home');
 
       $('#form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -1198,26 +1977,29 @@
         setTimeout(() => $('#saved').classList.remove('on'), 2200);
       });
       // applied at once; not set back by the state while the change is on its way
-      for (const id of ['autostart', 'shortcut'])
+      for (const id of ['autostart', 'shortcut', 'autoupdate'])
         $(`#${id}`).addEventListener('change', async (e) => {
           flying.add(id);
           await post(`/${id}`, { on: e.target.checked });
           flying.delete(id);
         });
+      $('#u-check').addEventListener('click', () => post('/update'));
       $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
       $('#reconnect').addEventListener('click', () => post('/reconnect'));
 
       if (host) {
         document.documentElement.classList.add('framed');
         $('#titlebar').hidden = false;
-        // pressed on the bar or the name: the window moves, as by a title bar
+        $('#in-browser').hidden = false;
+        // pressed on the bar, or on the rail where nothing is: the window moves, as by a title bar
         const drag = (e) => {
           if (e.button === 0 && !e.target.closest('button, input, a')) host.postMessage('drag');
         };
         $('#titlebar').addEventListener('mousedown', drag);
-        $('.top').addEventListener('mousedown', drag);
+        $('#side').addEventListener('mousedown', drag);
         $('#tb-min').addEventListener('click', () => host.postMessage('min'));
         $('#tb-close').addEventListener('click', () => host.postMessage('close'));
+        $('#in-browser').addEventListener('click', () => host.postMessage('browser'));
       }
 
       const events = new EventSource('/events');

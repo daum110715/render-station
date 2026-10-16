@@ -62,10 +62,11 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
     const t0 = Date.now();
     let log = '';
     let code = 1;
+    let argv = [];
     const made = {};
     try {
       const { files, args: asked } = JSON.parse(gunzipSync(body));
-      const argv = check(asked);
+      argv = check(asked);
       rmSync(job, { recursive: true, force: true });
       for (const [path, data] of Object.entries(files)) {
         if (!FILES.test(path)) throw new Error(`not taken: ${path}`);
@@ -107,6 +108,8 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
           writeFileSync(file, Buffer.from(data, 'base64'));
           paths.push(file);
         }
+        // what it was, for whoever looks at it later
+        writeFileSync(join(into, 'job.json'), JSON.stringify({ at: t0, ms: Date.now() - t0, args: argv }));
         for (const old of readdirSync(keep).sort().slice(0, -30)) rmSync(join(keep, old), { recursive: true, force: true });
       } catch (e) {
         log += `not kept here: ${e.message}\n`;

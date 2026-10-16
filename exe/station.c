@@ -8,7 +8,10 @@
 // Windows (a value under HKCU\...\Run, so it shows in Task Manager's startup apps) and 渲染站 on
 // the desktop and in the Start menu. The station and all it starts (ssh, a render's Chrome and
 // ffmpeg) run in a job object, so quitting, or this ending any other way, ends them too. Only one
-// runs: a second one opens the window and goes. It stays in the checkout's promo\remote\.
+// runs: a second one opens the window and goes. It stays in the checkout's promo\remote\, but runs
+// from a copy of itself in %LOCALAPPDATA%\qiqi-render-station\ (it copies itself there, with the
+// loader, and starts the copy), so the checkout's file is never held and an update can replace it;
+// when the station has updated it, the copy starts the checkout's again (--after) and goes.
 // Built on lemon with mingw-w64: node promo/remote/exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
@@ -50,6 +53,9 @@ static UINT taskbarCreated;
 static NOTIFYICONDATAW nid;
 static HICON icons[ICONS];
 static wchar_t exePath[MAX_PATH], exeDir[MAX_PATH], repo[MAX_PATH], nodePath[MAX_PATH];
+// the checkout's 渲染站.exe: what the shortcuts and starting with Windows start
+static wchar_t launcher[MAX_PATH];
+static void again(void);
 
 static HANDLE job, node;
 static ULONGLONG startedAt, shownAt;
@@ -239,6 +245,8 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
     reveal(s + 5, 0);
   else if (!wcsncmp(s, L"show\t", 5))
     reveal(s + 5, 1);
+  else if (!wcscmp(s, L"browser"))
+    ShellExecuteW(NULL, L"open", L"http://127.0.0.1:7799/", NULL, NULL, SW_SHOWNORMAL);
   CoTaskMemFree(s);
   return S_OK;
 }
@@ -372,7 +380,7 @@ static void runKey(int on) {
   if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
   if (on) {
     wchar_t v[MAX_PATH + 16];
-    FMT(v, L"\"%ls\" /quiet", exePath);
+    FMT(v, L"\"%ls\" /quiet", launcher);
     RegSetValueExW(k, RUN_NAME, 0, REG_SZ, (const BYTE *)v, (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
   } else
     RegDeleteValueW(k, RUN_NAME);
@@ -389,9 +397,13 @@ static void link(int folder, int on) {
   IShellLinkW *sl;
   IPersistFile *pf;
   if (FAILED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&sl))) return;
-  IShellLinkW_SetPath(sl, exePath);
-  IShellLinkW_SetWorkingDirectory(sl, exeDir);
-  IShellLinkW_SetIconLocation(sl, exePath, 0);
+  wchar_t dirOf[MAX_PATH];
+  lstrcpynW(dirOf, launcher, MAX_PATH);
+  wchar_t *cut = wcsrchr(dirOf, L'\\');
+  if (cut) *cut = 0;
+  IShellLinkW_SetPath(sl, launcher);
+  IShellLinkW_SetWorkingDirectory(sl, dirOf);
+  IShellLinkW_SetIconLocation(sl, launcher, 0);
   IShellLinkW_SetDescription(sl, L"qiqi.help 宣传片的渲染站");
   if (SUCCEEDED(IShellLinkW_QueryInterface(sl, &IID_IPersistFile, (void **)&pf))) {
     IPersistFile_Save(pf, path, TRUE);
@@ -441,7 +453,11 @@ static void down(void) {
   if (node && WaitForSingleObject(node, 0) == WAIT_TIMEOUT) return show(ICON_OFF, L"渲染站 · 正在启动");
   // stopped: soon after it started, again and again, means it cannot start
   if (node) {
-    if (GetTickCount64() - startedAt < 20000) fails++;
+    DWORD code = 0;
+    GetExitCodeProcess(node, &code);
+    // 75: it stopped to start again, updated
+    if (code == 75) fails = 0;
+    else if (GetTickCount64() - startedAt < 20000) fails++;
     else fails = 0;
     CloseHandle(node);
     node = NULL;
@@ -464,10 +480,10 @@ static void tick(void) {
   static wchar_t w[8192];
   if (call("GET", "/tray", buf, sizeof buf)) return down();
   MultiByteToWideChar(CP_UTF8, 0, buf, -1, w, 8192);
-  wchar_t *f[8];
+  wchar_t *f[9] = { 0 };
   int n = 0;
   f[n++] = w;
-  for (wchar_t *p = w; *p && n < 8; p++)
+  for (wchar_t *p = w; *p && n < 9; p++)
     if (*p == L'\n') {
       *p = 0;
       f[n++] = p + 1;
@@ -491,10 +507,31 @@ static void tick(void) {
     balloon(f[4], f[5], wcscmp(f[4], L"渲染完成") ? NIIF_WARNING : NIIF_INFO);
   }
   keep(f[6][0] == L'1', f[7][0] == L'1');
+  if (n > 8 && f[8][0] == L'1') return again();
   if (wantOpen) {
     wantOpen = 0;
     openWindow();
   }
+}
+
+// updated: the checkout's 渲染站.exe, the new one, starts once this has gone, and the station with it
+static void again(void) {
+  quitting = 1;
+  KillTimer(hwnd, 1);
+  wchar_t cmd[MAX_PATH * 2 + 64];
+  FMT(cmd, L"\"%ls\" --after %lu%ls", launcher, GetCurrentProcessId(), frame ? L"" : L" /quiet");
+  STARTUPINFOW si = { sizeof si };
+  PROCESS_INFORMATION pi;
+  if (CreateProcessW(launcher, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  }
+  post("/quit");
+  if (node) WaitForSingleObject(node, 2000);
+  if (job) TerminateJobObject(job, 0);
+  closeFrame();
+  Shell_NotifyIconW(NIM_DELETE, &nid);
+  DestroyWindow(hwnd);
 }
 
 static void quit(void) {
@@ -601,8 +638,60 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   (void)prev;
   (void)how;
   inst = hi;
-  int quiet = args && wcsstr(args, L"/quiet") != NULL;
+  (void)args;
+  int argc = 0, quiet = 0;
+  DWORD after = 0;
+  const wchar_t *from = NULL;
+  wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  for (int i = 1; argv && i < argc; i++) {
+    if (!wcscmp(argv[i], L"/quiet")) quiet = 1;
+    else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
+    else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
+  }
   wantOpen = !quiet;
+  GetModuleFileNameW(NULL, exePath, MAX_PATH);
+  lstrcpynW(exeDir, exePath, MAX_PATH);
+  wchar_t *slash = wcsrchr(exeDir, L'\\');
+  if (slash) *slash = 0;
+
+  // the last one, going after an update: once it has
+  if (after) {
+    HANDLE old = OpenProcess(SYNCHRONIZE, FALSE, after);
+    if (old) {
+      WaitForSingleObject(old, 10000);
+      CloseHandle(old);
+    }
+  }
+  // run from the copy: the checkout's file left free. From the checkout, copy over and start it
+  wchar_t home[MAX_PATH], copy[MAX_PATH + 32];
+  home[0] = 0;
+  if (GetEnvironmentVariableW(L"LOCALAPPDATA", home, MAX_PATH)) {
+    wcsncat(home, L"\\qiqi-render-station", MAX_PATH - wcslen(home) - 1);
+  }
+  int isCopy = home[0] && !_wcsicmp(exeDir, home);
+  lstrcpynW(launcher, isCopy && from ? from : exePath, MAX_PATH);
+  HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\qiqi-render-station-tray");
+  if (!isCopy && home[0] && !running) {
+    wchar_t dll[MAX_PATH + 32], dllCopy[MAX_PATH + 32];
+    CreateDirectoryW(home, NULL);
+    FMT(copy, L"%ls\\渲染站.exe", home);
+    FMT(dll, L"%ls\\WebView2Loader.dll", exeDir);
+    FMT(dllCopy, L"%ls\\WebView2Loader.dll", home);
+    if (CopyFileW(exePath, copy, FALSE)) {
+      CopyFileW(dll, dllCopy, FALSE);
+      wchar_t cmd[MAX_PATH * 3];
+      FMT(cmd, L"\"%ls\" --from \"%ls\"%ls", copy, exePath, quiet ? L" /quiet" : L"");
+      STARTUPINFOW si = { sizeof si };
+      PROCESS_INFORMATION pi;
+      if (CreateProcessW(copy, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 0;
+      }
+    }
+    // could not: from here, as before
+  }
+  if (running) CloseHandle(running);
   CreateMutexW(NULL, TRUE, L"Local\\qiqi-render-station-tray");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     // the one running opens its window, and may bring it to the front
@@ -616,12 +705,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     return 0;
   }
 
-  GetModuleFileNameW(NULL, exePath, MAX_PATH);
-  lstrcpynW(exeDir, exePath, MAX_PATH);
-  wchar_t *slash = wcsrchr(exeDir, L'\\');
+  // the checkout: two up from the checkout's 渲染站.exe
+  wchar_t launcherDir[MAX_PATH], up2[MAX_PATH + 8], check[MAX_PATH + 64];
+  lstrcpynW(launcherDir, launcher, MAX_PATH);
+  slash = wcsrchr(launcherDir, L'\\');
   if (slash) *slash = 0;
-  wchar_t up2[MAX_PATH + 8], check[MAX_PATH + 64];
-  FMT(up2, L"%ls\\..\\..", exeDir);
+  FMT(up2, L"%ls\\..\\..", launcherDir);
   GetFullPathNameW(up2, MAX_PATH, repo, NULL);
   FMT(check, L"%ls\\promo\\remote\\station.mjs", repo);
   if (!isFile(check)) {

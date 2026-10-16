@@ -7,9 +7,10 @@
 // reach lemon, are in .tools/remote/config.json; what it did, in station.log.
 // usage: node promo/remote/station.mjs
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { execFile, spawn } from 'node:child_process';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpus, freemem, totalmem } from 'node:os';
+import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
 
@@ -90,6 +91,136 @@ try {
 } catch {}
 const save = () => writeFileSync(CONFIG, JSON.stringify(config, null, 2));
 
+// ——— this machine, every 2 s, the last two minutes: the processor, the memory, the graphics card
+// (NVIDIA's own tool where there is one, else Windows' counters) ———
+const SAMPLES = 60;
+const machine = { t: 0, cpu: [], mem: [], gpu: null, cpuName: (cpus()[0]?.model ?? '').trim(), cores: cpus().length, memTotal: totalmem(), gpuName: null };
+const keepLast = (list, v) => {
+  list.push(Math.round(Math.max(0, Math.min(100, v)) * 10) / 10);
+  if (list.length > SAMPLES) list.shift();
+};
+let lastTimes = cpus().map((c) => c.times);
+const SMI = [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'nvidia-smi.exe'), join(process.env.ProgramFiles ?? 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')].find((f) => win && existsSync(f));
+let gpuBusy = false;
+function sampleGpu() {
+  if (!win || gpuBusy) return;
+  gpuBusy = true;
+  const done = (v, name) => {
+    gpuBusy = false;
+    if (v == null) return;
+    machine.gpu ??= [];
+    keepLast(machine.gpu, v);
+    if (name) machine.gpuName = name;
+  };
+  if (SMI)
+    execFile(SMI, ['--query-gpu=name,utilization.gpu', '--format=csv,noheader,nounits'], { windowsHide: true, timeout: 1800 }, (e, out) => {
+      const [name, util] = String(out).split(/\r?\n/)[0].split(',').map((s) => s.trim());
+      done(e ? null : Number(util) || 0, name);
+    });
+  else
+    // every engine of every process that draws, added up
+    execFile('typeperf', ['\\GPU Engine(*engtype_3D)\\Utilization Percentage', '-sc', '1'], { windowsHide: true, timeout: 1800 }, (e, out) => {
+      const row = String(out).split(/\r?\n/).find((l) => /^"\d/.test(l));
+      done(e || !row ? null : row.split(',').slice(1).reduce((sum, v) => sum + (Number(v.replace(/"/g, '')) || 0), 0));
+    });
+}
+function sample() {
+  const now = cpus().map((c) => c.times);
+  let idle = 0;
+  let total = 0;
+  now.forEach((t, i) => {
+    const was = lastTimes[i] ?? t;
+    for (const k of Object.keys(t)) total += t[k] - was[k];
+    idle += t.idle - was.idle;
+  });
+  lastTimes = now;
+  keepLast(machine.cpu, total ? (1 - idle / total) * 100 : 0);
+  keepLast(machine.mem, (1 - freemem() / totalmem()) * 100);
+  machine.t = Date.now();
+  sampleGpu();
+  push();
+}
+
+// ——— keeping up with the repository: its branch's new commits, fast-forward only, and only into a
+// checkout with nothing of its own in it. When the station's code changed it starts again (exit 75:
+// the tray icon starts it at once); when the tray icon's did, the tray icon starts itself again ———
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+const git = (args) =>
+  new Promise((done) =>
+    execFile('git', ['-c', 'core.quotepath=off', ...args], { cwd: repo, windowsHide: true, env: GIT_ENV, timeout: 120000 }, (e, out, err) =>
+      done({ ok: !e, out: String(out ?? '').trim(), err: String(err || e?.message || '').trim().split(/\r?\n/).at(-1) }),
+    ),
+  );
+let update = { state: 'idle', at: null, message: '' };
+let trayAgain = false;
+let updateAfterJob = false;
+async function checkUpdate() {
+  if (update.state === 'checking') return;
+  const done = (state, message) => {
+    update = { state, at: Date.now(), message };
+    push();
+  };
+  update = { ...update, state: 'checking' };
+  push();
+  const up = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  if (!up.ok) return done('error', '这份仓库没有跟着远程分支，或者这台电脑没装 git');
+  const fetched = await git(['fetch', '--quiet']);
+  if (!fetched.ok) return done('error', `取不到更新：${fetched.err}`);
+  const behind = await git(['rev-list', '--count', `HEAD..${up.out}`]);
+  if (behind.out === '0') return done('current', '已经是最新');
+  const ahead = await git(['rev-list', '--count', `${up.out}..HEAD`]);
+  const dirty = await git(['status', '--porcelain', '--untracked-files=no']);
+  if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但这份仓库里有${dirty.out ? '没提交的改动' : '没推上去的提交'}，没有自动更新`);
+  // not in the middle of a render
+  if (job) {
+    updateAfterJob = true;
+    return done('waiting', '有新版本，这个任务渲完就更新');
+  }
+  const changed = (await git(['diff', '--name-only', 'HEAD', up.out])).out.split(/\r?\n/);
+  const merged = await git(['merge', '--ff-only', '--quiet', up.out]);
+  if (!merged.ok) return done('error', `更新没成功：${merged.err}`);
+  note('station', `更新到最新版：${behind.out} 个新提交`);
+  done('updated', `${behind.out} 个新提交，已更新`);
+  if (changed.some((f) => /^promo\/remote\/(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
+  else if (changed.some((f) => /^promo\/remote\/[\w.-]+\.mjs$/.test(f))) {
+    note('station', '渲染站的代码变了，马上重新启动');
+    setTimeout(() => {
+      stop();
+      process.exit(75);
+    }, 500);
+  }
+}
+
+// ——— what the jobs made, kept here (KEEP): newest first, each with its files ———
+const MEDIA = { '.jpg': 'image/jpeg', '.png': 'image/png', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+const walkAll = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkAll(join(d, e.name)) : [join(d, e.name)]));
+let shelf = [];
+function restock() {
+  try {
+    shelf = !existsSync(KEEP)
+      ? []
+      : readdirSync(KEEP)
+          .sort()
+          .reverse()
+          .map((name) => {
+            const d = join(KEEP, name);
+            let meta = {};
+            try {
+              meta = JSON.parse(readFileSync(join(d, 'job.json'), 'utf8'));
+            } catch {}
+            const files = walkAll(d)
+              .filter((f) => MEDIA[extname(f)])
+              // 9.5 before 10.45
+              .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+              .map((f) => ({ url: `/files/${relative(KEEP, f).split(sep).map(encodeURIComponent).join('/')}`, path: f, name: relative(d, f).split(sep).join('/') }));
+            return { name, at: meta.at ?? statSync(d).mtimeMs, ms: meta.ms ?? null, what: meta.args ? describe(meta.args) : name, files };
+          })
+          .filter((g) => g.files.length);
+  } catch {
+    shelf = [];
+  }
+}
+
 const view = () => ({
   tunnel,
   job,
@@ -103,16 +234,23 @@ const view = () => ({
   shortcut: config.shortcut !== false,
   canShortcut: win,
   platform: process.platform,
+  machine,
+  shelf,
+  update,
+  autoUpdate: config.autoUpdate !== false,
+  // the page, as it is on disk: a window showing an older one loads it again
+  page: statSync(join(here, 'station.html')).mtimeMs,
 });
 /** for the tray icon, a line each: the mode, its tip, the pause item, the newest job and what to
- *  say of it, starting with Windows and the shortcuts (1 or 0) */
+ *  say of it, starting with Windows and the shortcuts (1 or 0), and whether to start itself again
+ *  (1: it was updated) */
 function trayView() {
   const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
   const tip = { busy: `渲染中：${job?.what}`, idle: `空闲，已连上 lemon:${tunnel.port}`, connecting: '正在连接 lemon', retry: '连不上 lemon，会自己重试', auth: 'lemon 不让登录，点开看看', off: '已暂停接单' }[mode] ?? mode;
   const last = jobs[0];
   const tell = !last ? ['', ''] : last.ok ? ['渲染完成', `${last.what}，用了 ${took(last.ms)}，已交回 lemon。`] : ['渲染失败', `${last.what}。输出在渲染站的「任务」里。`];
   const v = view();
-  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0']
+  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
     .join('\n');
 }
@@ -165,6 +303,11 @@ function startWorker() {
         jobs.length = Math.min(jobs.length, 20);
         if (today.day !== new Date().toDateString()) today = { day: new Date().toDateString(), done: 0, failed: 0 };
         today[e.ok ? 'done' : 'failed']++;
+        restock();
+        if (updateAfterJob) {
+          updateAfterJob = false;
+          setTimeout(checkUpdate, 1000);
+        }
         note('render', e.ok ? `任务 #${e.id} 完成：${what}，用了 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件交回 lemon` : ''}` : `任务 #${e.id} 失败：${what}，用了 ${took(e.ms)}`);
         job = null;
       }
@@ -301,6 +444,21 @@ const send = (res, file) => {
   res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream', 'cache-control': extname(file) === '.html' ? 'no-cache' : 'max-age=86400' });
   createReadStream(file).pipe(res);
 };
+/** a file, or the part of it asked for (a video, played from where it is dragged to) */
+function sendRange(req, res, file) {
+  const size = statSync(file).size;
+  const head = { 'content-type': MEDIA[extname(file)], 'accept-ranges': 'bytes', 'cache-control': 'max-age=3600' };
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  if (!m || (!m[1] && !m[2])) {
+    res.writeHead(200, { ...head, 'content-length': size });
+    return createReadStream(file).pipe(res);
+  }
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  if (start > end) return res.writeHead(416, { 'content-range': `bytes */${size}` }).end();
+  res.writeHead(206, { ...head, 'content-length': end - start + 1, 'content-range': `bytes ${start}-${end}/${size}` });
+  createReadStream(file, { start, end }).pipe(res);
+}
 const json = (res, data) => res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
 const body = (req) =>
   new Promise((done) => {
@@ -328,6 +486,11 @@ const ui = createServer(async (req, res) => {
   if (req.method === 'GET') {
     if (path === '/') return send(res, join(here, 'station.html'));
     if (path === '/state') return json(res, view());
+    if (path.startsWith('/files/')) {
+      const file = normalize(join(KEEP, path.slice('/files/'.length)));
+      if (!file.startsWith(KEEP + sep) || !MEDIA[extname(file)] || !existsSync(file)) return res.writeHead(404).end();
+      return sendRange(req, res, file);
+    }
     if (path === '/tray') return res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(trayView());
     if (path === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
@@ -379,6 +542,10 @@ const ui = createServer(async (req, res) => {
       config.shortcut = !!data.on;
       save();
       note('station', data.on ? '桌面和开始菜单里放上「渲染站」' : '桌面和开始菜单里的「渲染站」拿掉');
+    } else if (path === '/update') checkUpdate();
+    else if (path === '/autoupdate') {
+      config.autoUpdate = !!data.on;
+      save();
     } else if (path === '/reveal') {
       // what a job made, opened or shown in its folder (the window of 渲染站.exe asks it itself)
       const file = resolve(String(data.path ?? ''));
@@ -403,6 +570,12 @@ ui.on('error', (e) => {
 });
 ui.listen(UI, '127.0.0.1', () => {
   note('station', `渲染站启动，窗口在 http://127.0.0.1:${UI}`);
+  restock();
   startWorker();
   connect();
+  setInterval(sample, 2000);
+  // a minute after starting, then every half hour
+  const auto = () => config.autoUpdate !== false && checkUpdate();
+  setTimeout(auto, 60000);
+  setInterval(auto, 30 * 60000);
 });
