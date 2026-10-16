@@ -4,8 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>渲染站</title>
-    <!-- 渲染站's window (station.mjs serves it): what the worker and the tunnel to lemon are doing,
-         the jobs lately done, the settings. In the site's own look, light or dark as the system is. -->
+    <link rel="icon" id="favicon" href="data:," />
+    <!-- 渲染站's window (station.mjs serves it): how the worker and the tunnel to lemon are doing, what
+         they print as they print it, the jobs lately done, the settings. In the site's own look, light
+         or dark as the system is. -->
     <link rel="stylesheet" href="/fonts/lxgw/lxgwwenkai-regular.css" />
     <style>
       @font-face {
@@ -15,82 +17,54 @@
         unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
       }
       :root {
-        --bg: #fcfbfa;
+        --bg: #f8f6f5;
         --paper: #ffffff;
-        --well: #f6f2f5;
+        --well: #f4eff3;
         --ink: #2b2430;
         --ink-2: #7a5d7c;
         --ink-3: #736a77;
-        --line: #dccbe4;
+        --line: #e6dbea;
         --accent: #6a4c9e;
         --ok: #2a9d80;
-        --wait: #c58a14;
+        --wait: #d99a1e;
         --bad: #d4563a;
         --off: #9a8a9d;
+        --shadow: 0 1px 2px rgb(43 36 48 / 0.05), 0 12px 32px -20px rgb(43 36 48 / 0.3);
         --hand: 'LXGW WenKai', 'KaiTi', serif;
         --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+        --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #1a1519;
+          --bg: #171216;
           --paper: #211a20;
-          --well: #271f26;
+          --well: #1c161b;
           --ink: #efe8ee;
           --ink-2: #b4a3b5;
           --ink-3: #9a8a9d;
-          --line: #3f3142;
+          --line: #3a2d3c;
           --accent: #c9aef0;
           --ok: #33b596;
           --wait: #f1b74a;
           --bad: #ec6a46;
           --off: #7d6f80;
+          --shadow: 0 1px 2px rgb(0 0 0 / 0.35);
           color-scheme: dark;
         }
       }
       * {
         box-sizing: border-box;
       }
-      html {
+      html,
+      body {
         background: var(--bg);
       }
       body {
-        margin: 0 auto;
-        max-width: 560px;
-        padding: 30px 24px 36px;
+        margin: 0;
         color: var(--ink);
         font: 14px/1.6 var(--ui);
         -webkit-font-smoothing: antialiased;
-      }
-      .hand {
-        font-family: var(--hand);
-        font-weight: 400;
-        letter-spacing: 0.01em;
-      }
-      .num {
-        font-variant-numeric: tabular-nums;
-      }
-      header {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 22px;
-      }
-      h1 {
-        margin: 0;
-        font-size: 32px;
-        line-height: 1.1;
-      }
-      header p {
-        margin: 0;
-        font-size: 12.5px;
-        color: var(--ink-3);
-        text-align: right;
-      }
-
-      /* ——— what is going on ——— */
-      body {
         --state: var(--off);
       }
       body[data-mode='idle'] {
@@ -107,29 +81,67 @@
       body[data-mode='gone'] {
         --state: var(--bad);
       }
-      .hero {
-        position: relative;
-        padding: 22px 22px 20px;
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        overflow: hidden;
+      .app {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 24px 28px 30px;
       }
-      /* the state's colour along the top, as the site marks what is current */
-      .hero::before {
-        content: '';
-        position: absolute;
-        left: 22px;
-        top: -1px;
-        width: 56px;
-        height: 2px;
-        background: var(--state);
-        transition: background-color 0.3s;
+      .hand {
+        font-family: var(--hand);
+        font-weight: 400;
+        letter-spacing: 0.01em;
       }
-      .chip {
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+      [hidden] {
+        display: none !important;
+      }
+
+      /* ——— the name, and how it is ——— */
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+      .logo {
+        flex: none;
+        width: 36px;
+        height: 36px;
+      }
+      .logo circle {
+        fill: var(--accent);
+      }
+      .logo path {
+        fill: var(--paper);
+      }
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.15;
+      }
+      .brand p {
+        margin: 1px 0 0;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .pill {
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        flex: none;
+        padding: 5px 13px 5px 11px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--paper);
         font-size: 12.5px;
         color: var(--ink-2);
       }
@@ -141,8 +153,8 @@
         background: var(--state);
         transition: background-color 0.3s;
       }
-      body[data-mode='busy'] .chip .dot::after,
-      body[data-mode='connecting'] .chip .dot::after {
+      body[data-mode='busy'] .dot::after,
+      body[data-mode='connecting'] .dot::after {
         content: '';
         position: absolute;
         inset: -4px;
@@ -160,93 +172,129 @@
           transform: scale(1.5);
         }
       }
+
+      /* ——— what is going on ——— */
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 128px 1fr;
+        gap: 26px;
+        align-items: center;
+        padding: 22px 26px 22px 22px;
+        background:
+          radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--state) 9%, transparent), transparent 58%),
+          var(--paper);
+      }
+      .meter {
+        position: relative;
+        width: 128px;
+        height: 128px;
+      }
+      .meter svg {
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+      }
+      .meter circle {
+        fill: none;
+        stroke-width: 5;
+      }
+      .meter .track {
+        stroke: var(--well);
+      }
+      .meter .arc {
+        stroke: var(--state);
+        stroke-linecap: round;
+        transition:
+          stroke-dashoffset 0.6s cubic-bezier(0.65, 0, 0.35, 1),
+          stroke 0.3s,
+          opacity 0.3s;
+      }
+      .meter.spin svg {
+        animation: spin 1.15s linear infinite;
+      }
+      @keyframes spin {
+        from {
+          transform: rotate(-90deg);
+        }
+        to {
+          transform: rotate(270deg);
+        }
+      }
+      .meter-in {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        text-align: center;
+      }
+      .meter-in b {
+        font: 500 30px/1.1 var(--ui);
+        font-variant-numeric: tabular-nums;
+      }
+      .meter-in b.word {
+        font: 400 23px/1.2 var(--hand);
+      }
+      .meter-in small {
+        margin-top: 3px;
+        font-size: 11.5px;
+        color: var(--ink-3);
+      }
+      .say {
+        min-width: 0;
+      }
       h2 {
-        margin: 12px 0 4px;
-        font-size: 25px;
-        line-height: 1.3;
+        margin: 0 0 4px;
+        font-size: 24px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
       #detail {
         margin: 0;
-        min-height: 1.6em;
         font-size: 13px;
         color: var(--ink-2);
         overflow-wrap: anywhere;
       }
-      .bar {
-        position: relative;
-        height: 2px;
-        margin: 18px 0 8px;
-        background: var(--line);
-        overflow: hidden;
-        visibility: hidden;
-      }
-      body[data-mode='busy'] .bar {
-        visibility: visible;
-      }
-      .bar i {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 0;
-        background: var(--accent);
-        transition: width 0.5s cubic-bezier(0.65, 0, 0.35, 1);
-      }
-      /* how far, when nothing says yet */
-      .bar.unknown i {
-        width: 30% !important;
-        animation: sweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-      }
-      @keyframes sweep {
-        from {
-          transform: translateX(-100%);
-        }
-        to {
-          transform: translateX(340%);
-        }
-      }
       #nums {
-        margin: 0;
-        min-height: 1.5em;
+        margin: 6px 0 0;
         font-size: 12px;
         color: var(--ink-3);
       }
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation: none !important;
-          transition: none !important;
-        }
+      #nums:empty {
+        display: none;
       }
-
       .actions {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 10px;
-        margin-top: 18px;
+        margin-top: 16px;
       }
       button {
-        padding: 7px 16px;
+        padding: 7px 17px;
         border: 1px solid var(--line);
-        border-radius: 6px;
-        background: transparent;
+        border-radius: 8px;
+        background: var(--paper);
         color: var(--ink);
         font: 15px/1.4 var(--hand);
         cursor: pointer;
         transition:
           border-color 0.2s,
           color 0.2s,
-          background-color 0.2s;
+          background-color 0.2s,
+          opacity 0.2s;
       }
       button:hover {
         border-color: var(--accent);
         color: var(--accent);
       }
       button:focus-visible,
-      input:focus-visible,
-      summary:focus-visible {
+      input:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
@@ -259,66 +307,211 @@
         color: var(--paper);
         opacity: 0.88;
       }
-      [hidden] {
-        display: none !important;
-      }
-
-      .rows {
-        margin: 18px 0 0;
-        padding: 0;
-      }
-      .rows div {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 9px 0;
-        border-top: 1px solid var(--line);
-        font-size: 13px;
-      }
-      .rows dt {
-        color: var(--ink-3);
-      }
-      .rows dd {
-        margin: 0;
-        text-align: right;
-        overflow-wrap: anywhere;
-      }
-
       .notice {
-        margin: 16px 0 0;
+        margin: 14px 0 0;
         padding: 10px 14px;
         border-left: 2px solid var(--wait);
-        background: var(--well);
-        border-radius: 0 6px 6px 0;
+        background: var(--paper);
+        border-radius: 0 8px 8px 0;
         font-size: 13px;
       }
 
-      /* ——— jobs ——— */
-      section {
-        margin-top: 30px;
+      /* ——— the numbers ——— */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 14px;
       }
-      h3 {
-        margin: 0 0 8px;
-        font-size: 19px;
+      .stat {
+        min-width: 0;
+        padding: 12px 15px 11px;
       }
+      .stat span {
+        display: block;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .stat b {
+        display: block;
+        margin-top: 1px;
+        font: 500 22px/1.3 var(--ui);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .stat small {
+        display: block;
+        font-size: 11.5px;
+        color: var(--ink-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ——— the three pages ——— */
+      .tabs {
+        display: flex;
+        gap: 26px;
+        margin-top: 26px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tabs button {
+        position: relative;
+        padding: 6px 1px 10px;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        font: 18px/1.3 var(--hand);
+        color: var(--ink-3);
+      }
+      .tabs button:hover {
+        color: var(--ink);
+      }
+      .tabs button[aria-selected='true'] {
+        color: var(--ink);
+      }
+      .tabs button[aria-selected='true']::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--accent);
+      }
+      .tabs .count {
+        margin-left: 6px;
+        font: 12px var(--ui);
+        color: var(--ink-3);
+      }
+      .badge {
+        position: absolute;
+        top: 7px;
+        right: -9px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--wait);
+      }
+      .panel {
+        padding-top: 14px;
+      }
+
+      /* what is said and printed */
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+      }
+      .chips button {
+        padding: 3px 13px;
+        border-radius: 999px;
+        background: transparent;
+        font: 13px/1.5 var(--ui);
+        color: var(--ink-2);
+      }
+      .chips button[aria-pressed='true'] {
+        background: var(--paper);
+        border-color: var(--line);
+        color: var(--ink);
+        box-shadow: var(--shadow);
+      }
+      .chips button[aria-pressed='false'] {
+        border-color: transparent;
+      }
+      button.link {
+        padding: 3px 4px;
+        border: 0;
+        background: none;
+        font: 12.5px var(--ui);
+        color: var(--accent);
+      }
+      .term {
+        height: 380px;
+        overflow: auto;
+        padding: 12px 16px;
+        font-size: 13px;
+        line-height: 1.65;
+        scrollbar-width: thin;
+        scrollbar-color: var(--line) transparent;
+      }
+      .term:empty::before {
+        content: '还没有动静。';
+        color: var(--ink-3);
+      }
+      .ln {
+        display: grid;
+        grid-template-columns: 4.7em 3.6em 1fr;
+        gap: 10px;
+        align-items: baseline;
+        padding: 1px 0;
+      }
+      .ln time {
+        font-size: 11.5px;
+        color: var(--ink-3);
+        font-variant-numeric: tabular-nums;
+      }
+      .ln i {
+        font: normal 11px/1.7 var(--ui);
+        text-align: center;
+        border-radius: 4px;
+        color: color-mix(in srgb, var(--tag) 80%, var(--ink));
+        background: color-mix(in srgb, var(--tag) 13%, transparent);
+      }
+      .ln span {
+        overflow-wrap: anywhere;
+      }
+      .k-render {
+        --tag: var(--accent);
+      }
+      .k-tunnel {
+        --tag: var(--wait);
+      }
+      .k-station {
+        --tag: var(--ok);
+      }
+      .ln.raw {
+        padding: 0;
+      }
+      .ln.raw i {
+        visibility: hidden;
+      }
+      .ln.raw span {
+        font: 11.5px/1.6 var(--mono);
+        color: var(--ink-3);
+        white-space: pre-wrap;
+      }
+      .ln.raw.k-out span {
+        border-left: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        padding-left: 9px;
+        margin-left: -11px;
+      }
+
+      /* the jobs */
       ol {
         margin: 0;
-        padding: 0;
+        padding: 4px 0;
         list-style: none;
       }
-      li {
+      li + li {
         border-top: 1px solid var(--line);
-      }
-      li:last-child {
-        border-bottom: 1px solid var(--line);
       }
       .job {
         display: grid;
         grid-template-columns: 3.2em 1fr auto auto;
-        align-items: baseline;
-        gap: 12px;
+        align-items: center;
+        gap: 14px;
         width: 100%;
-        padding: 10px 2px;
+        padding: 12px 18px;
         border: 0;
         border-radius: 0;
         background: none;
@@ -333,73 +526,59 @@
       }
       .job .at,
       .job .took {
-        color: var(--ink-3);
         font-size: 12px;
+        color: var(--ink-3);
       }
       .job .what {
-        font-family: var(--hand);
-        font-size: 15px;
+        font: 15px/1.4 var(--hand);
         overflow-wrap: anywhere;
       }
-      .job .ok {
-        color: var(--ok);
-        font-family: var(--hand);
+      .tag {
+        padding: 1px 10px;
+        border-radius: 999px;
+        font-size: 12px;
       }
-      .job .bad {
+      .tag.ok {
+        color: var(--ok);
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+      }
+      .tag.bad {
         color: var(--bad);
-        font-family: var(--hand);
+        background: color-mix(in srgb, var(--bad) 12%, transparent);
       }
       pre {
-        margin: 0 0 10px;
+        margin: 0 18px 14px;
         padding: 10px 12px;
-        max-height: 200px;
+        max-height: 220px;
         overflow: auto;
         background: var(--well);
-        border-radius: 6px;
-        font: 11.5px/1.55 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+        border-radius: 8px;
+        font: 11.5px/1.55 var(--mono);
         color: var(--ink-2);
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
       .empty {
-        margin: 4px 0 0;
+        margin: 0;
+        padding: 26px 18px;
         font-size: 13px;
         color: var(--ink-3);
+        text-align: center;
       }
 
-      /* ——— settings ——— */
-      details {
-        margin-top: 30px;
-        border-top: 1px solid var(--line);
-      }
-      summary {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 14px 0 6px;
-        font-size: 19px;
-        cursor: pointer;
-        list-style: none;
-      }
-      summary::-webkit-details-marker {
-        display: none;
-      }
-      summary::after {
-        content: '';
-        width: 7px;
-        height: 7px;
-        border-right: 1px solid var(--ink-3);
-        border-bottom: 1px solid var(--ink-3);
-        transform: rotate(45deg) translateY(-3px);
-        transition: transform 0.2s;
-      }
-      details[open] summary::after {
-        transform: rotate(-135deg) translateX(-3px);
-      }
+      /* the settings */
       form {
         display: grid;
         gap: 14px;
-        padding: 10px 0 4px;
+        padding: 18px 20px 20px;
+      }
+      h4 {
+        margin: 6px 0 -2px;
+        font: 16px/1.4 var(--hand);
+        color: var(--ink);
+      }
+      h4:first-child {
+        margin-top: 0;
       }
       label {
         display: grid;
@@ -414,12 +593,13 @@
       }
       input[type='text'] {
         width: 100%;
-        padding: 8px 10px;
+        padding: 8px 11px;
         border: 1px solid var(--line);
-        border-radius: 6px;
-        background: var(--paper);
+        border-radius: 8px;
+        background: var(--bg);
         color: var(--ink);
         font: 13px var(--ui);
+        transition: border-color 0.2s;
       }
       input[type='text']:focus {
         border-color: var(--accent);
@@ -430,26 +610,65 @@
       }
       .two {
         display: grid;
-        grid-template-columns: 1fr 7em;
+        grid-template-columns: 1fr 8em;
         gap: 12px;
       }
-      label.check {
+      .switch {
         display: flex;
         align-items: center;
-        gap: 9px;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+        border-top: 1px solid var(--line);
         color: var(--ink);
+        font-size: 13.5px;
         cursor: pointer;
       }
-      input[type='checkbox'] {
-        width: 15px;
-        height: 15px;
-        margin: 0;
-        accent-color: var(--accent);
-      }
-      .hint {
-        margin: -8px 0 0 24px;
+      .switch small {
+        display: block;
         font-size: 12px;
         color: var(--ink-3);
+      }
+      #here {
+        display: grid;
+        gap: 4px;
+        margin-top: 6px;
+      }
+      input[type='checkbox'] {
+        appearance: none;
+        position: relative;
+        flex: none;
+        width: 36px;
+        height: 20px;
+        margin: 0;
+        border-radius: 999px;
+        background: var(--line);
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+      input[type='checkbox']::before {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+        transition: transform 0.2s cubic-bezier(0.65, 0, 0.35, 1);
+      }
+      input[type='checkbox']:checked {
+        background: var(--accent);
+      }
+      input[type='checkbox']:checked::before {
+        transform: translateX(16px);
+      }
+      .save {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 2px;
       }
       #saved {
         font-size: 12.5px;
@@ -461,87 +680,181 @@
         opacity: 1;
       }
       footer {
-        margin-top: 30px;
+        margin-top: 22px;
         font-size: 12px;
         color: var(--ink-3);
+        text-align: center;
+      }
+
+      @media (max-width: 640px) {
+        .stats {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 480px) {
+        .app {
+          padding: 18px 16px 24px;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+          justify-items: start;
+          padding: 20px;
+        }
+        .ln {
+          grid-template-columns: 4.7em 1fr;
+        }
+        .ln i {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
       }
     </style>
   </head>
   <body data-mode="connecting">
-    <header>
-      <h1 class="hand">渲染站</h1>
-      <p>qiqi.help 宣传片<br />在这台电脑上替 lemon 渲染</p>
-    </header>
-
-    <div class="hero" aria-live="polite">
-      <span class="chip"><i class="dot"></i><span id="chip">正在启动</span></span>
-      <h2 class="hand" id="headline">正在启动…</h2>
-      <p id="detail"></p>
-      <div class="bar" id="bar"><i></i></div>
-      <p id="nums" class="num"></p>
-      <div class="actions">
-        <button type="button" id="toggle">暂停接单</button>
-        <button type="button" id="reconnect" hidden>重新连接</button>
-      </div>
-    </div>
-
-    <p class="notice" id="notice" hidden></p>
-
-    <dl class="rows">
-      <div><dt>隧道</dt><dd id="r-tunnel">—</dd></div>
-      <div><dt>渲染</dt><dd id="r-worker">—</dd></div>
-    </dl>
-
-    <section>
-      <h3 class="hand">最近的任务</h3>
-      <ol id="jobs"></ol>
-      <p class="empty" id="empty">还没有任务。lemon 用 <code>ask.mjs</code> 发来的会列在这里。</p>
-    </section>
-
-    <details id="settings">
-      <summary class="hand">设置</summary>
-      <form id="form" autocomplete="off">
-        <label>录像目录<code>PROMO_WORK</code><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
-        <label>站点构建<code>PROMO_SITE</code><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
-        <label>Chrome<code>PROMO_CHROME</code><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
-        <label>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
-        <label>临时浏览器配置<code>PROMO_PROFILES</code><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
-        <label class="check"><input type="checkbox" name="PROMO_GPU" />用显卡画<code>PROMO_GPU</code></label>
-        <div class="two">
-          <label>lemon 的 SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
-          <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+    <div class="app">
+      <header class="top">
+        <div class="brand">
+          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" /><path d="M12.5 9 23.5 16 12.5 23z" /></svg>
+          <div>
+            <h1 class="hand">渲染站</h1>
+            <p>qiqi.help 宣传片 · 在这台电脑上替 lemon 渲染</p>
+          </div>
         </div>
-        <div class="actions"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
-        <label class="check" id="auto-row"><input type="checkbox" id="autostart" />登录 Windows 后自动启动</label>
-        <p class="hint" id="auto-hint">只放一个小脚本进「启动」文件夹，关掉就删掉它。</p>
-      </form>
-    </details>
+        <span class="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
+      </header>
 
-    <footer>关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</footer>
+      <section class="hero card" aria-live="polite">
+        <div class="meter" id="meter">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" /><circle class="arc" id="arc" cx="60" cy="60" r="52" /></svg>
+          <div class="meter-in"><b id="big" class="word">…</b><small id="small"></small></div>
+        </div>
+        <div class="say">
+          <h2 class="hand" id="headline">正在启动…</h2>
+          <p id="detail"></p>
+          <p id="nums" class="num"></p>
+          <div class="actions">
+            <button type="button" id="toggle">暂停接单</button>
+            <button type="button" id="reconnect" hidden>重新连接</button>
+          </div>
+        </div>
+      </section>
+
+      <p class="notice" id="notice" hidden></p>
+
+      <div class="stats">
+        <div class="stat card"><span>隧道</span><b id="s-tunnel">—</b><small id="s-tunnel-sub"></small></div>
+        <div class="stat card"><span>今天</span><b id="s-today">0</b><small id="s-today-sub">个任务</small></div>
+        <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">还没有</small></div>
+        <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
+      </div>
+
+      <nav class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="feed">动态</button>
+        <button type="button" role="tab" data-tab="jobs">任务<span class="count num" id="jobs-count"></span></button>
+        <button type="button" role="tab" data-tab="settings">设置<i class="badge" id="badge" hidden></i></button>
+      </nav>
+
+      <section class="panel" id="tab-feed">
+        <div class="bar">
+          <div class="chips">
+            <button type="button" data-filter="all" aria-pressed="true">全部</button>
+            <button type="button" data-filter="render" aria-pressed="false">渲染</button>
+            <button type="button" data-filter="tunnel" aria-pressed="false">连接</button>
+          </div>
+          <button type="button" class="link" id="to-end" hidden>回到最新 ↓</button>
+        </div>
+        <div class="term card" id="term" role="log"></div>
+      </section>
+
+      <section class="panel" id="tab-jobs" hidden>
+        <div class="card">
+          <ol id="jobs"></ol>
+          <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里，点一下能看它的输出。</p>
+        </div>
+      </section>
+
+      <section class="panel" id="tab-settings" hidden>
+        <form class="card" id="form" autocomplete="off">
+          <h4>渲染用的东西</h4>
+          <label>录像目录<code>PROMO_WORK</code><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
+          <label>站点构建<code>PROMO_SITE</code><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
+          <label>Chrome<code>PROMO_CHROME</code><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
+          <label>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
+          <label>临时浏览器配置<code>PROMO_PROFILES</code><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
+          <label class="switch"><span>用显卡画<small>不开就用软件绘制，慢很多</small></span><input type="checkbox" name="PROMO_GPU" role="switch" /></label>
+          <h4>连接 lemon</h4>
+          <div class="two">
+            <label>SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
+            <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+          </div>
+          <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
+          <div id="here">
+            <h4>这台电脑上</h4>
+            <label class="switch"><span>登录 Windows 后自动启动<small>往「启动」文件夹放一个小脚本，关掉就删掉</small></span><input type="checkbox" id="autostart" role="switch" /></label>
+            <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
+          </div>
+        </form>
+      </section>
+
+      <footer>关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</footer>
+    </div>
 
     <script>
       const $ = (s) => document.querySelector(s);
       const KEYS = ['PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
+      const C = 2 * Math.PI * 52;
       let S = null;
       let filled = false;
       let gone = false;
       const open = new Set();
+      const flying = new Set();
 
       const pad = (n) => String(n).padStart(2, '0');
       const clock = (t) => {
         const d = new Date(t);
         return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
       };
+      const stamp = (t) => `${clock(t)}:${pad(new Date(t).getSeconds())}`;
       const took = (ms) => {
-        const s = ms / 1000;
-        if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} 秒`;
-        return `${Math.floor(s / 60)} 分 ${pad(Math.round(s % 60))} 秒`;
+        const s = Math.round(ms / 1000);
+        return ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} 秒` : `${Math.floor(s / 60)} 分 ${pad(s % 60)} 秒`;
+      };
+      const ago = (t) => {
+        const m = Math.floor((Date.now() - t) / 60000);
+        if (m < 1) return '刚刚';
+        if (m < 60) return `${m} 分钟前`;
+        const h = Math.floor(m / 60);
+        return h < 24 ? `${h} 小时前` : `${Math.floor(h / 24)} 天前`;
+      };
+      const uptime = (ms) => {
+        const s = Math.floor(ms / 1000);
+        return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+      };
+      const set = (id, text) => {
+        const el = document.getElementById(id);
+        if (el.textContent !== text) el.textContent = text;
       };
       const post = (path, body) =>
         fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
           .then((r) => r.json())
           .then(render)
           .catch(() => {});
+
+      // the window's icon in the state's colour, as the tray's
+      let painted = '';
+      function paint(color) {
+        if (painted === color) return;
+        painted = color;
+        $('#favicon').href = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="${color}"/><path d="M12.5 9 23.5 16 12.5 23z" fill="#fff"/></svg>`)}`;
+      }
+      const COLORS = { idle: '#2a9d80', busy: '#6a4c9e', connecting: '#d99a1e', retry: '#d99a1e', auth: '#d4563a', gone: '#d4563a' };
 
       function render(s) {
         if (s) S = s;
@@ -551,60 +864,119 @@
         const now = Date.now();
         const mode = gone ? 'gone' : j ? 'busy' : t.state === 'up' ? 'idle' : t.state;
         document.body.dataset.mode = mode;
+        paint(COLORS[mode] ?? '#9a8a9d');
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
-          gone: ['没在运行', '渲染站没在运行', '后台的 station.mjs 停了。托盘图标几秒内会把它重新拉起来；没有托盘图标的话，双击 promo\\remote\\station.cmd。'],
+          gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击 promo\\remote\\station.vbs。'],
           busy: ['渲染中', `正在渲染：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
-          idle: [`已连上 lemon · ${t.port}`, '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 那边用 ask.mjs 发来任务，就会在这里开始渲。`],
-          connecting: ['正在连接', '正在连接 lemon…', `ssh ${target}`],
-          retry: ['重连中', `连不上 lemon，${secs} 秒后再试`, t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
-          auth: ['登录不上', 'lemon 不让登录', `${t.message ? t.message + '。' : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target} 试试，能直接进去就行。弄好后点「重新连接」。`],
+          idle: ['在线', '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 用 ask.mjs 发来任务，就会在这里开始渲。`],
+          connecting: ['连接中', '正在连接 lemon…', `ssh ${target}`],
+          retry: ['重连中', '连不上 lemon，马上再试', t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
+          auth: ['登录不上', 'lemon 不让登录', `${t.message ? `${t.message}。` : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target}，能直接进去就行。弄好后点「重新连接」。`],
           off: ['已暂停', '暂停接单了', '隧道关着，lemon 发不来任务。点「继续接单」重新连上。'],
-        }[mode];
-        $('#chip').textContent = text[0];
-        $('#headline').textContent = text[1];
-        $('#detail').textContent = text[2];
+        }[mode] ?? [mode, mode, ''];
+        set('chip', text[0]);
+        set('headline', text[1]);
+        set('detail', text[2]);
         document.title = `渲染站 · ${text[0]}`;
 
-        // how far the job is
-        const bar = $('#bar');
-        if (j) {
-          const known = j.total != null && j.total > 0;
-          bar.classList.toggle('unknown', !known);
-          bar.firstElementChild.style.width = known ? `${Math.min(100, (j.n / j.total) * 100).toFixed(1)}%` : '';
-          if (known && j.frames) {
-            const left = j.ms ? took((j.total - j.n) * j.ms) : '…';
-            $('#nums').textContent = `${j.n} / ${j.total} 帧 · ${j.ms ?? '…'} ms/帧 · 还要约 ${left}`;
-          } else if (known) {
-            const each = j.n ? (now - j.started) / j.n : null;
-            $('#nums').textContent = `${j.n} / ${j.total} 张${each ? ` · 还要约 ${took((j.total - j.n) * each)}` : ''}`;
-          } else $('#nums').textContent = '准备中…';
-        } else $('#nums').textContent = '';
+        // the ring: how far the job is, the wait before trying again, or just the state
+        let p = 0;
+        let spin = false;
+        let big = '—';
+        let small = '';
+        let word = true;
+        if (mode === 'busy') {
+          if (j.total > 0) {
+            p = Math.min(1, j.n / j.total);
+            big = `${Math.floor(p * 100)}%`;
+            word = false;
+            small = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}`;
+          } else {
+            spin = true;
+            big = '准备';
+            small = '还没出帧';
+          }
+        } else if (mode === 'idle') {
+          p = 1;
+          big = '在线';
+          small = `lemon:${t.port}`;
+        } else if (mode === 'connecting') {
+          spin = true;
+          big = '连接';
+          small = `lemon:${t.port ?? ''}`;
+        } else if (mode === 'retry') {
+          p = t.wait ? Math.min(1, (secs * 1000) / t.wait) : 0;
+          big = String(secs);
+          word = false;
+          small = '秒后重连';
+        } else if (mode === 'auth') {
+          p = 1;
+          big = '登不上';
+        } else if (mode === 'off') {
+          big = '暂停';
+        } else if (mode === 'gone') {
+          big = '停了';
+          small = '等它重启';
+        }
+        const arc = $('#arc');
+        $('#meter').classList.toggle('spin', spin);
+        arc.style.strokeDasharray = spin ? `${C * 0.26} ${C}` : `${C} ${C}`;
+        arc.style.strokeDashoffset = spin ? '0' : String(C * (1 - p));
+        arc.style.opacity = spin || p > 0 ? '1' : '0';
+        set('big', big);
+        $('#big').className = word ? 'word' : '';
+        set('small', small);
 
-        $('#toggle').textContent = t.state === 'off' ? '继续接单' : '暂停接单';
-        $('#toggle').hidden = gone;
+        if (j && j.total > 0 && j.frames) {
+          const left = j.ms ? took((j.total - j.n) * j.ms) : '…';
+          set('nums', `${j.ms ?? '…'} ms/帧 · 还要约 ${left}`);
+        } else if (j && j.total > 0 && j.n) set('nums', `还要约 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`);
+        else set('nums', '');
+
+        const toggle = $('#toggle');
+        toggle.textContent = t.state === 'off' ? '继续接单' : '暂停接单';
+        toggle.classList.toggle('primary', t.state === 'off');
+        toggle.hidden = gone;
         $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
 
-        const tunnelText = { up: `lemon:${t.port}，${t.since ? clock(t.since) : ''} 起`, connecting: '连接中', retry: `${secs} 秒后重连`, auth: '登录不上', off: '关着' }[t.state] ?? '—';
-        $('#r-tunnel').textContent = gone ? '—' : tunnelText;
-        $('#r-worker').textContent = gone ? '—' : S.workerError ? S.workerError : j ? `渲染中：${j.what}` : '空闲';
+        // the numbers
+        if (!gone && t.state === 'up') {
+          set('s-tunnel', uptime(now - t.since));
+          set('s-tunnel-sub', `lemon:${t.port} · ${clock(t.since)} 起`);
+        } else {
+          set('s-tunnel', '—');
+          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录不上', off: '关着' }[t.state] ?? ''));
+        }
+        const all = S.today.done + S.today.failed;
+        set('s-today', String(all));
+        set('s-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，都完成了' : '个任务');
+        const last = S.jobs[0];
+        set('s-last', last ? took(last.ms) : '—');
+        set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '完成' : '失败'}` : '还没有');
+        const rate = j?.ms ?? S.jobs.find((x) => x.rate)?.rate;
+        set('s-rate', rate ? String(rate) : '—');
 
         const notice = $('#notice');
         notice.hidden = gone || !S.missing.length;
         if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。不填的话，任务会失败。`;
+        $('#badge').hidden = !S.missing.length;
+        set('jobs-count', S.jobs.length ? String(S.jobs.length) : '');
 
         renderJobs();
         if (!filled) fill();
         for (const k of KEYS) $(`[name=${k}]`).classList.toggle('missing', S.missing.includes(k));
-        $('#auto-row').hidden = $('#auto-hint').hidden = S.platform !== 'win32';
-        $('#autostart').checked = S.autostart;
+        $('#here').hidden = S.platform !== 'win32';
+        $('#shortcut-row').hidden = !S.canShortcut;
+        if (!flying.has('autostart')) $('#autostart').checked = S.autostart;
+        if (!flying.has('shortcut')) $('#shortcut').checked = S.shortcut;
       }
 
       function renderJobs() {
         const list = $('#jobs');
         $('#empty').hidden = S.jobs.length > 0;
-        const key = JSON.stringify(S.jobs.map((j) => [j.id, open.has(j.id)]));
+        const key = JSON.stringify(S.jobs.map((j) => [j.id, j.started, open.has(j.id)]));
         if (list.dataset.key === key) return;
         list.dataset.key = key;
         list.replaceChildren(
@@ -620,7 +992,7 @@
               span.textContent = text;
               return span;
             };
-            b.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(j.ok ? 'ok' : 'bad', j.ok ? '完成' : '失败'));
+            b.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '完成' : '失败'));
             b.onclick = () => {
               open.has(j.id) ? open.delete(j.id) : open.add(j.id);
               renderJobs();
@@ -628,7 +1000,7 @@
             li.append(b);
             if (open.has(j.id)) {
               const pre = document.createElement('pre');
-              pre.textContent = (j.files?.length ? `传回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
+              pre.textContent = (j.files?.length ? `交回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
               li.append(pre);
             }
             return li;
@@ -643,8 +1015,86 @@
         f.elements.PROMO_GPU.checked = S.config.env.PROMO_GPU === '1';
         f.elements.target.value = S.config.ssh.target ?? '';
         f.elements.port.value = S.config.ssh.port ?? '';
-        if (S.missing.length) $('#settings').open = true;
+        if (S.missing.length) show('settings');
       }
+
+      // ——— the feed: what is said, and what ssh and render.mjs print ———
+      const term = $('#term');
+      const lines = [];
+      let filter = 'all';
+      const KINDS = { render: ['render', 'out'], tunnel: ['tunnel', 'ssh'] };
+      const TAGS = { render: '渲染', tunnel: '连接', station: '渲染站' };
+      const shows = (item) => !KINDS[filter] || KINDS[filter].includes(item.kind);
+      // render.mjs's progress, one line rewritten
+      const progress = (item) => item?.kind === 'out' && /^frame \d+\/\d+/.test(item.text);
+      function line(item) {
+        const el = document.createElement('div');
+        const raw = item.kind === 'out' || item.kind === 'ssh';
+        el.className = `ln k-${item.kind}${raw ? ' raw' : ''}`;
+        const time = document.createElement('time');
+        time.textContent = raw ? '' : stamp(item.t);
+        const tag = document.createElement('i');
+        tag.textContent = TAGS[item.kind] ?? '';
+        const text = document.createElement('span');
+        text.textContent = item.text;
+        el.append(time, tag, text);
+        item.el = el;
+        return el;
+      }
+      const atEnd = () => term.scrollTop + term.clientHeight >= term.scrollHeight - 16;
+      function add(items) {
+        const stick = atEnd();
+        for (const item of items) {
+          const prev = lines.at(-1);
+          if (progress(item) && progress(prev)) {
+            prev.text = item.text;
+            if (prev.el) prev.el.lastChild.textContent = item.text;
+            continue;
+          }
+          lines.push(item);
+          if (shows(item)) term.append(line(item));
+        }
+        while (lines.length > 600) lines.shift().el?.remove();
+        if (stick) term.scrollTop = term.scrollHeight;
+        else $('#to-end').hidden = false;
+      }
+      function rebuild() {
+        term.replaceChildren(...lines.filter(shows).map(line));
+        term.scrollTop = term.scrollHeight;
+        $('#to-end').hidden = true;
+      }
+      term.addEventListener('scroll', () => {
+        if (atEnd()) $('#to-end').hidden = true;
+      });
+      $('#to-end').addEventListener('click', () => {
+        term.scrollTop = term.scrollHeight;
+        $('#to-end').hidden = true;
+      });
+      for (const b of document.querySelectorAll('[data-filter]'))
+        b.addEventListener('click', () => {
+          filter = b.dataset.filter;
+          for (const o of document.querySelectorAll('[data-filter]')) o.setAttribute('aria-pressed', o === b);
+          rebuild();
+        });
+
+      // ——— the pages ———
+      const tabs = [...document.querySelectorAll('[role=tab]')];
+      function show(name) {
+        for (const b of tabs) {
+          b.setAttribute('aria-selected', b.dataset.tab === name);
+          $(`#tab-${b.dataset.tab}`).hidden = b.dataset.tab !== name;
+        }
+        try {
+          localStorage.setItem('station-tab', name);
+        } catch {}
+        if (name === 'feed') term.scrollTop = term.scrollHeight;
+      }
+      for (const b of tabs) b.addEventListener('click', () => show(b.dataset.tab));
+      let first = 'feed';
+      try {
+        first = localStorage.getItem('station-tab') || 'feed';
+      } catch {}
+      show(tabs.some((b) => b.dataset.tab === first) ? first : 'feed');
 
       $('#form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -655,20 +1105,32 @@
         $('#saved').classList.add('on');
         setTimeout(() => $('#saved').classList.remove('on'), 2200);
       });
-      $('#autostart').addEventListener('change', (e) => post('/autostart', { on: e.target.checked }));
+      // applied at once; not set back by the state while the change is on its way
+      for (const id of ['autostart', 'shortcut'])
+        $(`#${id}`).addEventListener('change', async (e) => {
+          flying.add(id);
+          await post(`/${id}`, { on: e.target.checked });
+          flying.delete(id);
+        });
       $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
       $('#reconnect').addEventListener('click', () => post('/reconnect'));
 
       const events = new EventSource('/events');
+      // the station sends its whole feed on each connection
+      events.onopen = () => {
+        lines.length = 0;
+        term.replaceChildren();
+      };
       events.onmessage = (e) => {
         gone = false;
         render(JSON.parse(e.data));
       };
+      events.addEventListener('lines', (e) => add(JSON.parse(e.data)));
       events.onerror = () => {
         gone = true;
         render();
       };
-      // the countdowns and the time a job has taken
+      // the countdowns and the times
       setInterval(() => render(), 1000);
     </script>
   </body>

@@ -1,8 +1,8 @@
 ﻿# 渲染站's tray icon, on the owner's Windows machine: starts station.mjs, starts it again whenever
 # it stops, and shows in its colour how it is doing (green waiting, purple rendering, amber
-# connecting, red stuck, grey paused); a click opens the window. station.cmd runs it with -Open;
-# the Startup folder's script runs it without, when 「登录 Windows 后自动启动」 is on. Only one runs:
-# a second one opens the window and goes.
+# connecting, red stuck, grey paused); a click opens the window. station.vbs (and the 渲染站
+# shortcuts) run it with -Open, hidden, so no terminal shows; the Startup folder's script runs it
+# without, when 「登录 Windows 后自动启动」 is on. Only one runs: a second one opens the window and goes.
 # usage: powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File station.ps1 [-Open]
 param([switch]$Open)
 
@@ -43,7 +43,7 @@ function Show-Window {
     "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
     "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe"
   ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if ($edge) { Start-Process $edge -ArgumentList "--app=$base/", '--window-size=600,860' }
+  if ($edge) { Start-Process $edge -ArgumentList "--app=$base/", '--window-size=840,940' }
   else { Start-Process "$base/" }
 }
 function Open-Log { if (Test-Path $log) { Start-Process notepad.exe -ArgumentList "`"$log`"" } }
@@ -90,23 +90,46 @@ function Start-Station {
   $script:startedAt = Get-Date
 }
 
-# ——— the icon: a dot in the state's colour with a play mark ———
-function New-Dot([string]$hex) {
-  $bmp = New-Object System.Drawing.Bitmap 32, 32
+# ——— the icon: a dot in the state's colour with a play mark, as the window's ———
+function Draw-Dot([string]$hex, [int]$size) {
+  $k = [single]($size / 32)
+  $bmp = New-Object System.Drawing.Bitmap $size, $size
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = 'AntiAlias'
   $fill = New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($hex))
   $white = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-  $g.FillEllipse($fill, 1, 1, 30, 30)
+  $g.FillEllipse($fill, [single](1 * $k), [single](1 * $k), [single](30 * $k), [single](30 * $k))
   $mark = [System.Drawing.PointF[]]@(
-    (New-Object System.Drawing.PointF 12.5, 9),
-    (New-Object System.Drawing.PointF 23.5, 16),
-    (New-Object System.Drawing.PointF 12.5, 23)
+    (New-Object System.Drawing.PointF ([single](12.5 * $k)), ([single](9 * $k))),
+    (New-Object System.Drawing.PointF ([single](23.5 * $k)), ([single](16 * $k))),
+    (New-Object System.Drawing.PointF ([single](12.5 * $k)), ([single](23 * $k)))
   )
   $g.FillPolygon($white, $mark)
   $g.Dispose(); $fill.Dispose(); $white.Dispose()
-  [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+  $bmp
 }
+function New-Dot([string]$hex) { [System.Drawing.Icon]::FromHandle((Draw-Dot $hex 32).GetHicon()) }
+# the shortcuts' icon (station.mjs makes them): one 256px PNG in an .ico
+function Save-Ico([string]$path) {
+  $png = New-Object System.IO.MemoryStream
+  (Draw-Dot '#6a4c9e' 256).Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+  $bytes = $png.ToArray()
+  $out = New-Object System.IO.MemoryStream
+  $w = New-Object System.IO.BinaryWriter($out)
+  # the header: an icon, one image; the image: 256 across (0), no palette, 32 bits, where it is
+  $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]1)
+  $w.Write([byte]0); $w.Write([byte]0); $w.Write([byte]0); $w.Write([byte]0)
+  $w.Write([uint16]1); $w.Write([uint16]32)
+  $w.Write([uint32]$bytes.Length); $w.Write([uint32]22)
+  $w.Write($bytes)
+  $w.Flush()
+  [System.IO.File]::WriteAllBytes($path, $out.ToArray())
+}
+try {
+  $tools = Join-Path $repo '.tools\remote'
+  [void](New-Item -ItemType Directory -Force -Path $tools)
+  Save-Ico (Join-Path $tools 'station.ico')
+} catch {}
 $icons = @{
   idle       = New-Dot '#2a9d80'
   busy       = New-Dot '#6a4c9e'
