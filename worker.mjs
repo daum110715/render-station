@@ -48,9 +48,14 @@ function check(argv) {
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 
-/** the worker on `port`; `env()`: what to add to the environment render.mjs runs in; `on(event)`:
- *  {type: 'start', id, args}, {type: 'log', id, text}, {type: 'end', id, ok, ms, files, tail} */
-export function serve({ port = WORKER, env = () => ({}), on = () => {} } = {}) {
+const pad = (n) => String(n).padStart(2, '0');
+/** now, as a folder's name that sorts as time does */
+const stamp = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+
+/** the worker on `port`; `env()`: what to add to the environment render.mjs runs in; `keep`: a
+ *  folder to keep here what each job made, the latest 30 jobs' worth; `on(event)`:
+ *  {type: 'start', id, args}, {type: 'log', id, text}, {type: 'end', id, ok, ms, files, tail, paths} */
+export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = null } = {}) {
   let busy = false;
   let next = 1;
   async function run(body, id) {
@@ -92,7 +97,22 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {} } = {}) {
       code = 1;
     }
     const ok = code === 0;
-    on({ type: 'end', id, ok, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000) });
+    const paths = [];
+    if (ok && keep && Object.keys(made).length) {
+      try {
+        const into = join(keep, stamp());
+        for (const [name, data] of Object.entries(made)) {
+          const file = join(into, name);
+          mkdirSync(dirname(file), { recursive: true });
+          writeFileSync(file, Buffer.from(data, 'base64'));
+          paths.push(file);
+        }
+        for (const old of readdirSync(keep).sort().slice(0, -30)) rmSync(join(keep, old), { recursive: true, force: true });
+      } catch (e) {
+        log += `not kept here: ${e.message}\n`;
+      }
+    }
+    on({ type: 'end', id, ok, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000), paths });
     return { ok, log, files: made };
   }
 

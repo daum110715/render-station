@@ -1,7 +1,8 @@
 // Builds promo/remote/渲染站.exe from station.c with mingw-w64, here on lemon: draws the icons (a
 // dot in each state's colour with a play mark, as the window's) into .ico files, then compiles the
-// resources and the program. In .tools/exe-build/ on the way. Run after changing station.c, the
-// resources or the icons, and commit the exe.
+// resources and the program against the WebView2 SDK (NuGet's Microsoft.Web.WebView2, unpacked in
+// .tools/webview2/), and puts the SDK's WebView2Loader.dll beside it. In .tools/exe-build/ on the
+// way. Run after changing station.c, the resources or the icons, and commit the exe and the dll.
 // usage: node promo/remote/exe/build.mjs
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,6 +14,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = join(here, '../../..');
 const build = join(repo, '.tools/exe-build');
 const out = join(here, '..', '渲染站.exe');
+const sdk = join(repo, '.tools/webview2/build/native');
 
 // ——— PNG ———
 const CRC = Array.from({ length: 256 }, (_, n) => {
@@ -109,8 +111,12 @@ const TRAY = [16, 20, 24, 32, 40, 48, 64];
 writeFileSync(join(build, 'busy.ico'), ico('#6a4c9e', [...TRAY, 96, 128, 256]));
 for (const [name, hex] of Object.entries({ idle: '#2a9d80', wait: '#d99a1e', bad: '#d4563a', off: '#9a8a9d' })) writeFileSync(join(build, `${name}.ico`), ico(hex, TRAY));
 for (const f of ['station.rc', 'station.manifest']) copyFileSync(join(here, f), join(build, f));
+// WebView2.h asks for EventToken.h, which mingw-w64 has in lower case
+writeFileSync(join(build, 'EventToken.h'), '#include <eventtoken.h>\n');
 
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: build, stdio: 'inherit' });
 run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'station.rc', '-O', 'coff', '-o', 'station.res.o']);
-run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-o', out, join(here, 'station.c'), 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32']);
+// the SDK as a system header: its IIDs, defined in the header, are not ours to be warned about
+run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-isystem', build, '-isystem', join(sdk, 'include'), '-o', out, join(here, 'station.c'), 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi']);
+copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(here, '..', 'WebView2Loader.dll'));
 console.log(out);

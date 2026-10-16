@@ -1,8 +1,10 @@
 // 渲染站.exe, the render station's tray icon on the owner's Windows machine, and what the owner
 // double-clicks. It starts the station (station.mjs, with node) with no window at all, starts it
 // again whenever it stops, and shows in its colour how it is doing (green waiting, purple
-// rendering, amber connecting, red stuck, grey paused); a click opens the station's window
-// (station.html, in Edge's app window). It keeps what the window's settings ask for: starting with
+// rendering, amber connecting, red stuck, grey paused); a click opens the station's window: a
+// window of its own with no frame but the page's (station.html in WebView2, through
+// WebView2Loader.dll beside it), or failing that Edge's app window. The page drags it, minimizes
+// and closes it, and opens what a job made, by messages. It keeps what the settings ask for: starting with
 // Windows (a value under HKCU\...\Run, so it shows in Task Manager's startup apps) and 渲染站 on
 // the desktop and in the Start menu. The station and all it starts (ssh, a render's Chrome and
 // ffmpeg) run in a job object, so quitting, or this ending any other way, ends them too. Only one
@@ -24,9 +26,11 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <dwmapi.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+#include "WebView2.h"
 
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
@@ -51,6 +55,14 @@ static HANDLE job, node;
 static ULONGLONG startedAt, shownAt;
 static int fails, gaveUp, quitting, wantOpen, up, off, seen;
 static int lastAuto = -1, lastLink = -1;
+// the window, while it is open; WebView2's environment maker from its loader
+static HWND frame;
+static ICoreWebView2Controller *ctl;
+static ICoreWebView2 *wv;
+typedef HRESULT(STDAPICALLTYPE *CreateEnv)(PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions *, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *);
+static CreateEnv createEnv;
+static int dpi = 96, dark;
+#define DIP(v) MulDiv(v, dpi, 96)
 static wchar_t toggleText[32] = L"暂停接单", lastMode[16], lastKey[64];
 
 static int isFile(const wchar_t *p) {
@@ -148,11 +160,7 @@ static void openLog(void) {
   ShellExecuteW(NULL, L"open", L"notepad.exe", log, NULL, SW_SHOWNORMAL);
 }
 // Edge's app window, which every Windows has; failing that, the default browser
-static void openWindow(void) {
-  ULONGLONG now = GetTickCount64();
-  if (shownAt && now - shownAt < 1500) return;
-  shownAt = now;
-  if (gaveUp) return openLog();
+static void openEdge(void) {
   const wchar_t *roots[] = { L"ProgramFiles(x86)", L"ProgramFiles", L"LOCALAPPDATA" };
   wchar_t root[MAX_PATH], edge[MAX_PATH + 64];
   for (int i = 0; i < 3; i++) {
@@ -164,6 +172,198 @@ static void openWindow(void) {
     }
   }
   ShellExecuteW(NULL, L"open", L"http://127.0.0.1:7799/", NULL, NULL, SW_SHOWNORMAL);
+}
+
+// ——— the window of its own ———
+static void closeFrame(void) {
+  if (ctl) {
+    ICoreWebView2Controller_Close(ctl);
+    ICoreWebView2Controller_Release(ctl);
+    ctl = NULL;
+  }
+  if (wv) {
+    ICoreWebView2_Release(wv);
+    wv = NULL;
+  }
+  if (frame) {
+    HWND h = frame;
+    frame = NULL;
+    DestroyWindow(h);
+  }
+}
+// it could not be made: Edge's, as before
+static void fallBack(void) {
+  closeFrame();
+  openEdge();
+}
+// what a job made, kept under promo\out\remote: opened, or shown in its folder
+static void reveal(const wchar_t *path, int folder) {
+  wchar_t root[MAX_PATH + 32], full[MAX_PATH * 2];
+  FMT(root, L"%ls\\promo\\out\\remote\\", repo);
+  if (!GetFullPathNameW(path, MAX_PATH * 2, full, NULL) || _wcsnicmp(full, root, wcslen(root)) || !isFile(full)) return;
+  if (folder) {
+    wchar_t arg[MAX_PATH * 2 + 16];
+    FMT(arg, L"/select,\"%ls\"", full);
+    ShellExecuteW(NULL, L"open", L"explorer.exe", arg, NULL, SW_SHOWNORMAL);
+  } else
+    ShellExecuteW(NULL, L"open", full, NULL, NULL, SW_SHOWNORMAL);
+}
+
+// WebView2's callbacks: objects with nothing but their table, never freed
+static HRESULT STDMETHODCALLTYPE anyQI(IUnknown *self, REFIID riid, void **out) {
+  (void)riid;
+  *out = self;
+  return S_OK;
+}
+static ULONG STDMETHODCALLTYPE oneRef(IUnknown *self) {
+  (void)self;
+  return 1;
+}
+// the page's word: drag, min, close, or open/show and a path
+static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventHandler *self, ICoreWebView2 *sender, ICoreWebView2WebMessageReceivedEventArgs *args) {
+  (void)self;
+  (void)sender;
+  LPWSTR s = NULL;
+  if (FAILED(ICoreWebView2WebMessageReceivedEventArgs_TryGetWebMessageAsString(args, &s)) || !s) return S_OK;
+  if (frame && !wcscmp(s, L"drag")) {
+    // as if its title bar had been pressed: moved, snapped to the screen's sides
+    POINT pt;
+    GetCursorPos(&pt);
+    ReleaseCapture();
+    PostMessageW(frame, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+  } else if (frame && !wcscmp(s, L"min"))
+    ShowWindow(frame, SW_MINIMIZE);
+  else if (frame && !wcscmp(s, L"close"))
+    PostMessageW(frame, WM_CLOSE, 0, 0);
+  else if (!wcsncmp(s, L"open\t", 5))
+    reveal(s + 5, 0);
+  else if (!wcsncmp(s, L"show\t", 5))
+    reveal(s + 5, 1);
+  CoTaskMemFree(s);
+  return S_OK;
+}
+static ICoreWebView2WebMessageReceivedEventHandlerVtbl messageTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onMessage };
+static ICoreWebView2WebMessageReceivedEventHandler messageHandler = { &messageTable };
+
+static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *self, HRESULT result, ICoreWebView2Controller *made) {
+  (void)self;
+  if (FAILED(result) || !made || !frame) {
+    fallBack();
+    return S_OK;
+  }
+  ctl = made;
+  ICoreWebView2Controller_AddRef(ctl);
+  ICoreWebView2Controller_get_CoreWebView2(ctl, &wv);
+  // the page's own paper behind it while it loads
+  ICoreWebView2Controller2 *c2;
+  if (SUCCEEDED(ICoreWebView2Controller_QueryInterface(ctl, &IID_ICoreWebView2Controller2, (void **)&c2))) {
+    COREWEBVIEW2_COLOR bg = dark ? (COREWEBVIEW2_COLOR){ 255, 0x17, 0x12, 0x16 } : (COREWEBVIEW2_COLOR){ 255, 0xf8, 0xf6, 0xf5 };
+    ICoreWebView2Controller2_put_DefaultBackgroundColor(c2, bg);
+    ICoreWebView2Controller2_Release(c2);
+  }
+  // an app's window, not a browser's
+  ICoreWebView2Settings *st;
+  if (SUCCEEDED(ICoreWebView2_get_Settings(wv, &st))) {
+    ICoreWebView2Settings_put_AreDevToolsEnabled(st, FALSE);
+    ICoreWebView2Settings_put_IsStatusBarEnabled(st, FALSE);
+    ICoreWebView2Settings_put_IsZoomControlEnabled(st, FALSE);
+    ICoreWebView2Settings3 *s3;
+    if (SUCCEEDED(ICoreWebView2Settings_QueryInterface(st, &IID_ICoreWebView2Settings3, (void **)&s3))) {
+      ICoreWebView2Settings3_put_AreBrowserAcceleratorKeysEnabled(s3, FALSE);
+      ICoreWebView2Settings3_Release(s3);
+    }
+    ICoreWebView2Settings_Release(st);
+  }
+  EventRegistrationToken token;
+  ICoreWebView2_add_WebMessageReceived(wv, &messageHandler, &token);
+  RECT rc;
+  GetClientRect(frame, &rc);
+  ICoreWebView2Controller_put_Bounds(ctl, rc);
+  ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
+  ShowWindow(frame, SW_SHOWNORMAL);
+  SetForegroundWindow(frame);
+  ICoreWebView2Controller_MoveFocus(ctl, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+  return S_OK;
+}
+static ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl controllerTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onController };
+static ICoreWebView2CreateCoreWebView2ControllerCompletedHandler controllerHandler = { &controllerTable };
+
+static HRESULT STDMETHODCALLTYPE onEnvironment(ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *self, HRESULT result, ICoreWebView2Environment *env) {
+  (void)self;
+  if (FAILED(result) || !env || !frame || FAILED(ICoreWebView2Environment_CreateCoreWebView2Controller(env, frame, &controllerHandler))) fallBack();
+  return S_OK;
+}
+static ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerVtbl environmentTable = { (void *)anyQI, (void *)oneRef, (void *)oneRef, onEnvironment };
+static ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler environmentHandler = { &environmentTable };
+
+static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+  case WM_NCCALCSIZE:
+    if (wp) {
+      // no title bar, the page draws its own; the sides and the bottom still resize it
+      NCCALCSIZE_PARAMS *p = (NCCALCSIZE_PARAMS *)lp;
+      LONG top = p->rgrc[0].top;
+      DefWindowProcW(h, msg, wp, lp);
+      p->rgrc[0].top = top + (IsZoomed(h) ? GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER) : 0);
+      return 0;
+    }
+    break;
+  case WM_SIZE:
+    if (ctl) {
+      RECT rc;
+      GetClientRect(h, &rc);
+      ICoreWebView2Controller_put_Bounds(ctl, rc);
+    }
+    return 0;
+  case WM_ACTIVATE:
+    if (ctl && LOWORD(wp) != WA_INACTIVE) ICoreWebView2Controller_MoveFocus(ctl, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+    break;
+  case WM_GETMINMAXINFO: {
+    MINMAXINFO *m = (MINMAXINFO *)lp;
+    m->ptMinTrackSize.x = DIP(520);
+    m->ptMinTrackSize.y = DIP(560);
+    return 0;
+  }
+  case WM_CLOSE:
+    closeFrame();
+    return 0;
+  }
+  return DefWindowProcW(h, msg, wp, lp);
+}
+static int makeFrame(void) {
+  RECT work;
+  SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+  int w = DIP(840), h = DIP(940);
+  if (h > work.bottom - work.top - DIP(32)) h = work.bottom - work.top - DIP(32);
+  frame = CreateWindowExW(0, L"QiqiRenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX,
+                          work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
+  if (!frame) return 0;
+  // the edge dark with the page, the corners round (Windows 11)
+  BOOL on = dark;
+  DwmSetWindowAttribute(frame, 20, &on, sizeof on);
+  int round = 2;
+  DwmSetWindowAttribute(frame, 33, &round, sizeof round);
+  SetWindowPos(frame, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  return 1;
+}
+static void openWindow(void) {
+  if (frame) {
+    // still being made: it shows itself
+    if (!ctl) return;
+    ShowWindow(frame, IsIconic(frame) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(frame);
+    return;
+  }
+  ULONGLONG now = GetTickCount64();
+  if (shownAt && now - shownAt < 1500) return;
+  shownAt = now;
+  if (gaveUp) return openLog();
+  if (createEnv && makeFrame()) {
+    wchar_t data[MAX_PATH + 32];
+    FMT(data, L"%ls\\.tools\\remote\\webview2", repo);
+    if (SUCCEEDED(createEnv(NULL, data, NULL, &environmentHandler))) return;
+  }
+  fallBack();
 }
 
 // ——— with Windows, and as an app: what the window's settings ask for ———
@@ -305,6 +505,7 @@ static void quit(void) {
   if (node) WaitForSingleObject(node, 2000);
   // and whatever it started
   if (job) TerminateJobObject(job, 0);
+  closeFrame();
   Shell_NotifyIconW(NIM_DELETE, &nid);
   DestroyWindow(hwnd);
 }
@@ -404,7 +605,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   wantOpen = !quiet;
   CreateMutexW(NULL, TRUE, L"Local\\qiqi-render-station-tray");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
-    if (!quiet) openWindow();
+    // the one running opens its window, and may bring it to the front
+    HWND other = FindWindowW(L"QiqiRenderStation", NULL);
+    if (other && !quiet) {
+      DWORD pid = 0;
+      GetWindowThreadProcessId(other, &pid);
+      AllowSetForegroundWindow(pid);
+      PostMessageW(other, WM_COMMAND, CMD_OPEN, 0);
+    }
     return 0;
   }
 
@@ -431,6 +639,27 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   darkMenus();
   int cx = GetSystemMetrics(SM_CXSMICON), cy = GetSystemMetrics(SM_CYSMICON);
   for (int i = 0; i < ICONS; i++) icons[i] = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(i + 1), IMAGE_ICON, cx, cy, 0);
+  HDC screen = GetDC(NULL);
+  dpi = GetDeviceCaps(screen, LOGPIXELSY);
+  ReleaseDC(NULL, screen);
+  DWORD light = 1, size = sizeof light;
+  RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &light, &size);
+  dark = light == 0;
+  // WebView2's loader, beside this
+  wchar_t loader[MAX_PATH + 32];
+  FMT(loader, L"%ls\\WebView2Loader.dll", exeDir);
+  HMODULE wl = LoadLibraryW(loader);
+  if (wl) createEnv = (CreateEnv)(void *)GetProcAddress(wl, "CreateCoreWebView2EnvironmentWithOptions");
+  WNDCLASSEXW fc = { sizeof fc };
+  fc.style = CS_HREDRAW | CS_VREDRAW;
+  fc.lpfnWndProc = frameProc;
+  fc.hInstance = inst;
+  fc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+  fc.hbrBackground = CreateSolidBrush(dark ? RGB(0x17, 0x12, 0x16) : RGB(0xf8, 0xf6, 0xf5));
+  fc.hIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+  fc.hIconSm = icons[ICON_BUSY];
+  fc.lpszClassName = L"QiqiRenderStationWindow";
+  RegisterClassExW(&fc);
 
   WNDCLASSW wc = { 0 };
   wc.lpfnWndProc = proc;

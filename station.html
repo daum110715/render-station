@@ -98,8 +98,53 @@
         display: none !important;
       }
 
+      /* ——— the title bar, in 渲染站.exe's own window (it has no other) ——— */
+      .titlebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: flex-end;
+        height: 36px;
+        background: color-mix(in srgb, var(--bg) 84%, transparent);
+        backdrop-filter: blur(12px);
+        user-select: none;
+      }
+      .framed .app {
+        padding-top: 42px;
+      }
+      .titlebar .tb {
+        display: grid;
+        place-items: center;
+        width: 46px;
+        height: 36px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--ink-2);
+      }
+      .titlebar .tb:hover {
+        background: var(--well);
+        color: var(--ink);
+      }
+      .titlebar .tb.close:hover {
+        background: #c42b1c;
+        color: #fff;
+      }
+      .tb svg {
+        width: 10px;
+        height: 10px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1;
+      }
+
       /* ——— the name, and how it is ——— */
       .top {
+        user-select: none;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -507,22 +552,32 @@
       }
       .job {
         display: grid;
-        grid-template-columns: 3.2em 1fr auto auto;
+        grid-template-columns: 3.2em 1fr auto auto auto;
         align-items: center;
         gap: 14px;
-        width: 100%;
         padding: 12px 18px;
-        border: 0;
-        border-radius: 0;
-        background: none;
-        font: inherit;
         font-size: 13px;
-        color: var(--ink);
-        text-align: left;
+        cursor: pointer;
+        transition: background-color 0.2s;
       }
       .job:hover {
-        color: var(--ink);
         background: var(--well);
+      }
+      .job:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
+      .job .open,
+      .acts button {
+        padding: 2px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+      .acts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: -2px 18px 10px;
       }
       .job .at,
       .job .took {
@@ -718,6 +773,10 @@
     </style>
   </head>
   <body data-mode="connecting">
+    <div class="titlebar" id="titlebar" hidden>
+      <button type="button" class="tb" id="tb-min" aria-label="最小化"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>
+      <button type="button" class="tb close" id="tb-close" aria-label="关闭"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg></button>
+    </div>
     <div class="app">
       <header class="top">
         <div class="brand">
@@ -776,7 +835,7 @@
       <section class="panel" id="tab-jobs" hidden>
         <div class="card">
           <ol id="jobs"></ol>
-          <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里，点一下能看它的输出。</p>
+          <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里：点一下看它的输出，点「打开」看渲出来的东西。</p>
         </div>
       </section>
 
@@ -815,6 +874,9 @@
       let gone = false;
       const open = new Set();
       const flying = new Set();
+      // in 渲染站.exe's window: its title bar is this page's, and it opens what a job made
+      const host = window.chrome?.webview;
+      const reveal = (path, show = false) => (host ? host.postMessage(`${show ? 'show' : 'open'}\t${path}`) : post('/reveal', { path, show }));
 
       const pad = (n) => String(n).padStart(2, '0');
       const clock = (t) => {
@@ -982,23 +1044,53 @@
         list.replaceChildren(
           ...S.jobs.map((j) => {
             const li = document.createElement('li');
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'job';
-            b.setAttribute('aria-expanded', open.has(j.id));
+            const row = document.createElement('div');
+            row.className = 'job';
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.setAttribute('aria-expanded', open.has(j.id));
             const cell = (cls, text) => {
               const span = document.createElement('span');
               span.className = cls;
               span.textContent = text;
               return span;
             };
-            b.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '完成' : '失败'));
-            b.onclick = () => {
+            const button = (text, act) => {
+              const b = document.createElement('button');
+              b.type = 'button';
+              b.textContent = text;
+              b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                act();
+              });
+              return b;
+            };
+            row.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '完成' : '失败'));
+            // what it made, kept on this machine too
+            const kept = j.paths?.length ? j.paths : null;
+            if (kept) {
+              const b = button('打开', () => reveal(kept[0]));
+              b.className = 'open';
+              row.append(b);
+            }
+            const flip = () => {
               open.has(j.id) ? open.delete(j.id) : open.add(j.id);
               renderJobs();
             };
-            li.append(b);
+            row.addEventListener('click', flip);
+            row.addEventListener('keydown', (e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              flip();
+            });
+            li.append(row);
             if (open.has(j.id)) {
+              if (kept) {
+                const acts = document.createElement('div');
+                acts.className = 'acts';
+                acts.append(...kept.slice(0, 6).map((path) => button(`打开 ${path.split(/[\\/]/).pop()}`, () => reveal(path))), button('在文件夹里显示', () => reveal(kept[0], true)));
+                li.append(acts);
+              }
               const pre = document.createElement('pre');
               pre.textContent = (j.files?.length ? `交回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
               li.append(pre);
@@ -1114,6 +1206,19 @@
         });
       $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
       $('#reconnect').addEventListener('click', () => post('/reconnect'));
+
+      if (host) {
+        document.documentElement.classList.add('framed');
+        $('#titlebar').hidden = false;
+        // pressed on the bar or the name: the window moves, as by a title bar
+        const drag = (e) => {
+          if (e.button === 0 && !e.target.closest('button, input, a')) host.postMessage('drag');
+        };
+        $('#titlebar').addEventListener('mousedown', drag);
+        $('.top').addEventListener('mousedown', drag);
+        $('#tb-min').addEventListener('click', () => host.postMessage('min'));
+        $('#tb-close').addEventListener('click', () => host.postMessage('close'));
+      }
 
       const events = new EventSource('/events');
       // the station sends its whole feed on each connection

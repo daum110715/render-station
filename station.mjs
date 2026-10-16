@@ -128,6 +128,8 @@ function push() {
 }
 
 // ——— the worker ———
+/** where what the jobs made is kept here too, to be looked at: the latest 30 jobs' worth */
+const KEEP = join(repo, 'promo/out/remote');
 /** what a job is, in a few words */
 function describe(args) {
   const get = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
@@ -139,6 +141,7 @@ function startWorker() {
   let out = null;
   const server = serve({
     env: () => Object.fromEntries(Object.entries(config.env).filter(([, v]) => v !== '')),
+    keep: KEEP,
     on: (e) => {
       if (e.type === 'start') {
         const n = e.args.includes('--stills') ? e.args[e.args.indexOf('--stills') + 1].split(',').length : e.args.includes('--cover') ? 2 : null;
@@ -158,7 +161,7 @@ function startWorker() {
         // turned away before it started: why
         if (!job) say('out', e.tail.trim());
         const what = job?.what ?? '（没开始就被退回）';
-        jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, tail: e.tail, rate: job?.frames ? job.ms : null });
+        jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, paths: e.paths, tail: e.tail, rate: job?.frames ? job.ms : null });
         jobs.length = Math.min(jobs.length, 20);
         if (today.day !== new Date().toDateString()) today = { day: new Date().toDateString(), done: 0, failed: 0 };
         today[e.ok ? 'done' : 'failed']++;
@@ -376,6 +379,12 @@ const ui = createServer(async (req, res) => {
       config.shortcut = !!data.on;
       save();
       note('station', data.on ? '桌面和开始菜单里放上「渲染站」' : '桌面和开始菜单里的「渲染站」拿掉');
+    } else if (path === '/reveal') {
+      // what a job made, opened or shown in its folder (the window of 渲染站.exe asks it itself)
+      const file = resolve(String(data.path ?? ''));
+      if (!file.startsWith(KEEP) || !existsSync(file)) return res.writeHead(404).end();
+      const opener = win ? 'explorer.exe' : 'xdg-open';
+      spawn(opener, win && data.show ? [`/select,${file}`] : [file], { detached: true, stdio: 'ignore' }).unref();
     } else if (path === '/quit') {
       json(res, { ok: true });
       return quit();
