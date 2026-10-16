@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>渲染站</title>
+    <!-- 渲染站's window (station.mjs serves it): what the worker and the tunnel to lemon are doing,
+         the jobs lately done, the settings. In the site's own look, light or dark as the system is. -->
+    <link rel="stylesheet" href="/fonts/lxgw/lxgwwenkai-regular.css" />
+    <style>
+      @font-face {
+        font-family: 'Q Outfit';
+        font-weight: 100 900;
+        src: url('/fonts/outfit/files/outfit-latin-wght-normal.woff2') format('woff2-variations');
+        unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
+      }
+      :root {
+        --bg: #fcfbfa;
+        --paper: #ffffff;
+        --well: #f6f2f5;
+        --ink: #2b2430;
+        --ink-2: #7a5d7c;
+        --ink-3: #736a77;
+        --line: #dccbe4;
+        --accent: #6a4c9e;
+        --ok: #2a9d80;
+        --wait: #c58a14;
+        --bad: #d4563a;
+        --off: #9a8a9d;
+        --hand: 'LXGW WenKai', 'KaiTi', serif;
+        --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1a1519;
+          --paper: #211a20;
+          --well: #271f26;
+          --ink: #efe8ee;
+          --ink-2: #b4a3b5;
+          --ink-3: #9a8a9d;
+          --line: #3f3142;
+          --accent: #c9aef0;
+          --ok: #33b596;
+          --wait: #f1b74a;
+          --bad: #ec6a46;
+          --off: #7d6f80;
+          color-scheme: dark;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--bg);
+      }
+      body {
+        margin: 0 auto;
+        max-width: 560px;
+        padding: 30px 24px 36px;
+        color: var(--ink);
+        font: 14px/1.6 var(--ui);
+        -webkit-font-smoothing: antialiased;
+      }
+      .hand {
+        font-family: var(--hand);
+        font-weight: 400;
+        letter-spacing: 0.01em;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 32px;
+        line-height: 1.1;
+      }
+      header p {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--ink-3);
+        text-align: right;
+      }
+
+      /* ——— what is going on ——— */
+      body {
+        --state: var(--off);
+      }
+      body[data-mode='idle'] {
+        --state: var(--ok);
+      }
+      body[data-mode='busy'] {
+        --state: var(--accent);
+      }
+      body[data-mode='connecting'],
+      body[data-mode='retry'] {
+        --state: var(--wait);
+      }
+      body[data-mode='auth'],
+      body[data-mode='gone'] {
+        --state: var(--bad);
+      }
+      .hero {
+        position: relative;
+        padding: 22px 22px 20px;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      /* the state's colour along the top, as the site marks what is current */
+      .hero::before {
+        content: '';
+        position: absolute;
+        left: 22px;
+        top: -1px;
+        width: 56px;
+        height: 2px;
+        background: var(--state);
+        transition: background-color 0.3s;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        color: var(--ink-2);
+      }
+      .dot {
+        position: relative;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--state);
+        transition: background-color 0.3s;
+      }
+      body[data-mode='busy'] .chip .dot::after,
+      body[data-mode='connecting'] .chip .dot::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 1px solid var(--state);
+        animation: ring 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+      }
+      @keyframes ring {
+        from {
+          opacity: 0.9;
+          transform: scale(0.6);
+        }
+        to {
+          opacity: 0;
+          transform: scale(1.5);
+        }
+      }
+      h2 {
+        margin: 12px 0 4px;
+        font-size: 25px;
+        line-height: 1.3;
+      }
+      #detail {
+        margin: 0;
+        min-height: 1.6em;
+        font-size: 13px;
+        color: var(--ink-2);
+        overflow-wrap: anywhere;
+      }
+      .bar {
+        position: relative;
+        height: 2px;
+        margin: 18px 0 8px;
+        background: var(--line);
+        overflow: hidden;
+        visibility: hidden;
+      }
+      body[data-mode='busy'] .bar {
+        visibility: visible;
+      }
+      .bar i {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        background: var(--accent);
+        transition: width 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+      }
+      /* how far, when nothing says yet */
+      .bar.unknown i {
+        width: 30% !important;
+        animation: sweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+      @keyframes sweep {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(340%);
+        }
+      }
+      #nums {
+        margin: 0;
+        min-height: 1.5em;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      button {
+        padding: 7px 16px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--ink);
+        font: 15px/1.4 var(--hand);
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          color 0.2s,
+          background-color 0.2s;
+      }
+      button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--paper);
+      }
+      button.primary:hover {
+        color: var(--paper);
+        opacity: 0.88;
+      }
+      [hidden] {
+        display: none !important;
+      }
+
+      .rows {
+        margin: 18px 0 0;
+        padding: 0;
+      }
+      .rows div {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 9px 0;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .rows dt {
+        color: var(--ink-3);
+      }
+      .rows dd {
+        margin: 0;
+        text-align: right;
+        overflow-wrap: anywhere;
+      }
+
+      .notice {
+        margin: 16px 0 0;
+        padding: 10px 14px;
+        border-left: 2px solid var(--wait);
+        background: var(--well);
+        border-radius: 0 6px 6px 0;
+        font-size: 13px;
+      }
+
+      /* ——— jobs ——— */
+      section {
+        margin-top: 30px;
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 19px;
+      }
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        border-top: 1px solid var(--line);
+      }
+      li:last-child {
+        border-bottom: 1px solid var(--line);
+      }
+      .job {
+        display: grid;
+        grid-template-columns: 3.2em 1fr auto auto;
+        align-items: baseline;
+        gap: 12px;
+        width: 100%;
+        padding: 10px 2px;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        font: inherit;
+        font-size: 13px;
+        color: var(--ink);
+        text-align: left;
+      }
+      .job:hover {
+        color: var(--ink);
+        background: var(--well);
+      }
+      .job .at,
+      .job .took {
+        color: var(--ink-3);
+        font-size: 12px;
+      }
+      .job .what {
+        font-family: var(--hand);
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+      .job .ok {
+        color: var(--ok);
+        font-family: var(--hand);
+      }
+      .job .bad {
+        color: var(--bad);
+        font-family: var(--hand);
+      }
+      pre {
+        margin: 0 0 10px;
+        padding: 10px 12px;
+        max-height: 200px;
+        overflow: auto;
+        background: var(--well);
+        border-radius: 6px;
+        font: 11.5px/1.55 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+        color: var(--ink-2);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .empty {
+        margin: 4px 0 0;
+        font-size: 13px;
+        color: var(--ink-3);
+      }
+
+      /* ——— settings ——— */
+      details {
+        margin-top: 30px;
+        border-top: 1px solid var(--line);
+      }
+      summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 0 6px;
+        font-size: 19px;
+        cursor: pointer;
+        list-style: none;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::after {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-right: 1px solid var(--ink-3);
+        border-bottom: 1px solid var(--ink-3);
+        transform: rotate(45deg) translateY(-3px);
+        transition: transform 0.2s;
+      }
+      details[open] summary::after {
+        transform: rotate(-135deg) translateX(-3px);
+      }
+      form {
+        display: grid;
+        gap: 14px;
+        padding: 10px 0 4px;
+      }
+      label {
+        display: grid;
+        gap: 5px;
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      label code {
+        margin-left: 6px;
+        font: 11px var(--ui);
+        color: var(--ink-3);
+      }
+      input[type='text'] {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px var(--ui);
+      }
+      input[type='text']:focus {
+        border-color: var(--accent);
+        outline: none;
+      }
+      input.missing {
+        border-color: var(--wait);
+      }
+      .two {
+        display: grid;
+        grid-template-columns: 1fr 7em;
+        gap: 12px;
+      }
+      label.check {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--ink);
+        cursor: pointer;
+      }
+      input[type='checkbox'] {
+        width: 15px;
+        height: 15px;
+        margin: 0;
+        accent-color: var(--accent);
+      }
+      .hint {
+        margin: -8px 0 0 24px;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      #saved {
+        font-size: 12.5px;
+        color: var(--ok);
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      #saved.on {
+        opacity: 1;
+      }
+      footer {
+        margin-top: 30px;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+    </style>
+  </head>
+  <body data-mode="connecting">
+    <header>
+      <h1 class="hand">渲染站</h1>
+      <p>qiqi.help 宣传片<br />在这台电脑上替 lemon 渲染</p>
+    </header>
+
+    <div class="hero" aria-live="polite">
+      <span class="chip"><i class="dot"></i><span id="chip">正在启动</span></span>
+      <h2 class="hand" id="headline">正在启动…</h2>
+      <p id="detail"></p>
+      <div class="bar" id="bar"><i></i></div>
+      <p id="nums" class="num"></p>
+      <div class="actions">
+        <button type="button" id="toggle">暂停接单</button>
+        <button type="button" id="reconnect" hidden>重新连接</button>
+      </div>
+    </div>
+
+    <p class="notice" id="notice" hidden></p>
+
+    <dl class="rows">
+      <div><dt>隧道</dt><dd id="r-tunnel">—</dd></div>
+      <div><dt>渲染</dt><dd id="r-worker">—</dd></div>
+    </dl>
+
+    <section>
+      <h3 class="hand">最近的任务</h3>
+      <ol id="jobs"></ol>
+      <p class="empty" id="empty">还没有任务。lemon 用 <code>ask.mjs</code> 发来的会列在这里。</p>
+    </section>
+
+    <details id="settings">
+      <summary class="hand">设置</summary>
+      <form id="form" autocomplete="off">
+        <label>录像目录<code>PROMO_WORK</code><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
+        <label>站点构建<code>PROMO_SITE</code><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
+        <label>Chrome<code>PROMO_CHROME</code><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
+        <label>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
+        <label>临时浏览器配置<code>PROMO_PROFILES</code><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
+        <label class="check"><input type="checkbox" name="PROMO_GPU" />用显卡画<code>PROMO_GPU</code></label>
+        <div class="two">
+          <label>lemon 的 SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
+          <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+        </div>
+        <div class="actions"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
+        <label class="check" id="auto-row"><input type="checkbox" id="autostart" />登录 Windows 后自动启动</label>
+        <p class="hint" id="auto-hint">只放一个小脚本进「启动」文件夹，关掉就删掉它。</p>
+      </form>
+    </details>
+
+    <footer>关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</footer>
+
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const KEYS = ['PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
+      let S = null;
+      let filled = false;
+      let gone = false;
+      const open = new Set();
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const clock = (t) => {
+        const d = new Date(t);
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
+      const took = (ms) => {
+        const s = ms / 1000;
+        if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} 秒`;
+        return `${Math.floor(s / 60)} 分 ${pad(Math.round(s % 60))} 秒`;
+      };
+      const post = (path, body) =>
+        fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
+          .then((r) => r.json())
+          .then(render)
+          .catch(() => {});
+
+      function render(s) {
+        if (s) S = s;
+        if (!S) return;
+        const t = S.tunnel;
+        const j = S.job;
+        const now = Date.now();
+        const mode = gone ? 'gone' : j ? 'busy' : t.state === 'up' ? 'idle' : t.state;
+        document.body.dataset.mode = mode;
+        const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
+        const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
+        const text = {
+          gone: ['没在运行', '渲染站没在运行', '后台的 station.mjs 停了。托盘图标几秒内会把它重新拉起来；没有托盘图标的话，双击 promo\\remote\\station.cmd。'],
+          busy: ['渲染中', `正在渲染：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
+          idle: [`已连上 lemon · ${t.port}`, '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 那边用 ask.mjs 发来任务，就会在这里开始渲。`],
+          connecting: ['正在连接', '正在连接 lemon…', `ssh ${target}`],
+          retry: ['重连中', `连不上 lemon，${secs} 秒后再试`, t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
+          auth: ['登录不上', 'lemon 不让登录', `${t.message ? t.message + '。' : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target} 试试，能直接进去就行。弄好后点「重新连接」。`],
+          off: ['已暂停', '暂停接单了', '隧道关着，lemon 发不来任务。点「继续接单」重新连上。'],
+        }[mode];
+        $('#chip').textContent = text[0];
+        $('#headline').textContent = text[1];
+        $('#detail').textContent = text[2];
+        document.title = `渲染站 · ${text[0]}`;
+
+        // how far the job is
+        const bar = $('#bar');
+        if (j) {
+          const known = j.total != null && j.total > 0;
+          bar.classList.toggle('unknown', !known);
+          bar.firstElementChild.style.width = known ? `${Math.min(100, (j.n / j.total) * 100).toFixed(1)}%` : '';
+          if (known && j.frames) {
+            const left = j.ms ? took((j.total - j.n) * j.ms) : '…';
+            $('#nums').textContent = `${j.n} / ${j.total} 帧 · ${j.ms ?? '…'} ms/帧 · 还要约 ${left}`;
+          } else if (known) {
+            const each = j.n ? (now - j.started) / j.n : null;
+            $('#nums').textContent = `${j.n} / ${j.total} 张${each ? ` · 还要约 ${took((j.total - j.n) * each)}` : ''}`;
+          } else $('#nums').textContent = '准备中…';
+        } else $('#nums').textContent = '';
+
+        $('#toggle').textContent = t.state === 'off' ? '继续接单' : '暂停接单';
+        $('#toggle').hidden = gone;
+        $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
+
+        const tunnelText = { up: `lemon:${t.port}，${t.since ? clock(t.since) : ''} 起`, connecting: '连接中', retry: `${secs} 秒后重连`, auth: '登录不上', off: '关着' }[t.state] ?? '—';
+        $('#r-tunnel').textContent = gone ? '—' : tunnelText;
+        $('#r-worker').textContent = gone ? '—' : S.workerError ? S.workerError : j ? `渲染中：${j.what}` : '空闲';
+
+        const notice = $('#notice');
+        notice.hidden = gone || !S.missing.length;
+        if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。不填的话，任务会失败。`;
+
+        renderJobs();
+        if (!filled) fill();
+        for (const k of KEYS) $(`[name=${k}]`).classList.toggle('missing', S.missing.includes(k));
+        $('#auto-row').hidden = $('#auto-hint').hidden = S.platform !== 'win32';
+        $('#autostart').checked = S.autostart;
+      }
+
+      function renderJobs() {
+        const list = $('#jobs');
+        $('#empty').hidden = S.jobs.length > 0;
+        const key = JSON.stringify(S.jobs.map((j) => [j.id, open.has(j.id)]));
+        if (list.dataset.key === key) return;
+        list.dataset.key = key;
+        list.replaceChildren(
+          ...S.jobs.map((j) => {
+            const li = document.createElement('li');
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'job';
+            b.setAttribute('aria-expanded', open.has(j.id));
+            const cell = (cls, text) => {
+              const span = document.createElement('span');
+              span.className = cls;
+              span.textContent = text;
+              return span;
+            };
+            b.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(j.ok ? 'ok' : 'bad', j.ok ? '完成' : '失败'));
+            b.onclick = () => {
+              open.has(j.id) ? open.delete(j.id) : open.add(j.id);
+              renderJobs();
+            };
+            li.append(b);
+            if (open.has(j.id)) {
+              const pre = document.createElement('pre');
+              pre.textContent = (j.files?.length ? `传回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
+              li.append(pre);
+            }
+            return li;
+          }),
+        );
+      }
+
+      function fill() {
+        filled = true;
+        const f = $('#form');
+        for (const k of KEYS) f.elements[k].value = S.config.env[k] ?? '';
+        f.elements.PROMO_GPU.checked = S.config.env.PROMO_GPU === '1';
+        f.elements.target.value = S.config.ssh.target ?? '';
+        f.elements.port.value = S.config.ssh.port ?? '';
+        if (S.missing.length) $('#settings').open = true;
+      }
+
+      $('#form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const env = Object.fromEntries(KEYS.map((k) => [k, f.elements[k].value]));
+        env.PROMO_GPU = f.elements.PROMO_GPU.checked ? '1' : '0';
+        await post('/config', { env, ssh: { target: f.elements.target.value, port: f.elements.port.value } });
+        $('#saved').classList.add('on');
+        setTimeout(() => $('#saved').classList.remove('on'), 2200);
+      });
+      $('#autostart').addEventListener('change', (e) => post('/autostart', { on: e.target.checked }));
+      $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
+      $('#reconnect').addEventListener('click', () => post('/reconnect'));
+
+      const events = new EventSource('/events');
+      events.onmessage = (e) => {
+        gone = false;
+        render(JSON.parse(e.data));
+      };
+      events.onerror = () => {
+        gone = true;
+        render();
+      };
+      // the countdowns and the time a job has taken
+      setInterval(() => render(), 1000);
+    </script>
+  </body>
+</html>

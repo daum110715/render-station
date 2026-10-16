@@ -1,5 +1,6 @@
 // The render worker, on the owner's machine with the GPU: renders for lemon what lemon is too slow
-// to render. lemon reaches it through a reverse SSH tunnel opened from this machine:
+// to render. lemon reaches it through a reverse SSH tunnel opened from this machine, which the
+// render station (station.mjs) keeps up; by hand:
 //   ssh -N -R 7700:127.0.0.1:7700 -p 22222 lemon@23.251.32.150
 // A job (remote/ask.mjs) brings lemon's promo/render.mjs, lib/ and stage/ as they stand there,
 // changes not yet committed included, and what to render. It is set up in .tools/remote/job/,
@@ -18,8 +19,11 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const job = join(repo, '.tools/remote/job');
-const args = process.argv.slice(2);
-const port = Number(args.includes('--port') ? args[args.indexOf('--port') + 1] : 7700);
+/** the worker's port here */
+export const WORKER = 7700;
+/** the ports on lemon the tunnel may come in on, tried in turn: one still held by a connection
+ *  that died in the machine's sleep is passed over (ask.mjs looks through the same) */
+export const PORTS = Array.from({ length: 10 }, (_, i) => 7700 + i);
 
 // what a job may bring, and ask render.mjs for
 const FILES = /^promo\/(render\.mjs|lib\/[\w.-]+|stage\/[\w.-]+)$/;
@@ -44,54 +48,88 @@ function check(argv) {
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 
-let busy = false;
-async function run(body) {
-  const { files, args: asked } = JSON.parse(gunzipSync(body));
-  const argv = check(asked);
-  rmSync(job, { recursive: true, force: true });
-  for (const [path, data] of Object.entries(files)) {
-    if (!FILES.test(path)) throw new Error(`not taken: ${path}`);
-    mkdirSync(dirname(join(job, path)), { recursive: true });
-    writeFileSync(join(job, path), Buffer.from(data, 'base64'));
-  }
-  console.log(`${new Date().toLocaleTimeString()}  render.mjs ${argv.join(' ')}`);
-  let log = '';
-  const code = await new Promise((done) => {
-    const p = spawn(process.execPath, [join(job, 'promo/render.mjs'), ...argv], { cwd: repo, env: { ...process.env, PROMO_ROOT: repo } });
-    for (const s of [p.stdout, p.stderr])
-      s.on('data', (d) => {
-        log += d;
-        process.stdout.write(d);
+/** the worker on `port`; `env()`: what to add to the environment render.mjs runs in; `on(event)`:
+ *  {type: 'start', id, args}, {type: 'log', id, text}, {type: 'end', id, ok, ms, files, tail} */
+export function serve({ port = WORKER, env = () => ({}), on = () => {} } = {}) {
+  let busy = false;
+  let next = 1;
+  async function run(body, id) {
+    const t0 = Date.now();
+    let log = '';
+    let code = 1;
+    const made = {};
+    try {
+      const { files, args: asked } = JSON.parse(gunzipSync(body));
+      const argv = check(asked);
+      rmSync(job, { recursive: true, force: true });
+      for (const [path, data] of Object.entries(files)) {
+        if (!FILES.test(path)) throw new Error(`not taken: ${path}`);
+        mkdirSync(dirname(join(job, path)), { recursive: true });
+        writeFileSync(join(job, path), Buffer.from(data, 'base64'));
+      }
+      on({ type: 'start', id, args: argv });
+      code = await new Promise((done) => {
+        const p = spawn(process.execPath, [join(job, 'promo/render.mjs'), ...argv], { cwd: repo, env: { ...process.env, ...env(), PROMO_ROOT: repo }, windowsHide: true });
+        for (const s of [p.stdout, p.stderr])
+          s.on('data', (d) => {
+            log += d;
+            on({ type: 'log', id, text: String(d) });
+          });
+        p.on('error', (e) => {
+          log += `${e.message}\n`;
+          done(1);
+        });
+        p.on('close', done);
       });
-    p.on('close', done);
-  });
-  // what it made, but not the steps on the way to a clip
-  const out = join(job, 'promo/out');
-  const made = {};
-  for (const file of code === 0 ? walk(out) : []) {
-    if (/\.(video\.mp4|mix\.wav)$/.test(file)) continue;
-    made[relative(out, file).split('\\').join('/')] = readFileSync(file).toString('base64');
+      // what it made, but not the steps on the way to a clip
+      const out = join(job, 'promo/out');
+      for (const file of code === 0 ? walk(out) : []) {
+        if (/\.(video\.mp4|mix\.wav)$/.test(file)) continue;
+        made[relative(out, file).split('\\').join('/')] = readFileSync(file).toString('base64');
+      }
+    } catch (e) {
+      log += `${e?.stack ?? e}\n`;
+      code = 1;
+    }
+    const ok = code === 0;
+    on({ type: 'end', id, ok, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000) });
+    return { ok, log, files: made };
   }
-  return { ok: code === 0, log, files: made };
+
+  const server = createServer((req, res) => {
+    // only what ask.mjs sends, from here or through the tunnel: never a web page (it cannot send
+    // the header without asking first, and a name of its own is not 127.0.0.1)
+    const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+    if (!['127.0.0.1', 'localhost'].includes(host) || req.headers['x-qiqi-worker'] !== '1') return res.writeHead(403).end();
+    if (req.method === 'GET' && req.url === '/hello') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ worker: 'qiqi-promo', busy }));
+    if (req.method !== 'POST' || req.url !== '/job') return res.writeHead(404).end();
+    if (busy) return res.writeHead(409).end('busy');
+    busy = true;
+    const id = next++;
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', async () => {
+      const reply = await run(Buffer.concat(chunks), id);
+      busy = false;
+      res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync(JSON.stringify(reply)));
+    });
+  });
+  // a long render is one long request
+  server.requestTimeout = 0;
+  server.listen(port, '127.0.0.1');
+  return server;
 }
 
-const server = createServer((req, res) => {
-  if (req.method !== 'POST' || req.url !== '/job') return res.writeHead(404).end();
-  if (busy) return res.writeHead(409).end('busy');
-  busy = true;
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', async () => {
-    let reply;
-    try {
-      reply = await run(Buffer.concat(chunks));
-    } catch (e) {
-      reply = { ok: false, log: String(e?.stack ?? e), files: {} };
-    }
-    busy = false;
-    res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync(JSON.stringify(reply)));
-  });
-});
-// a long render is one long request
-server.requestTimeout = 0;
-server.listen(port, '127.0.0.1', () => console.log(`render worker on 127.0.0.1:${port}, jobs in ${job}`));
+// run by hand
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = process.argv.slice(2);
+  const port = Number(args.includes('--port') ? args[args.indexOf('--port') + 1] : WORKER);
+  serve({
+    port,
+    on: (e) => {
+      if (e.type === 'start') console.log(`${new Date().toLocaleTimeString()}  render.mjs ${e.args.join(' ')}`);
+      if (e.type === 'log') process.stdout.write(e.text);
+      if (e.type === 'end') console.log(`${e.ok ? 'done' : 'failed'} in ${(e.ms / 1000).toFixed(1)} s`);
+    },
+  }).on('listening', () => console.log(`render worker on 127.0.0.1:${port}, jobs in ${job}`));
+}
