@@ -5,7 +5,7 @@
 // clip is always half size at 15 fps.
 // usage: node promo/remote/ask.mjs --stills 19.9,20.3 [--preview] [--partial]
 //        node promo/remote/ask.mjs --cover
-//        node promo/remote/ask.mjs --from 9.45 --to 21.45 [--partial] [--no-voice]
+//        node promo/remote/ask.mjs --from 13.49 --to 21.45 [--partial] [--no-voice]
 // PROMO_REMOTE: the worker's port on lemon, if not found among the tunnel's (PORTS)
 import { request } from 'node:http';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
