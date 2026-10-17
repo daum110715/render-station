@@ -8,11 +8,13 @@
 // usage: node promo/remote/station.mjs
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cpus, freemem, totalmem } from 'node:os';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
+import { createShellGate, isAdministrator } from './shell.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = resolve(here, '../..');
@@ -68,7 +70,7 @@ function liner(each) {
   let rest = '';
   return (chunk, end = false) => {
     const parts = (rest + chunk).split(/\r\n|\r|\n/);
-    rest = end ? '' : parts.pop();
+    rest = end ? '' : parts.pop().slice(-32768);
     for (const line of parts) if (line.trim()) each(line.trimEnd());
   };
 }
@@ -84,12 +86,23 @@ let config = {
   env: Object.fromEntries(KEYS.map((k) => [k, process.env[k] ?? (k === 'PROMO_GPU' ? '1' : '')])),
   ssh: { ...LEMON },
   paused: false,
+  shell: { enabled: false, rules: [] },
 };
 try {
   const saved = JSON.parse(readFileSync(CONFIG, 'utf8'));
   config = { ...config, ...saved, env: { ...config.env, ...saved.env }, ssh: { ...config.ssh, ...saved.ssh } };
 } catch {}
 const save = () => writeFileSync(CONFIG, JSON.stringify(config, null, 2));
+config.shell = { enabled: false, rules: [], ...config.shell };
+const shellToken = randomBytes(32).toString('hex');
+const shellGate = createShellGate({
+  workspace: repo,
+  policy: () => config.shell,
+  save,
+  admin: isAdministrator(),
+  changed: push,
+  audit: (text) => note('shell', text),
+});
 
 // ——— this machine, every 2 s, the last two minutes: the processor, the memory, the graphics card
 // (NVIDIA's own tool where there is one, else Windows' counters) ———
@@ -181,7 +194,7 @@ async function checkUpdate() {
   const dirty = await git(['status', '--porcelain', '--untracked-files=no']);
   if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但这份仓库里有${dirty.out ? '没提交的改动' : '没推上去的提交'}，没有自动更新`);
   // not in the middle of a render
-  if (job) {
+  if (job || shellGate.state().pending) {
     updateAfterJob = true;
     return done('waiting', '有新版本，这个任务渲完就更新');
   }
@@ -238,6 +251,7 @@ const view = () => ({
   today: today.day === new Date().toDateString() ? today : { done: 0, failed: 0 },
   workerError,
   config,
+  shell: shellGate.state(),
   missing: NEEDED.filter((k) => !config.env[k]),
   // what the tray icon is to keep: both, unless switched off
   autostart: config.autostart !== false,
@@ -257,9 +271,9 @@ const view = () => ({
  *  (1: it was updated) */
 function trayView() {
   const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
-  const tip = { busy: `渲染中：${job?.what}`, idle: `空闲，已连上 lemon:${tunnel.port}`, connecting: '正在连接 lemon', retry: '连不上 lemon，会自己重试', auth: 'lemon 不让登录，点开看看', off: '已暂停接单' }[mode] ?? mode;
+  const tip = { busy: `${job?.kind === 'shell' ? '执行中' : '渲染中'}：${job?.what}`, idle: `空闲，已连上 lemon:${tunnel.port}`, connecting: '正在连接 lemon', retry: '连不上 lemon，会自己重试', auth: 'lemon 不让登录，点开看看', off: '已暂停接单' }[mode] ?? mode;
   const last = jobs[0];
-  const tell = !last ? ['', ''] : last.ok ? ['渲染完成', `${last.what}，用了 ${took(last.ms)}，已交回 lemon。`] : ['渲染失败', `${last.what}。输出在渲染站的「任务」里。`];
+  const tell = !last ? ['', ''] : last.ok ? ['任务完成', `${last.what}，用了 ${took(last.ms)}，已交回 lemon。`] : ['任务失败', `${last.what}。输出在渲染站的「动态」里。`];
   const v = view();
   return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
@@ -291,12 +305,15 @@ function startWorker() {
   const server = serve({
     env: () => Object.fromEntries(Object.entries(config.env).filter(([, v]) => v !== '')),
     keep: KEEP,
+    shell: shellGate,
+    accepting: () => !config.paused && !quitting,
     on: (e) => {
       if (e.type === 'start') {
+        const isShell = e.kind === 'shell';
         const n = e.args.includes('--stills') ? e.args[e.args.indexOf('--stills') + 1].split(',').length : e.args.includes('--cover') ? 2 : null;
-        job = { id: e.id, what: describe(e.args), started: Date.now(), n: 0, total: n, ms: null, frames: n == null };
-        note('render', `收到任务 #${e.id}：${job.what}`);
-        say('out', `> node render.mjs ${e.args.join(' ')}`);
+        job = { id: e.id, kind: e.kind ?? 'render', what: isShell ? `Shell：${e.command}` : describe(e.args), started: Date.now(), n: 0, total: n, ms: null, frames: !isShell && n == null };
+        note(isShell ? 'shell' : 'render', `收到任务 #${e.id}：${job.what}`);
+        say('out', isShell ? `> [${e.cwd}] ${e.command} (${e.approval})` : `> node render.mjs ${e.args.join(' ')}`);
         out = liner((line) => say('out', line));
       } else if (e.type === 'log' && job) {
         // render.mjs: "frame n/total  T=…  ms ms/frame" every 30 frames; a path a still or a cover
@@ -305,6 +322,7 @@ function startWorker() {
         else if (!job.frames) job.n += (e.text.match(/\.jpg(\r?\n|$)/g) ?? []).length;
         out?.(e.text);
       } else if (e.type === 'end') {
+        if (e.kind === 'shell') note('shell', `Shell 结果 #${e.id}：${e.ok ? '成功' : '失败'}，退出码 ${e.code ?? 'unknown'}`);
         out?.('', true);
         out = null;
         // turned away before it started: why
@@ -423,6 +441,7 @@ function connect() {
   p.on('close', () => end());
 }
 function stop() {
+  shellGate.revoke();
   const p = ssh;
   ssh = null;
   clearTimeout(timer);
@@ -488,6 +507,7 @@ const ui = createServer(async (req, res) => {
   // only for this machine's own window: a page whose name is not 127.0.0.1 is turned away
   const host = (req.headers.host ?? '').replace(/:\d+$/, '');
   if (!['127.0.0.1', 'localhost'].includes(host)) return res.writeHead(403).end();
+  if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return res.writeHead(403).end();
   let path;
   try {
     path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -495,7 +515,7 @@ const ui = createServer(async (req, res) => {
     return res.writeHead(400).end();
   }
   if (req.method === 'GET') {
-    if (path === '/') return send(res, join(here, 'station.html'));
+    if (path === '/') return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' }).end(readFileSync(join(here, 'station.html'), 'utf8').replace('__SHELL_LOCAL_TOKEN__', shellToken));
     if (path === '/state') return json(res, view());
     if (path.startsWith('/files/')) {
       const file = normalize(join(KEEP, path.slice('/files/'.length)));
@@ -518,6 +538,7 @@ const ui = createServer(async (req, res) => {
   // changes only from the window or the tray: another page cannot send this header without asking
   // first, and is not answered when it asks
   if (req.method !== 'POST' || req.headers['x-station'] !== '1') return res.writeHead(403).end();
+  if (path.startsWith('/shell/') && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
   let data;
   try {
     const text = await body(req);
@@ -526,7 +547,19 @@ const ui = createServer(async (req, res) => {
     return res.writeHead(400).end();
   }
   try {
-    if (path === '/pause') {
+    if (path === '/shell/enabled') {
+      if (typeof data.on !== 'boolean') throw new Error('on must be boolean');
+      config.shell.enabled = data.on;
+      if (!data.on) shellGate.revoke();
+      save();
+      note('shell', `Shell 接单：${data.on ? '开启（auto）' : '关闭'}`);
+    } else if (path === '/shell/yolo') {
+      shellGate.setYolo(data.on);
+    } else if (path === '/shell/decide') {
+      shellGate.decide(data.id, data.action);
+    } else if (path === '/shell/remove') {
+      shellGate.remove(data.index);
+    } else if (path === '/pause') {
       config.paused = true;
       save();
       stop();
@@ -569,7 +602,7 @@ const ui = createServer(async (req, res) => {
     } else return res.writeHead(404).end();
   } catch (e) {
     note('station', `${path} 出错：${e.message}`);
-    return res.writeHead(500).end();
+    return res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: e.message }));
   }
   push();
   json(res, view());

@@ -1081,6 +1081,15 @@
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
         outline: none;
       }
+      .shell-panel { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+      .shell-panel p { font-size: 13px; color: var(--ink-2); }
+      .shell-panel pre { margin: 10px 0; border-radius: 0; }
+      .shell-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+      .shell-actions button { border-radius: 0; background: transparent; }
+      #shell-rules li { padding: 10px 0; font-size: 13px; }
+      #shell-error { color: var(--bad); white-space: pre-wrap; }
+      #shell-review { width: 680px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+      #shell-review::backdrop { background: rgb(0 0 0 / 40%); }
       input.missing {
         border-color: var(--wait);
       }
@@ -1348,6 +1357,19 @@
         <!-- 设置 -->
         <section class="page" id="page-settings" hidden>
           <div class="head"><h2>设置</h2></div>
+          <div class="shell-panel">
+            <h4>Shell 权限</h4>
+            <p id="shell-mode"></p>
+            <p>auto：工作目录限定在仓库内；完整命令与目录匹配本机白名单后自动执行，其余请求由你审批。Windows 使用 PowerShell，其他系统使用 sh。</p>
+            <p>命令可以读写文件。目录检查与白名单是授权机制，不是系统沙箱；获准的程序仍拥有运行账户的权限。现有远程渲染脚本也使用该账户权限。</p>
+            <label class="switch"><span>允许接收 Shell 任务</span><input type="checkbox" id="shell-enabled" role="switch" /></label>
+            <div class="shell-actions"><button type="button" id="shell-yolo">开启 YOLO</button></div>
+            <p id="shell-admin"></p>
+            <p>YOLO 允许任意命令和目录，只能由以管理员身份运行的本机渲染站开启；暂停、重连或重启后关闭。关闭权限或暂停接单不会中止已经开始的命令。</p>
+            <h4>手动批准的白名单</h4>
+            <ul id="shell-rules"></ul>
+            <p id="shell-error" role="alert"></p>
+          </div>
           <form class="card" id="form" autocomplete="off">
             <h4>渲染用的东西</h4>
             <label><span>录像目录<code>PROMO_WORK</code></span><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
@@ -1376,6 +1398,21 @@
         </section>
       </main>
     </div>
+
+    <dialog id="shell-review" aria-labelledby="shell-review-title">
+      <div class="shell-panel">
+        <h4 id="shell-review-title">Shell 请求待审批</h4>
+        <p id="shell-review-cwd"></p>
+        <pre id="shell-review-command"></pre>
+        <p id="shell-review-timeout"></p>
+        <p>只批准你信任的完整命令。加入白名单后，相同目录中的这条命令会自动执行；命令引用的脚本后续仍可能变化。</p>
+        <div class="shell-actions">
+          <button type="button" data-shell-decision="deny">拒绝</button>
+          <button type="button" data-shell-decision="once">仅本次允许</button>
+          <button type="button" data-shell-decision="remember">允许并加入白名单</button>
+        </div>
+      </div>
+    </dialog>
 
     <div class="lightbox" id="lightbox" hidden>
       <div class="lb-stage" id="lb-stage"></div>
@@ -1462,6 +1499,59 @@
           .then(render)
           .catch(() => {});
 
+      const shellToken = '__SHELL_LOCAL_TOKEN__';
+      async function shellPost(path, body) {
+        try {
+          $('#shell-error').textContent = '';
+          const response = await fetch(`/shell/${path}`, { method: 'POST', headers: { 'x-station': '1', 'x-shell-local': shellToken, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+          render(data);
+        } catch (error) { $('#shell-error').textContent = error.message; }
+      }
+      let shellRulesKey = '';
+      function renderShell() {
+        if (!S.shell) return;
+        const shell = S.shell;
+        $('#shell-mode').textContent = `当前：${shell.mode} · 工作区：${shell.workspace}`;
+        $('#shell-enabled').checked = shell.mode !== 'disabled';
+        $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
+        $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto' : '开启 YOLO';
+        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '开启 YOLO：先退出渲染站，再右键以管理员身份运行（非 Windows 系统需 root）。';
+        const key = JSON.stringify(shell.rules);
+        if (key !== shellRulesKey) {
+          shellRulesKey = key;
+          const list = $('#shell-rules');
+          list.replaceChildren();
+          if (!shell.rules.length) list.textContent = '尚无白名单。收到请求时可以手动加入。';
+          shell.rules.forEach((rule, index) => {
+            const row = document.createElement('li');
+            const text = document.createElement('pre');
+            text.textContent = `${rule.cwd}\n${rule.command}`;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = '移除';
+            button.onclick = () => shellPost('remove', { index });
+            row.append(text, button);
+            list.append(row);
+          });
+        }
+        const dialog = $('#shell-review');
+        if (shell.pending) {
+          $('#shell-review-cwd').textContent = `工作目录：${shell.pending.cwd}`;
+          $('#shell-review-command').textContent = shell.pending.command;
+          $('#shell-review-timeout').textContent = `执行限时 ${shell.pending.timeout} 秒；审批 5 分钟内有效。`;
+          if (!dialog.open) dialog.showModal();
+        } else if (dialog.open) dialog.close();
+      }
+      $('#shell-enabled').onchange = (event) => shellPost('enabled', { on: event.target.checked });
+      $('#shell-yolo').onclick = () => {
+        const on = S.shell.mode !== 'yolo';
+        if (!on || confirm('本次会话允许 lemon 以渲染站账户权限执行任意 Shell 命令，且可使用任意目录。开启 YOLO？')) shellPost('yolo', { on });
+      };
+      for (const button of document.querySelectorAll('[data-shell-decision]')) button.onclick = () => shellPost('decide', { id: S.shell.pending?.id, action: button.dataset.shellDecision });
+      $('#shell-review').addEventListener('cancel', (event) => { event.preventDefault(); shellPost('decide', { id: S.shell.pending?.id, action: 'deny' }); });
+
       // the window's icon in the state's colour, as the tray's
       let painted = '';
       function paint(color) {
@@ -1474,11 +1564,13 @@
       function render(s) {
         if (s) S = s;
         if (!S) return;
+        renderShell();
         // the page changed on disk (an update): this one again, as it is now
         if (page0 == null) page0 = S.page;
         else if (S.page && S.page !== page0) return location.reload();
         const t = S.tunnel;
         const j = S.job;
+        const shellJob = j?.kind === 'shell';
         const now = Date.now();
         const mode = gone ? 'gone' : j ? 'busy' : t.state === 'up' ? 'idle' : t.state;
         document.body.dataset.mode = mode;
@@ -1487,7 +1579,7 @@
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
           gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击桌面上的「渲染站」。'],
-          busy: ['渲染中', `正在渲染：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
+          busy: [shellJob ? '执行中' : '渲染中', `${shellJob ? '正在执行' : '正在渲染'}：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
           idle: ['在线', '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 用 ask.mjs 发来任务，就会在这里开始渲。`],
           connecting: ['连接中', '正在连接 lemon…', `ssh ${target}`],
           retry: ['重连中', '连不上 lemon，马上再试', t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
@@ -1516,11 +1608,11 @@
           small = '秒后重连';
         } else {
           big.className = 'word';
-          const label = { busy: '准备', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', gone: '停了' }[mode] ?? '…';
+          const label = { busy: shellJob ? '执行' : '准备', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', gone: '停了' }[mode] ?? '…';
           word(big, label);
           if (mode === 'busy') {
             spin = true;
-            small = '还没出帧';
+            small = shellJob ? '命令运行中' : '还没出帧';
           } else if (mode === 'idle') {
             p = 1;
             small = `lemon:${t.port}`;
@@ -1870,7 +1962,7 @@
       const lines = [];
       let filter = 'all';
       const KINDS = { render: ['render', 'out'], tunnel: ['tunnel', 'ssh'] };
-      const TAGS = { render: '渲染', tunnel: '连接', station: '渲染站' };
+      const TAGS = { render: '渲染', tunnel: '连接', station: '渲染站', shell: 'Shell' };
       const shows = (item) => !KINDS[filter] || KINDS[filter].includes(item.kind);
       // render.mjs's progress, one line rewritten
       const progress = (item) => item?.kind === 'out' && /^frame \d+\/\d+/.test(item.text);

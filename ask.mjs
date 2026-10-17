@@ -6,6 +6,7 @@
 // usage: node promo/remote/ask.mjs --stills 19.9,20.3 [--preview] [--partial]
 //        node promo/remote/ask.mjs --cover
 //        node promo/remote/ask.mjs --from 13.49 --to 21.45 [--partial] [--no-voice]
+//        node promo/remote/ask.mjs --shell 'node --version' [--cwd .] [--timeout 600]
 // PROMO_REMOTE: the worker's port on lemon, if not found among the tunnel's (PORTS)
 import { request } from 'node:http';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -45,13 +46,27 @@ if (!port) {
   process.exit(1);
 }
 
-const files = {};
-const add = (path) => (files[path] = readFileSync(join(promo, '..', path)).toString('base64'));
-add('promo/render.mjs');
-for (const dir of ['lib', 'stage']) for (const name of readdirSync(join(promo, dir))) add(`promo/${dir}/${name}`);
+const args = process.argv.slice(2);
+let payload;
+if (args.includes('--shell')) {
+  payload = { type: 'shell' };
+  for (let i = 0; i < args.length; i++) {
+    const key = { '--shell': 'command', '--cwd': 'cwd', '--timeout': 'timeout' }[args[i]];
+    if (!key || args[i + 1] == null || Object.hasOwn(payload, key)) throw new Error(`invalid shell option: ${args[i]}`);
+    const value = args[++i];
+    payload[key] = key === 'timeout' ? Number(value) : value;
+  }
+  console.log('Shell submitted; an unlisted command waits for approval in the local station (up to 5 minutes).');
+} else {
+  const files = {};
+  const add = (path) => (files[path] = readFileSync(join(promo, '..', path)).toString('base64'));
+  add('promo/render.mjs');
+  for (const dir of ['lib', 'stage']) for (const name of readdirSync(join(promo, dir))) add(`promo/${dir}/${name}`);
+  payload = { type: 'render', files, args };
+}
 
 const t0 = Date.now();
-const res = await call(port, 'POST', '/job', gzipSync(JSON.stringify({ files, args: process.argv.slice(2) }))).catch((e) => {
+const res = await call(port, 'POST', '/job', gzipSync(JSON.stringify(payload))).catch((e) => {
   console.error(`the worker went away: ${e.message}`);
   process.exit(1);
 });
@@ -60,13 +75,14 @@ if (res.status === 409) {
   process.exit(1);
 }
 if (res.status !== 200) {
-  console.error(`the worker answered ${res.status}`);
+  console.error(`the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}`);
   process.exit(1);
 }
 const reply = JSON.parse(gunzipSync(res.body));
 
 // the end of the worker's log: render.mjs's last lines, or what went wrong
-console.log(reply.log.trim().split('\n').slice(-8).join('\n'));
+console.log(payload.type === 'shell' ? reply.log.trimEnd() : reply.log.trim().split('\n').slice(-8).join('\n'));
+if (payload.type === 'shell') console.log(`exit code: ${reply.code ?? 'not started'}`);
 const dir = join(promo, '..', '.tools/.scratch/promo/remote', new Date().toISOString().replace(/[:.]/g, '-'));
 for (const [path, data] of Object.entries(reply.files)) {
   mkdirSync(dirname(join(dir, path)), { recursive: true });

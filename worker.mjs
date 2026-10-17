@@ -16,6 +16,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { executeShell } from './shell.mjs';
 
 const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const job = join(repo, '.tools/remote/job');
@@ -55,17 +56,28 @@ const stamp = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-$
 /** the worker on `port`; `env()`: what to add to the environment render.mjs runs in; `keep`: a
  *  folder to keep here what each job made, the latest 30 jobs' worth; `on(event)`:
  *  {type: 'start', id, args}, {type: 'log', id, text}, {type: 'end', id, ok, ms, files, tail, paths} */
-export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = null } = {}) {
+export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = null, shell = null, accepting = () => true } = {}) {
   let busy = false;
   let next = 1;
-  async function run(body, id) {
+  async function run(body, id, signal) {
     const t0 = Date.now();
     let log = '';
     let code = 1;
     let argv = [];
     const made = {};
     try {
-      const { files, args: asked } = JSON.parse(gunzipSync(body));
+      const payload = JSON.parse(gunzipSync(body, { maxOutputLength: 16 * 1024 * 1024 }));
+      if (payload.type === 'shell') {
+        if (!shell) throw new Error('Shell requires the local station approval service');
+        const request = await shell.authorize(payload, signal);
+        if (!accepting()) throw new Error('station paused');
+        on({ type: 'start', id, kind: 'shell', args: [], command: request.command, cwd: request.cwd, approval: request.approval });
+        const reply = await executeShell(request, { env: env(), signal, output: (text) => on({ type: 'log', id, text }) });
+        on({ type: 'end', id, kind: 'shell', ok: reply.ok, ms: Date.now() - t0, files: [], tail: reply.log.slice(-3000), paths: [], code: reply.code });
+        return reply;
+      }
+      if (payload.type && payload.type !== 'render') throw new Error('unknown job type');
+      const { files, args: asked } = payload;
       argv = check(asked);
       rmSync(job, { recursive: true, force: true });
       for (const [path, data] of Object.entries(files)) {
@@ -124,17 +136,28 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
     // the header without asking first, and a name of its own is not 127.0.0.1)
     const host = (req.headers.host ?? '').replace(/:\d+$/, '');
     if (!['127.0.0.1', 'localhost'].includes(host) || req.headers['x-qiqi-worker'] !== '1') return res.writeHead(403).end();
-    if (req.method === 'GET' && req.url === '/hello') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ worker: 'qiqi-promo', busy }));
+    if (req.method === 'GET' && req.url === '/hello') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ worker: 'qiqi-promo', busy, capabilities: ['render', ...(shell ? ['shell'] : [])] }));
     if (req.method !== 'POST' || req.url !== '/job') return res.writeHead(404).end();
+    if (!accepting()) return res.writeHead(503).end('station paused');
     if (busy) return res.writeHead(409).end('busy');
     busy = true;
     const id = next++;
     const chunks = [];
-    req.on('data', (c) => chunks.push(c));
+    const controller = new AbortController();
+    let size = 0;
+    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    req.on('aborted', () => { busy = false; controller.abort(); });
+    req.on('error', () => { busy = false; controller.abort(); });
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > 16 * 1024 * 1024) { controller.abort(); req.destroy(); busy = false; }
+      else chunks.push(c);
+    });
     req.on('end', async () => {
-      const reply = await run(Buffer.concat(chunks), id);
-      busy = false;
-      res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync(JSON.stringify(reply)));
+      try {
+        const reply = await run(Buffer.concat(chunks), id, controller.signal);
+        if (!res.destroyed) res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync(JSON.stringify(reply)));
+      } finally { busy = false; }
     });
   });
   // a long render is one long request
