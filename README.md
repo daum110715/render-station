@@ -32,7 +32,7 @@ The worker runs one job at a time.
 
 Device:
 
-- Windows with Node.js and Git.
+- Windows 10 version 1803 or later, or Windows 11. With the installer, Node.js and Git need not be installed.
 - Key-based SSH login to the server (the default key or one in ssh-agent). Running `ssh -p <port> <user>@<server>` in a terminal must not prompt for a password.
 - The WebView2 runtime. Without it, the window opens as an Edge app window instead.
 - Any other software a workspace's presets need, as that workspace documents.
@@ -41,20 +41,24 @@ Server: Node.js 18 or later and a checkout of this repository.
 
 ## Installation
 
-On the device:
+### Device
 
-1. Clone this repository: `git clone https://github.com/daum110715/render-station.git`.
-2. Run `npm install` in the repository root. It installs the two font packages the window uses.
-3. Double-click `渲染站.exe` in the repository root. After the first start, a 渲染站 shortcut appears on the desktop and in the Start menu; use it from then on.
+1. Download the installer: <https://8.137.206.169/assets/render-station/render-station-setup.exe> (about 40 MB, Node.js included).
+2. Run it. The installer is not code-signed, so Windows may say "Windows protected your PC"; click "More info", then "Run anyway".
+3. Click 安装 (Install). The station is installed for the current user in `%LOCALAPPDATA%\Programs\render-station\`, without administrator rights; it then starts and creates 渲染站 shortcuts on the desktop and in the Start menu.
 4. In the window's 设置 (Settings) page, enter the server's SSH address and port, register workspaces, and click 保存 (Save).
 
-`渲染站.exe` must stay in the same folder as `station.mjs`, the repository root.
+The installer first closes a running station. Running a newer installer installs over the old copy and keeps the settings. To uninstall, find 渲染站 under Windows Settings → Apps → Installed apps and choose Uninstall; you can choose whether to keep the settings and the jobs' output.
 
-On the server, cloning this repository is enough: `cli.mjs` has no package dependencies.
+A checkout of this repository also runs as it is: clone it, run `npm install` in its root, and double-click `渲染站.exe`. This needs Node.js and Git on the device and updates through Git (see "Automatic updates"). `渲染站.exe` must stay in the same folder as `station.mjs`.
+
+### Server
+
+Cloning this repository is enough: `cli.mjs` has no package dependencies.
 
 ### Migrating from the old location
 
-The station used to live in qiqi.help's `promo/remote/`. To migrate, quit the old instance from its tray menu, then start the station from the new location as described above. The new instance recreates the shortcuts and the autostart entry and removes the old autostart entry. The old `%LOCALAPPDATA%\qiqi-render-station\` folder can be deleted by hand. If the old `.tools\remote\config.json` (under the root of the qiqi.help checkout) is copied to the same place in the new repository before the first start, the server address, the Shell allowlist and the other settings carry over, and the old `PROMO_*` settings are converted into a workspace.
+The station used to live in qiqi.help's `promo/remote/`. Running the installer migrates it: the installer closes the old instance and, while the new copy has no settings, copies the old checkout's `.tools\remote\config.json`, so the server address, the Shell allowlist and the other settings carry over; the old `PROMO_*` settings become a workspace on first start. The new instance recreates the shortcuts and the autostart entry and removes the old autostart entry. The old `%LOCALAPPDATA%\qiqi-render-station\` folder can be deleted by hand.
 
 ## Configuration
 
@@ -273,20 +277,24 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 ## Automatic updates
 
-When enabled, the station checks one minute after starting and every 30 minutes after that, fast-forwarding to the current branch's upstream. A checkout made with `git clone` already has an upstream. The 立即检查 (Check now) button in the Settings page checks immediately.
+When enabled, the station checks one minute after starting and every 30 minutes after that; the 立即检查 (Check now) button in the Settings page checks immediately. If a job is running, the update waits for it to finish. When the station's own files change, it restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
 
-The station does not update while the working tree has uncommitted changes or there are unpushed commits. If a job is running, it waits for the job to finish.
+**A copy installed by the installer** takes new versions from the update server, `https://8.137.206.169/assets/render-station/`:
 
-When the station's code changes, the station restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
+- The server's `latest.json` lists every file of the newest version with its SHA-256 and carries an Ed25519 signature by the release key. The station accepts only a validly signed release with a higher version number.
+- Only changed files are downloaded (`files/<SHA-256>.gz`). Each is checked before any is put in place, and if one cannot be put in place, all are restored. Replaced files are first renamed `*.old` and deleted at the next start.
+- `release.json` in the installed folder records the current version.
+
+**A Git checkout** fast-forwards to its current branch's upstream; a checkout made with `git clone` already has one. It does not update while the working tree has uncommitted changes or there are unpushed commits.
 
 ## Tray program
 
 `渲染站.exe`, built from `exe/station.c`:
 
-- When started from the repository, it copies itself and `WebView2Loader.dll` to `%LOCALAPPDATA%\render-station\` and runs from there, so the repository's exe is never locked and updates can replace it.
-- Starts `station.mjs` in the background and restarts it whenever it exits.
+- When started, it copies itself and `WebView2Loader.dll` to `%LOCALAPPDATA%\render-station\` and runs from there, so the installed (or repository) exe is never locked and updates can replace it.
+- Starts `station.mjs` in the background and restarts it whenever it exits, with the installed folder's `node\node.exe` if there is one, else the system's Node.js.
 - Puts the station, ssh and the jobs' processes in one job object, so they all end when it quits.
-- Requires Node.js on the device.
+- `渲染站.exe --uninstall` uninstalls a copy the installer installed; Windows' Installed apps runs it.
 
 ## Running without the tray program
 
@@ -309,13 +317,23 @@ Run this way, there is no approval interface for Shell jobs, so only presets run
 
 - Tests: `node --test`.
 - Build `渲染站.exe`: `node exe/build.mjs`. It cross-compiles on Linux into the repository root and needs mingw-w64 (`x86_64-w64-mingw32-gcc`) and the WebView2 SDK (the NuGet package `Microsoft.Web.WebView2`) unpacked in `.tools/webview2/`.
+- It also builds the installer's program, `.tools/exe-build/setup.exe`.
 - After changing anything in `exe/`, rebuild and commit `渲染站.exe` together with the sources.
+
+### Releasing
+
+1. Set the version in `package.json` and commit everything.
+2. `node release/build.mjs` packs the committed files, the window's fonts and Node.js for Windows (`NODE` in `release/build.mjs`, downloaded from nodejs.org and checked on first use), and writes the signed `latest.json`, the update files `files/<SHA-256>.gz` and the installer to `.tools/release/out/`.
+3. `node release/publish.mjs` uploads them over `ssh lu1` to lu1's `/home/user1/apps/render-station/public/`: the files first, then the installer (with `render-station-setup.exe` made a link to it), then `latest.json`; it finally reads `latest.json` back from the public address to check it.
+
+The release key's private half is `.tools/release/key.pem`, outside version control; its public half is `KEY` in `update.mjs`. Back up the private key elsewhere: without it, installed copies cannot accept new versions and must be reinstalled.
 
 ## Files
 
 | Path | Description |
 |---|---|
 | `cli.mjs` | The command-line tool for submitting jobs from the server. |
+| `update.mjs` | Updates of an installed copy: checking a release's signature, and fetching, checking and replacing files. |
 | `worker.mjs` | The worker: receives jobs, runs them and returns the results. |
 | `workspace.mjs` | Reading and checking workspace files, globs, and presets' commands and output. |
 | `shell.mjs` | Approval, allowlist and execution of Shell jobs. |
@@ -323,9 +341,11 @@ Run this way, there is no approval interface for Shell jobs, so only presets run
 | `station.html` | The station's window. |
 | `渲染站.exe` | The built tray program. |
 | `WebView2Loader.dll` | The WebView2 loader the tray program's window needs. |
-| `exe/` | The tray program's sources (`station.c`, `station.rc`, `station.manifest`) and its build script `build.mjs`. |
+| `exe/` | The tray program's sources (`station.c`, `station.rc`, `station.manifest`), the installer's (`setup.c`, `setup.rc`), `common.h` shared by both, and the build script `build.mjs`. |
+| `release/` | Release scripts: `build.mjs` packs and signs, `publish.mjs` uploads to the update server. |
 | `*.test.mjs` | Tests. |
-| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/job/`, `remote/out/`, `results/`) and the WebView2 SDK (`webview2/`); not under version control. |
+| `release.json` | Only in an installed copy: the signed manifest of its version. |
+| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/job/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
 
 ## License
 

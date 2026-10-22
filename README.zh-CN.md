@@ -32,7 +32,7 @@
 
 设备：
 
-- Windows，已安装 Node.js 和 Git。
+- Windows 10 1803 或更高版本，或 Windows 11。使用安装程序时无需另外安装 Node.js 或 Git。
 - 能以密钥登录服务器（默认密钥或 ssh-agent 中的密钥）。在终端执行 `ssh -p <端口> <用户名>@<服务器>` 时不提示输入密码，即满足要求。
 - WebView2 运行时。缺少时，窗口改用 Edge 的应用窗口打开。
 - 预设任务需要的其他软件，由各工作区自行说明。
@@ -41,20 +41,24 @@
 
 ## 安装
 
-在设备上：
+### 设备
 
-1. 克隆本仓库：`git clone https://github.com/daum110715/render-station.git`。
-2. 在仓库根目录执行 `npm install`，安装窗口界面使用的两个字体包。
-3. 双击仓库根目录下的 `渲染站.exe`。首次启动后，桌面和开始菜单中会出现「渲染站」快捷方式，此后可从快捷方式启动。
-4. 在窗口的「设置」页填写服务器的 SSH 地址和端口，登记工作区，然后点击「保存」。
+1. 下载安装程序：<https://8.137.206.169/assets/render-station/render-station-setup.exe>（约 40 MB，内含 Node.js）。
+2. 运行安装程序。安装程序没有代码签名，Windows 可能提示「Windows 已保护你的电脑」，此时单击「更多信息」，再单击「仍要运行」。
+3. 单击「安装」。渲染站按当前用户安装到 `%LOCALAPPDATA%\Programs\render-station\`，无需管理员权限；安装完成后自动启动，并在桌面和开始菜单中创建「渲染站」快捷方式。
+4. 在窗口的「设置」页填写服务器的 SSH 地址和端口，登记工作区，然后单击「保存」。
 
-`渲染站.exe` 必须与 `station.mjs` 位于同一目录，即仓库根目录。
+安装程序会先关闭正在运行的渲染站。重新运行新版本的安装程序即可覆盖安装，设置保持不变。卸载时，在 Windows 的「设置 → 应用 → 已安装的应用」中找到「渲染站」，选择「卸载」；卸载时可以选择是否保留设置和任务输出。
 
-在服务器上：克隆本仓库即可，`cli.mjs` 不依赖其他包。
+也可以直接使用本仓库的检出运行：克隆本仓库，在仓库根目录执行 `npm install`，再双击 `渲染站.exe`。这种方式需要设备已安装 Node.js 和 Git，并通过 Git 更新（见「自动更新」）。`渲染站.exe` 必须与 `station.mjs` 位于同一目录。
+
+### 服务器
+
+克隆本仓库即可，`cli.mjs` 不依赖其他包。
 
 ### 从旧版本迁移
 
-渲染站曾位于 qiqi.help 的 `promo/remote/`。迁移时，先在托盘菜单中退出旧实例，再按上述步骤从新位置启动。新实例会重新创建快捷方式和开机自启项，并删除旧的自启项；旧的 `%LOCALAPPDATA%\qiqi-render-station\` 文件夹可以手动删除。如果在首次启动前把旧检出中的 `.tools\remote\config.json`（位于 qiqi.help 检出的根目录下）复制到新仓库的同一位置，服务器地址、Shell 白名单等设置会保留，旧版的 `PROMO_*` 设置会自动转为一个工作区。
+渲染站曾位于 qiqi.help 的 `promo/remote/`。运行安装程序即可完成迁移：安装程序会关闭旧实例，并在新安装的副本没有设置时，复制旧检出中的 `.tools\remote\config.json`，服务器地址、Shell 白名单等设置因此保留，旧版的 `PROMO_*` 设置会在首次启动时自动转为一个工作区。新实例会重新创建快捷方式和开机自启项，并删除旧的自启项；旧的 `%LOCALAPPDATA%\qiqi-render-station\` 文件夹可以手动删除。
 
 ## 配置
 
@@ -273,20 +277,24 @@ node cli.mjs shell --workspace video --cwd input --timeout 600 'dir'
 
 ## 自动更新
 
-开启后，渲染站在启动 1 分钟后检查一次，此后每 30 分钟检查一次，以快进方式合并当前分支的上游分支。通过 `git clone` 得到的检出已设置上游分支。也可以在设置页点击「立即检查」手动检查。
+开启后，渲染站在启动 1 分钟后检查一次，此后每 30 分钟检查一次；也可以在设置页单击「立即检查」。有任务正在执行时，等任务完成后再更新。更新涉及渲染站自身的文件时，渲染站自动重启；`渲染站.exe` 更新后，托盘程序自动替换为新版本。
 
-以下情况不更新：工作树中有未提交的改动，或存在未推送的提交。有任务正在执行时，等任务完成后再更新。
+**安装程序安装的副本**从更新服务器 `https://8.137.206.169/assets/render-station/` 获取新版本：
 
-更新涉及渲染站的代码时，渲染站自动重启；`渲染站.exe` 更新后，托盘程序自动替换为新版本。
+- 服务器上的 `latest.json` 列出新版本的每个文件及其 SHA-256，并带有发布密钥的 Ed25519 签名。渲染站只接受签名有效、版本号更高的发布。
+- 只下载有变化的文件（`files/<SHA-256>.gz`），逐个校验后再替换；替换失败时全部恢复原状。被替换的文件先改名为 `*.old`，下次启动时删除。
+- 安装位置中的 `release.json` 记录当前版本。
+
+**Git 检出**以快进方式合并当前分支的上游分支。通过 `git clone` 得到的检出已设置上游分支。工作树中有未提交的改动或存在未推送的提交时不更新。
 
 ## 托盘程序
 
 `渲染站.exe` 的源码为 `exe/station.c`，其行为如下：
 
-- 从仓库启动时，先将自身和 `WebView2Loader.dll` 复制到 `%LOCALAPPDATA%\render-station\`，再从该位置运行。因此仓库中的 exe 不会被占用，更新时可以直接替换。
-- 在后台启动 `station.mjs`，进程退出后自动重新启动。
+- 启动时，先将自身和 `WebView2Loader.dll` 复制到 `%LOCALAPPDATA%\render-station\`，再从该位置运行。因此安装位置（或仓库）中的 exe 不会被占用，更新时可以直接替换。
+- 在后台启动 `station.mjs`，进程退出后自动重新启动。优先使用安装位置中的 `node\node.exe`，没有时使用系统安装的 Node.js。
 - 将渲染站及其启动的 ssh 和任务进程放入同一个作业对象，退出时一并结束。
-- 需要设备已安装 Node.js。
+- `渲染站.exe --uninstall` 卸载安装程序安装的副本，Windows 的「已安装的应用」调用的就是它。
 
 ## 不使用托盘程序运行
 
@@ -308,14 +316,23 @@ ssh -N -R 7700:127.0.0.1:7700 -p <端口> <用户名>@<服务器>
 ## 开发
 
 - 测试：`node --test`。
-- 编译 `渲染站.exe`：`node exe/build.mjs`，在 Linux 上交叉编译，输出到仓库根目录。需要 mingw-w64（`x86_64-w64-mingw32-gcc`），以及解压到 `.tools/webview2/` 的 WebView2 SDK（NuGet 包 `Microsoft.Web.WebView2`）。
+- 编译 `渲染站.exe`：`node exe/build.mjs`，在 Linux 上交叉编译，输出到仓库根目录，同时编译安装程序的主体 `.tools/exe-build/setup.exe`。需要 mingw-w64（`x86_64-w64-mingw32-gcc`），以及解压到 `.tools/webview2/` 的 WebView2 SDK（NuGet 包 `Microsoft.Web.WebView2`）。
 - 修改 `exe/` 中的文件后，须重新编译，并将 `渲染站.exe` 与源码一并提交。
+
+### 发布
+
+1. 修改 `package.json` 中的版本号，提交全部改动。
+2. `node release/build.mjs`：把已提交的文件、窗口用到的字体和 Windows 版 Node.js（`release/build.mjs` 中的 `NODE`，首次运行时从 nodejs.org 下载并校验）打包，生成签名的 `latest.json`、更新用的 `files/<SHA-256>.gz` 和安装程序，输出到 `.tools/release/out/`。
+3. `node release/publish.mjs`：通过 `ssh lu1` 上传到 lu1 的 `/home/user1/apps/render-station/public/`，依次上传文件、安装程序（并把 `render-station-setup.exe` 设为指向它的链接）和 `latest.json`，最后从公网地址读取 `latest.json` 核对。
+
+发布密钥的私钥位于 `.tools/release/key.pem`，不纳入版本控制，公钥写在 `update.mjs` 的 `KEY` 中。私钥须另行备份：丢失后，已安装的副本无法再接受新版本，只能重新安装。
 
 ## 文件
 
 | 路径 | 说明 |
 |---|---|
 | `cli.mjs` | 在服务器上提交任务的命令行工具。 |
+| `update.mjs` | 安装副本的更新：校验发布签名，下载、校验并替换文件。 |
 | `worker.mjs` | 任务服务：接收任务，执行，并返回结果。 |
 | `workspace.mjs` | 工作区文件的读取和校验、glob、预设任务的命令和产出。 |
 | `shell.mjs` | Shell 任务的审批、白名单和执行。 |
@@ -323,9 +340,11 @@ ssh -N -R 7700:127.0.0.1:7700 -p <端口> <用户名>@<服务器>
 | `station.html` | 渲染站的窗口页面。 |
 | `渲染站.exe` | 托盘程序的编译产物。 |
 | `WebView2Loader.dll` | 托盘程序窗口所需的 WebView2 加载器。 |
-| `exe/` | 托盘程序的源码（`station.c`、`station.rc`、`station.manifest`）和编译脚本 `build.mjs`。 |
+| `exe/` | 托盘程序的源码（`station.c`、`station.rc`、`station.manifest`）、安装程序的源码（`setup.c`、`setup.rc`）、两者共用的 `common.h`，以及编译脚本 `build.mjs`。 |
+| `release/` | 发布脚本：`build.mjs` 打包并签名，`publish.mjs` 上传到更新服务器。 |
 | `*.test.mjs` | 测试。 |
-| `.tools/` | 运行时数据（`remote/config.json`、`remote/station.log`、`remote/job/`、`remote/out/`、`results/`）和 WebView2 SDK（`webview2/`），不纳入版本控制。 |
+| `release.json` | 仅存在于安装副本中：当前版本的签名清单。 |
+| `.tools/` | 运行时数据（`remote/config.json`、`remote/station.log`、`remote/job/`、`remote/out/`、`results/`、`update/`）、WebView2 SDK（`webview2/`）和发布用的文件（`release/`），不纳入版本控制。 |
 
 ## 许可
 

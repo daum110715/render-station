@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
 import { createShellGate, isAdministrator } from './shell.mjs';
 import { NAME, missingEnv, resolveWorkspaces } from './workspace.mjs';
+import { RELEASE, SERVER, applyRelease, clearOld, fetchRelease, newer, openRelease } from './update.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = resolve(here);
@@ -188,9 +189,13 @@ function sample() {
   push();
 }
 
-// ——— keeping up with the repository: its branch's new commits, fast-forward only, and only into a
-// checkout with nothing of its own in it. When the station's code changed it starts again (exit 75:
-// the tray icon starts it at once); when the tray icon's did, the tray icon starts itself again ———
+// ——— keeping up to date. An installed copy (release.json here) follows the releases published on
+// the update server (update.mjs); a checkout, its branch's new commits, fast-forward only, and only
+// into a checkout with nothing of its own in it. Never in the middle of a job. When the station's
+// code changed it starts again (exit 75: the tray icon starts it at once); when the tray icon's did,
+// the tray icon starts itself again ———
+const installed = existsSync(join(repo, RELEASE));
+const STAGE = join(repo, '.tools/update');
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 const git = (args) =>
   new Promise((done) =>
@@ -199,25 +204,46 @@ const git = (args) =>
     ),
   );
 let update = { state: 'idle', at: null, message: '' };
-// the commit this checkout is at, for the settings page
+// the release, or the commit, this copy is at, for the settings page
 let version = null;
 async function readVersion() {
+  if (installed) {
+    try {
+      const m = openRelease(readFileSync(join(repo, RELEASE), 'utf8'));
+      version = { name: m.version, at: Date.parse(m.published), kind: 'release' };
+    } catch {}
+    return push();
+  }
   const head = await git(['log', '-1', '--format=%h %ct']);
   if (!head.ok) return;
   const [commit, t] = head.out.split(' ');
-  version = { commit, at: Number(t) * 1000 };
+  version = { name: commit, at: Number(t) * 1000, kind: 'git' };
   push();
 }
 let trayAgain = false;
 let updateAfterJob = false;
+/** after an update: the tray icon starts itself again if its program changed, else the station does
+ *  if what changed is of its own */
+function restartFor(changed, ours) {
+  if (changed.some((f) => /^(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
+  else if (changed.some(ours)) {
+    note('station', '渲染站的代码已更新，即将重新启动');
+    setTimeout(() => {
+      stop();
+      process.exit(75);
+    }, 500);
+  }
+}
+const busyNow = () => job || shellGate.state().pending;
 async function checkUpdate() {
-  if (update.state === 'checking') return;
+  if (['checking', 'downloading'].includes(update.state)) return;
   const done = (state, message) => {
     update = { state, at: Date.now(), message };
     push();
   };
   update = { ...update, state: 'checking' };
   push();
+  if (installed) return checkRelease(done);
   const up = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   if (!up.ok) return done('error', '当前分支未设置上游分支，或本机未安装 Git');
   const fetched = await git(['fetch', '--quiet']);
@@ -227,8 +253,7 @@ async function checkUpdate() {
   const ahead = await git(['rev-list', '--count', `${up.out}..HEAD`]);
   const dirty = await git(['status', '--porcelain', '--untracked-files=no']);
   if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但仓库中存在${dirty.out ? '未提交的改动' : '未推送的提交'}，未自动更新`);
-  // not in the middle of a render
-  if (job || shellGate.state().pending) {
+  if (busyNow()) {
     updateAfterJob = true;
     return done('waiting', '发现新版本，将在当前任务完成后更新');
   }
@@ -238,13 +263,56 @@ async function checkUpdate() {
   await readVersion();
   note('station', `已更新到最新版本（${behind.out} 个新提交）`);
   done('updated', `已更新（${behind.out} 个新提交）`);
-  if (changed.some((f) => /^(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
-  else if (changed.some((f) => /^[\w.-]+\.mjs$/.test(f))) {
-    note('station', '渲染站的代码已更新，即将重新启动');
-    setTimeout(() => {
-      stop();
-      process.exit(75);
-    }, 500);
+  restartFor(changed, (f) => /^[\w.-]+\.mjs$/.test(f));
+}
+/** an installed copy: the release published on the update server, if it is newer, fetched and put in place */
+async function checkRelease(done) {
+  const server = config.updateServer || SERVER;
+  const get = async (path) => {
+    const res = await fetch(new URL(path, server), { signal: AbortSignal.timeout(path.endsWith('.json') ? 30000 : 600000) });
+    if (!res.ok) throw new Error(`${path}：HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  let now;
+  let next;
+  let text;
+  try {
+    now = openRelease(readFileSync(join(repo, RELEASE), 'utf8'));
+    // past any cache on the way: the server marks all it has as never changing
+    text = (await get(`latest.json?t=${Date.now()}`)).toString('utf8');
+    next = openRelease(text);
+  } catch (e) {
+    return done('error', `检查更新失败：${e.cause?.message ?? e.message}`);
+  }
+  if (!newer(next.version, now.version)) return done('current', '已是最新版本');
+  if (busyNow()) {
+    updateAfterJob = true;
+    return done('waiting', `发现新版本 ${next.version}，将在当前任务完成后更新`);
+  }
+  try {
+    await fetchRelease({
+      root: repo,
+      stage: STAGE,
+      now,
+      next,
+      get,
+      progress: (n, total) => {
+        update = { ...update, state: 'downloading', message: `正在下载新版本 ${next.version}（${n}/${total} 个文件）` };
+        push();
+      },
+    });
+    // a job may have come in meanwhile: what was fetched stays staged
+    if (busyNow()) {
+      updateAfterJob = true;
+      return done('waiting', `新版本 ${next.version} 已下载，将在当前任务完成后更新`);
+    }
+    const changed = applyRelease({ root: repo, stage: STAGE, now, next, text });
+    await readVersion();
+    note('station', `已更新到 ${next.version}（${changed.length} 个文件）`);
+    done('updated', `已更新到 ${next.version}`);
+    restartFor(changed, () => true);
+  } catch (e) {
+    done('error', `更新失败：${e.cause?.message ?? e.message}`);
   }
 }
 
@@ -663,6 +731,7 @@ ui.on('error', (e) => {
 });
 ui.listen(UI, '127.0.0.1', () => {
   note('station', `渲染站已启动，窗口地址：http://127.0.0.1:${UI}`);
+  if (installed) clearOld(STAGE);
   restock();
   readVersion();
   startWorker();

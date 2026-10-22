@@ -1,0 +1,29 @@
+// The installer's resources: the station's icon, the manifest (the dialogs in today's look) and the
+// name Windows shows for it. The .ico file is drawn by build.mjs.
+#include <windows.h>
+
+1 ICON "busy.ico"
+
+1 24 "station.manifest"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404b0"
+    BEGIN
+      VALUE "FileDescription", "渲染站安装程序"
+      VALUE "ProductName", "渲染站"
+      VALUE "FileVersion", "1.0"
+      VALUE "OriginalFilename", "render-station-setup.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0804, 1200
+  END
+END

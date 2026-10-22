@@ -11,7 +11,9 @@
 // runs: a second one opens the window and goes. It stays in the checkout beside station.mjs, but runs
 // from a copy of itself in %LOCALAPPDATA%\render-station\ (it copies itself there, with the
 // loader, and starts the copy), so the checkout's file is never held and an update can replace it;
-// when the station has updated it, the copy starts the checkout's again (--after) and goes.
+// when the station has updated it, the copy starts the checkout's again (--after) and goes. In a
+// copy the installer put in place (release.json beside it) it runs the Node.js that came with it
+// (node\node.exe), and --uninstall removes that copy and all the station told Windows.
 // Built on Linux with mingw-w64: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
@@ -26,6 +28,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <windowsx.h>
+#include <commctrl.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -35,13 +38,10 @@
 #include <string.h>
 #include <wchar.h>
 #include "WebView2.h"
+#include "common.h"
 
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
-#define RUN_NAME L"渲染站"
-// the value it had while the station was part of qiqi.help, taken away
-#define OLD_RUN_NAME L"qiqi 渲染站"
-#define LINK_NAME L"渲染站.lnk"
 #define TITLE L"渲染站"
 enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_BROWSER, CMD_LOG, CMD_QUIT };
 // the window's timers, and its word to itself to give up on WebView2
@@ -479,7 +479,8 @@ static void openWindow(void) {
 // ——— with Windows, and as an app: what the window's settings ask for ———
 static void runKey(int on) {
   HKEY k;
-  if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
+  // the value it had while the station was part of qiqi.help, taken away
   RegDeleteValueW(k, OLD_RUN_NAME);
   if (on) {
     wchar_t v[MAX_PATH + 16];
@@ -731,6 +732,9 @@ static void darkMenus(void) {
 }
 
 static int findNode(void) {
+  // an installed copy's own
+  FMT(nodePath, L"%ls\\node\\node.exe", repo);
+  if (isFile(nodePath)) return 1;
   if (SearchPathW(NULL, L"node.exe", NULL, MAX_PATH, nodePath, NULL)) return 1;
   // where the installer puts it, should this have started without the PATH that names it
   wchar_t root[MAX_PATH];
@@ -741,25 +745,130 @@ static int findNode(void) {
   return 0;
 }
 
+// ——— uninstalling a copy the installer put in place: what the station told Windows (starting with
+// it, the shortcuts, the installed apps' entry), the copy it ran from, and then, from a copy of this
+// in the temporary folder once this has gone, the installed folder: all of it, or all but the
+// settings and what the jobs made (.tools) ———
+static int uninstall(void) {
+  wchar_t check[MAX_PATH + 32], content[MAX_PATH + 160];
+  FMT(check, L"%ls\\release.json", exeDir);
+  if (!isFile(check)) {
+    MessageBoxW(NULL, L"此渲染站不是由安装程序安装的，无法卸载。", L"卸载渲染站", MB_ICONERROR);
+    return 1;
+  }
+  FMT(content, L"将删除 %ls 中的程序文件，以及桌面和开始菜单中的快捷方式和开机自启项。", exeDir);
+  TASKDIALOG_BUTTON buttons[] = { { 100, L"卸载，并删除设置和任务输出" }, { 101, L"卸载，但保留设置和任务输出\n保留在安装位置的 .tools 文件夹中" } };
+  TASKDIALOGCONFIG tc = { sizeof tc };
+  tc.hInstance = inst;
+  tc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+  tc.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+  tc.pszWindowTitle = L"卸载渲染站";
+  tc.pszMainIcon = MAKEINTRESOURCEW(1);
+  tc.pszMainInstruction = L"要卸载渲染站吗？";
+  tc.pszContent = content;
+  tc.pButtons = buttons;
+  tc.cButtons = 2;
+  int pressed = 0;
+  if (FAILED(TaskDialogIndirect(&tc, &pressed, NULL, NULL)) || (pressed != 100 && pressed != 101)) return 0;
+  while (stationRunning() && !stopStation())
+    if (MessageBoxW(NULL, L"无法关闭正在运行的渲染站。请从托盘菜单退出渲染站，然后单击「重试」。", L"卸载渲染站", MB_RETRYCANCEL | MB_ICONWARNING) != IDRETRY) return 1;
+  HKEY k;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_SET_VALUE, &k) == ERROR_SUCCESS) {
+    RegDeleteValueW(k, RUN_NAME);
+    RegDeleteValueW(k, OLD_RUN_NAME);
+    RegCloseKey(k);
+  }
+  link(CSIDL_DESKTOPDIRECTORY, 0);
+  link(CSIDL_PROGRAMS, 0);
+  RegDeleteTreeW(HKEY_CURRENT_USER, UNINSTALL_KEY);
+  wchar_t home[MAX_PATH + 32];
+  if (GetEnvironmentVariableW(L"LOCALAPPDATA", home, MAX_PATH)) {
+    wcsncat(home, L"\\render-station", MAX_PATH - wcslen(home) - 1);
+    removeTree(home);
+  }
+  wchar_t temp[MAX_PATH], copy[MAX_PATH + 64], cmd[MAX_PATH * 3];
+  GetTempPathW(MAX_PATH, temp);
+  FMT(copy, L"%lsrender-station-uninstall-%lu.exe", temp, GetCurrentProcessId());
+  FMT(cmd, L"\"%ls\" --uninstall-finish \"%ls\" %d %lu", copy, exeDir, pressed == 101, GetCurrentProcessId());
+  STARTUPINFOW si = { sizeof si };
+  PROCESS_INFORMATION pi;
+  if (!CopyFileW(exePath, copy, FALSE) || !CreateProcessW(copy, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    FMT(content, L"渲染站已从系统中移除，但未能删除程序文件，请手动删除：\n%ls", exeDir);
+    MessageBoxW(NULL, content, L"卸载渲染站", MB_ICONWARNING);
+    return 1;
+  }
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+  return 0;
+}
+static int uninstallFinish(const wchar_t *dir, int keepData, DWORD after) {
+  HANDLE old = OpenProcess(SYNCHRONIZE, FALSE, after);
+  if (old) {
+    WaitForSingleObject(old, 10000);
+    CloseHandle(old);
+  }
+  int ok = 1;
+  if (!keepData) ok = removeTree(dir);
+  else {
+    wchar_t pattern[MAX_PATH + 4], path[MAX_PATH * 2];
+    FMT(pattern, L"%ls\\*", dir);
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pattern, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+      do {
+        if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..") || !_wcsicmp(fd.cFileName, L".tools")) continue;
+        FMT(path, L"%ls\\%ls", dir, fd.cFileName);
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ok &= removeTree(path);
+        else ok &= DeleteFileW(path) != 0;
+      } while (FindNextFileW(h, &fd));
+      FindClose(h);
+    }
+  }
+  wchar_t msg[MAX_PATH * 2 + 128];
+  if (!ok) FMT(msg, L"渲染站已卸载，但部分文件未能删除，请手动删除：\n%ls", dir);
+  else if (keepData) FMT(msg, L"渲染站已卸载。设置和任务输出保留在：\n%ls\\.tools", dir);
+  else FMT(msg, L"渲染站已卸载。");
+  MessageBoxW(NULL, msg, L"卸载渲染站", ok ? MB_ICONINFORMATION : MB_ICONWARNING);
+  // and this copy, once it has gone
+  wchar_t comspec[MAX_PATH], cmd[MAX_PATH * 3];
+  if (!GetEnvironmentVariableW(L"ComSpec", comspec, MAX_PATH)) lstrcpynW(comspec, L"cmd.exe", MAX_PATH);
+  FMT(cmd, L"\"%ls\" /c ping -n 3 127.0.0.1 >nul & del /f /q \"%ls\"", comspec, exePath);
+  STARTUPINFOW si = { sizeof si };
+  PROCESS_INFORMATION pi;
+  if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  }
+  return ok ? 0 : 1;
+}
+
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   (void)prev;
   (void)how;
   inst = hi;
   (void)args;
-  int argc = 0, quiet = 0;
-  DWORD after = 0;
-  const wchar_t *from = NULL;
+  int argc = 0, quiet = 0, removing = 0, keepData = 0;
+  DWORD after = 0, finishAfter = 0;
+  const wchar_t *from = NULL, *finishing = NULL;
   wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   for (int i = 1; argv && i < argc; i++) {
     if (!wcscmp(argv[i], L"/quiet")) quiet = 1;
     else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
     else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
+    else if (!wcscmp(argv[i], L"--uninstall")) removing = 1;
+    else if (!wcscmp(argv[i], L"--uninstall-finish") && i + 3 < argc) {
+      finishing = argv[++i];
+      keepData = argv[++i][0] == L'1';
+      finishAfter = wcstoul(argv[++i], NULL, 10);
+    }
   }
   wantOpen = !quiet;
   GetModuleFileNameW(NULL, exePath, MAX_PATH);
   lstrcpynW(exeDir, exePath, MAX_PATH);
   wchar_t *slash = wcsrchr(exeDir, L'\\');
   if (slash) *slash = 0;
+  if (removing) return uninstall();
+  if (finishing) return uninstallFinish(finishing, keepData, finishAfter);
 
   // the last one, going after an update: once it has
   if (after) {
@@ -777,7 +886,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   }
   int isCopy = home[0] && !_wcsicmp(exeDir, home);
   lstrcpynW(launcher, isCopy && from ? from : exePath, MAX_PATH);
-  HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\render-station-tray");
+  HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, TRAY_MUTEX);
   if (!isCopy && home[0] && !running) {
     wchar_t dll[MAX_PATH + 32], dllCopy[MAX_PATH + 32];
     CreateDirectoryW(home, NULL);
@@ -799,10 +908,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     // could not: from here, as before
   }
   if (running) CloseHandle(running);
-  CreateMutexW(NULL, TRUE, L"Local\\render-station-tray");
+  CreateMutexW(NULL, TRUE, TRAY_MUTEX);
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     // the one running opens its window, and may bring it to the front
-    HWND other = FindWindowW(L"RenderStation", NULL);
+    HWND other = FindWindowW(TRAY_CLASS, NULL);
     if (other && !quiet) {
       DWORD pid = 0;
       GetWindowThreadProcessId(other, &pid);
@@ -860,7 +969,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   WNDCLASSW wc = { 0 };
   wc.lpfnWndProc = proc;
   wc.hInstance = inst;
-  wc.lpszClassName = L"RenderStation";
+  wc.lpszClassName = TRAY_CLASS;
   RegisterClassW(&wc);
   hwnd = CreateWindowExW(0, wc.lpszClassName, TITLE, WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
   taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");

@@ -1450,7 +1450,7 @@
             <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存</span><span id="save-error" role="alert"></span></div>
             <div class="group-set">
               <h4>本机</h4>
-              <label class="switch"><span>自动更新<small>跟随仓库的新版本自动更新；仓库中有本地改动时不更新</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
+              <label class="switch"><span>自动更新<small id="u-hint">有新版本时自动下载并安装</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
               <div class="update"><span id="u-state">尚未检查</span><button type="button" class="link" id="u-check">立即检查</button></div>
               <div class="version" id="version"></div>
               <div id="here">
@@ -1744,10 +1744,14 @@
         ])
           if (!flying.has(id)) $(`#${id}`).checked = on;
         const u = S.update;
-        const said = { idle: '尚未检查', checking: '正在检查更新…', current: '已是最新版本', updated: u.message, blocked: u.message, waiting: u.message, error: u.message }[u.state] ?? '';
-        set('u-state', `${said}${u.at && u.state !== 'checking' ? `（${clock(u.at)}）` : ''}`);
-        $('#u-check').hidden = u.state === 'checking';
-        set('version', S.version ? `当前版本：${S.version.commit}（提交于 ${day(S.version.at)}）` : '');
+        const going = ['checking', 'downloading'].includes(u.state);
+        const said = { idle: '尚未检查', checking: '正在检查更新…', current: '已是最新版本' }[u.state] ?? u.message;
+        set('u-state', `${said}${u.at && !going ? `（${clock(u.at)}）` : ''}`);
+        $('#u-check').hidden = going;
+        // an installed copy updates from the update server; a checkout, from its git branch
+        const fromGit = S.version?.kind === 'git';
+        set('u-hint', fromGit ? '跟随仓库的新版本自动更新；仓库中有本地改动时不更新' : '有新版本时自动下载并安装');
+        set('version', S.version ? `当前版本：${S.version.name}（${fromGit ? '提交于' : '发布于'} ${day(S.version.at)}）` : '');
       }
 
       // ——— this machine: a line of the last two minutes each, sliding left as it goes ———

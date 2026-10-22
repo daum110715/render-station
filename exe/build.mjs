@@ -2,8 +2,10 @@
 // dot in each state's colour with a play mark, as the window's) into .ico files, then compiles the
 // resources and the program against the WebView2 SDK (NuGet's Microsoft.Web.WebView2, unpacked in
 // .tools/webview2/), and puts the SDK's WebView2Loader.dll beside it. In .tools/exe-build/ on the
-// way. Run after changing station.c, the resources or the icons, and commit the exe and the dll.
-// usage: node exe/build.mjs
+// way. Run after changing station.c, common.h, the resources or the icons, and commit the exe and
+// the dll. It also builds the installer's program (setup.c) into .tools/exe-build/setup.exe, which
+// release/build.mjs appends a release to; --setup builds that alone.
+// usage: node exe/build.mjs [--setup]
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -115,8 +117,14 @@ for (const f of ['station.rc', 'station.manifest']) copyFileSync(join(here, f), 
 writeFileSync(join(build, 'EventToken.h'), '#include <eventtoken.h>\n');
 
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: build, stdio: 'inherit' });
-run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'station.rc', '-O', 'coff', '-o', 'station.res.o']);
-// the SDK as a system header: its IIDs, defined in the header, are not ours to be warned about
-run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-isystem', build, '-isystem', join(sdk, 'include'), '-o', out, join(here, 'station.c'), 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi']);
-copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(here, '..', 'WebView2Loader.dll'));
-console.log(out);
+if (!process.argv.includes('--setup')) {
+  run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'station.rc', '-O', 'coff', '-o', 'station.res.o']);
+  // the SDK as a system header: its IIDs, defined in the header, are not ours to be warned about
+  run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-isystem', build, '-isystem', join(sdk, 'include'), '-o', out, join(here, 'station.c'), 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi', '-lcomctl32']);
+  copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(here, '..', 'WebView2Loader.dll'));
+  console.log(out);
+}
+copyFileSync(join(here, 'setup.rc'), join(build, 'setup.rc'));
+run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'setup.rc', '-O', 'coff', '-o', 'setup.res.o']);
+run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-o', join(build, 'setup.exe'), join(here, 'setup.c'), 'setup.res.o', '-lshell32', '-ladvapi32', '-lcomctl32']);
+console.log(join(build, 'setup.exe'));
