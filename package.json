@@ -1,0 +1,11 @@
+{
+  "name": "render-station",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "站长电脑上的渲染站：渲染服务、托盘程序和授权的远程 Shell，与 qiqi.help 分离",
+  "dependencies": {
+    "@fontsource-variable/outfit": "^5.3.0",
+    "lxgw-wenkai-webfont": "^1.7.0"
+  }
+}

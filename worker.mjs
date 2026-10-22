@@ -2,14 +2,14 @@
 // to render. lemon reaches it through a reverse SSH tunnel opened from this machine, which the
 // render station (station.mjs) keeps up; by hand:
 //   ssh -N -R 7700:127.0.0.1:7700 -p 22222 lemon@23.251.32.150
-// A job (remote/ask.mjs) brings lemon's promo/render.mjs, lib/ and stage/ as they stand there,
+// A job (ask.mjs) brings lemon's promo/render.mjs, lib/ and stage/ as they stand there,
 // changes not yet committed included, and what to render. It is set up in .tools/remote/job/,
 // so this checkout is never touched, and rendered with this machine's clips, site build, assets
 // and tools (the environment render.mjs reads: PROMO_WORK, PROMO_SITE, PROMO_CHROME, PROMO_GPU,
 // PROMO_FFMPEG, PROMO_PROFILES); what it made goes back. One job at a time. Stills (full or half
 // size), the covers and clips; a clip always half size at 15 fps (--preview): until the cut is
 // out, nothing is rendered at full size and rate, and the final render is run here by hand.
-// usage: node promo/remote/worker.mjs [--port 7700]
+// usage: node worker.mjs [--port 7700]
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { executeShell } from './shell.mjs';
 
-const repo = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const repo = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const job = join(repo, '.tools/remote/job');
 /** the worker's port here */
 export const WORKER = 7700;
@@ -85,9 +85,10 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
         mkdirSync(dirname(join(job, path)), { recursive: true });
         writeFileSync(join(job, path), Buffer.from(data, 'base64'));
       }
+      if (!env().PROMO_ROOT) throw new Error('PROMO_ROOT is not set: the qiqi.help checkout to render from');
       on({ type: 'start', id, args: argv });
       code = await new Promise((done) => {
-        const p = spawn(process.execPath, [join(job, 'promo/render.mjs'), ...argv], { cwd: repo, env: { ...process.env, ...env(), PROMO_ROOT: repo }, windowsHide: true });
+        const p = spawn(process.execPath, [join(job, 'promo/render.mjs'), ...argv], { cwd: env().PROMO_ROOT, env: { ...process.env, ...env() }, windowsHide: true });
         for (const s of [p.stdout, p.stderr])
           s.on('data', (d) => {
             log += d;

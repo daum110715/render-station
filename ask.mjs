@@ -1,21 +1,24 @@
-// On lemon: has the render worker on the owner's machine (remote/worker.mjs, kept up there by the
+// On lemon: has the render worker on the owner's machine (worker.mjs, kept up there by the
 // render station, station.mjs, with the SSH tunnel it opens to lemon) render the cut with
-// promo/render.mjs, lib/ and stage/ as they stand here, changes not yet committed included. What
-// comes back lands in .tools/.scratch/promo/remote/<time>/. Takes render.mjs's own options; a
+// promo/render.mjs, lib/ and stage/ of the qiqi.help checkout (PROMO_ROOT), changes not yet committed included. What
+// comes back lands in .tools/.scratch/<time>/. Takes render.mjs's own options; a
 // clip is always half size at 15 fps.
-// usage: node promo/remote/ask.mjs --stills 19.9,20.3 [--preview] [--partial]
-//        node promo/remote/ask.mjs --cover
-//        node promo/remote/ask.mjs --from 13.49 --to 21.45 [--partial] [--no-voice]
-//        node promo/remote/ask.mjs --shell 'node --version' [--cwd .] [--timeout 600]
+// usage: node /www/daum/render-station/ask.mjs --stills 19.9,20.3 [--preview] [--partial]
+//        node /www/daum/render-station/ask.mjs --cover
+//        node /www/daum/render-station/ask.mjs --from 13.49 --to 21.45 [--partial] [--no-voice]
+//        node /www/daum/render-station/ask.mjs --shell 'node --version' [--cwd .] [--timeout 600]
+// PROMO_ROOT: the qiqi.help checkout the render sources come from (default /www/daum/qiqi.help)
 // PROMO_REMOTE: the worker's port on lemon, if not found among the tunnel's (PORTS)
 import { request } from 'node:http';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { PORTS } from './worker.mjs';
 
-const promo = fileURLToPath(new URL('..', import.meta.url));
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(process.env.PROMO_ROOT ?? '/www/daum/qiqi.help');
+const promo = join(root, 'promo');
 const HEADERS = { 'x-qiqi-worker': '1' };
 
 /** a request to the worker on `port`: the reply's status and body */
@@ -42,7 +45,7 @@ for (const p of port ? [] : PORTS) {
   }
 }
 if (!port) {
-  console.error("no render worker on lemon: on the owner's machine the render station is not running, or is paused (promo/remote/渲染站.exe)");
+  console.error("no render worker on lemon: on the owner's machine the render station is not running, or is paused (渲染站.exe)");
   process.exit(1);
 }
 
@@ -59,7 +62,7 @@ if (args.includes('--shell')) {
   console.log('Shell submitted; an unlisted command waits for approval in the local station (up to 5 minutes).');
 } else {
   const files = {};
-  const add = (path) => (files[path] = readFileSync(join(promo, '..', path)).toString('base64'));
+  const add = (path) => (files[path] = readFileSync(join(root, path)).toString('base64'));
   add('promo/render.mjs');
   for (const dir of ['lib', 'stage']) for (const name of readdirSync(join(promo, dir))) add(`promo/${dir}/${name}`);
   payload = { type: 'render', files, args };
@@ -83,7 +86,7 @@ const reply = JSON.parse(gunzipSync(res.body));
 // the end of the worker's log: render.mjs's last lines, or what went wrong
 console.log(payload.type === 'shell' ? reply.log.trimEnd() : reply.log.trim().split('\n').slice(-8).join('\n'));
 if (payload.type === 'shell') console.log(`exit code: ${reply.code ?? 'not started'}`);
-const dir = join(promo, '..', '.tools/.scratch/promo/remote', new Date().toISOString().replace(/[:.]/g, '-'));
+const dir = join(here, '.tools/.scratch', new Date().toISOString().replace(/[:.]/g, '-'));
 for (const [path, data] of Object.entries(reply.files)) {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
   writeFileSync(join(dir, path), Buffer.from(data, 'base64'));

@@ -1372,8 +1372,9 @@
           </div>
           <form class="card" id="form" autocomplete="off">
             <h4>渲染用的东西</h4>
+            <label><span>渲染用的 qiqi.help 仓库<code>PROMO_ROOT</code></span><input type="text" name="PROMO_ROOT" placeholder="…\qiqi.help" /></label>
             <label><span>录像目录<code>PROMO_WORK</code></span><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
-            <label><span>站点构建<code>PROMO_SITE</code></span><input type="text" name="PROMO_SITE" placeholder="留空用仓库的 public\" /></label>
+            <label><span>站点构建<code>PROMO_SITE</code></span><input type="text" name="PROMO_SITE" placeholder="留空用 qiqi.help 的 public\" /></label>
             <label><span>Chrome<code>PROMO_CHROME</code></span><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
             <label><span>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code></span><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
             <label><span>临时浏览器配置<code>PROMO_PROFILES</code></span><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
@@ -1424,7 +1425,7 @@
 
     <script>
       const $ = (s) => document.querySelector(s);
-      const KEYS = ['PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
+      const KEYS = ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
       const C = 2 * Math.PI * 52;
       const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
       let S = null;

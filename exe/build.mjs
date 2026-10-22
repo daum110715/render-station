@@ -1,9 +1,9 @@
-// Builds promo/remote/渲染站.exe from station.c with mingw-w64, here on lemon: draws the icons (a
+// Builds 渲染站.exe from station.c with mingw-w64, here on lemon: draws the icons (a
 // dot in each state's colour with a play mark, as the window's) into .ico files, then compiles the
 // resources and the program against the WebView2 SDK (NuGet's Microsoft.Web.WebView2, unpacked in
 // .tools/webview2/), and puts the SDK's WebView2Loader.dll beside it. In .tools/exe-build/ on the
 // way. Run after changing station.c, the resources or the icons, and commit the exe and the dll.
-// usage: node promo/remote/exe/build.mjs
+// usage: node exe/build.mjs
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
-const repo = join(here, '../../..');
+const repo = join(here, '..');
 const build = join(repo, '.tools/exe-build');
 const out = join(here, '..', '渲染站.exe');
 const sdk = join(repo, '.tools/webview2/build/native');

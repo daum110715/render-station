@@ -5,7 +5,7 @@
 // starts it and starts it again if it stops, and keeps what the settings ask of Windows (starting
 // with it, the shortcuts), as /tray tells it. Its settings, the paths render.mjs needs and how to
 // reach lemon, are in .tools/remote/config.json; what it did, in station.log.
-// usage: node promo/remote/station.mjs
+// usage: node station.mjs
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -17,7 +17,7 @@ import { PORTS, WORKER, serve } from './worker.mjs';
 import { createShellGate, isAdministrator } from './shell.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
-const repo = resolve(here, '../..');
+const repo = resolve(here);
 const dir = join(repo, '.tools/remote');
 mkdirSync(dir, { recursive: true });
 /** the window's port */
@@ -77,11 +77,11 @@ function liner(each) {
 
 // ——— settings ———
 const CONFIG = join(dir, 'config.json');
-const KEYS = ['PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES', 'PROMO_GPU'];
+const KEYS = ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES', 'PROMO_GPU'];
 // lemon by its address, so no ssh config is needed (the key: the owner's default one, or the agent's)
 const LEMON = { target: 'lemon@23.251.32.150', port: '22222' };
 // what render.mjs cannot do without here (on Windows its defaults are lemon's)
-const NEEDED = win ? ['PROMO_WORK', 'PROMO_CHROME', 'PROMO_FFMPEG'] : ['PROMO_WORK'];
+const NEEDED = win ? ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_CHROME', 'PROMO_FFMPEG'] : ['PROMO_ROOT', 'PROMO_WORK'];
 let config = {
   env: Object.fromEntries(KEYS.map((k) => [k, process.env[k] ?? (k === 'PROMO_GPU' ? '1' : '')])),
   ssh: { ...LEMON },
@@ -96,7 +96,7 @@ const save = () => writeFileSync(CONFIG, JSON.stringify(config, null, 2));
 config.shell = { enabled: false, rules: [], ...config.shell };
 const shellToken = randomBytes(32).toString('hex');
 const shellGate = createShellGate({
-  workspace: repo,
+  workspace: config.env.PROMO_ROOT || repo,
   policy: () => config.shell,
   save,
   admin: isAdministrator(),
@@ -204,8 +204,8 @@ async function checkUpdate() {
   await readVersion();
   note('station', `更新到最新版：${behind.out} 个新提交`);
   done('updated', `${behind.out} 个新提交，已更新`);
-  if (changed.some((f) => /^promo\/remote\/(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
-  else if (changed.some((f) => /^promo\/remote\/[\w.-]+\.mjs$/.test(f))) {
+  if (changed.some((f) => /^(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
+  else if (changed.some((f) => /^[\w.-]+\.mjs$/.test(f))) {
     note('station', '渲染站的代码变了，马上重新启动');
     setTimeout(() => {
       stop();
@@ -292,7 +292,7 @@ function push() {
 
 // ——— the worker ———
 /** where what the jobs made is kept here too, to be looked at: the latest 30 jobs' worth */
-const KEEP = join(repo, 'promo/out/remote');
+const KEEP = join(repo, '.tools/remote/out');
 /** what a job is, in a few words */
 function describe(args) {
   const get = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);

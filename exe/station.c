@@ -8,11 +8,11 @@
 // Windows (a value under HKCU\...\Run, so it shows in Task Manager's startup apps) and 渲染站 on
 // the desktop and in the Start menu. The station and all it starts (ssh, a render's Chrome and
 // ffmpeg) run in a job object, so quitting, or this ending any other way, ends them too. Only one
-// runs: a second one opens the window and goes. It stays in the checkout's promo\remote\, but runs
+// runs: a second one opens the window and goes. It stays in the checkout beside station.mjs, but runs
 // from a copy of itself in %LOCALAPPDATA%\qiqi-render-station\ (it copies itself there, with the
 // loader, and starts the copy), so the checkout's file is never held and an update can replace it;
 // when the station has updated it, the copy starts the checkout's again (--after) and goes.
-// Built on lemon with mingw-w64: node promo/remote/exe/build.mjs
+// Built on lemon with mingw-w64: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
 #define UNICODE
@@ -231,10 +231,10 @@ static void fallBack(void) {
   closeFrame();
   openEdge();
 }
-// what a job made, kept under promo\out\remote: opened, or shown in its folder
+// what a job made, kept under .tools\remote\out: opened, or shown in its folder
 static void reveal(const wchar_t *path, int folder) {
   wchar_t root[MAX_PATH + 32], full[MAX_PATH * 2];
-  FMT(root, L"%ls\\promo\\out\\remote\\", repo);
+  FMT(root, L"%ls\\.tools\\remote\\out\\", repo);
   if (!GetFullPathNameW(path, MAX_PATH * 2, full, NULL) || _wcsnicmp(full, root, wcslen(root)) || !isFile(full)) return;
   if (folder) {
     wchar_t arg[MAX_PATH * 2 + 16];
@@ -533,7 +533,7 @@ static void startStation(void) {
   lim.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
   SetInformationJobObject(job, JobObjectExtendedLimitInformation, &lim, sizeof lim);
   wchar_t cmd[MAX_PATH * 3];
-  FMT(cmd, L"\"%ls\" \"%ls\\promo\\remote\\station.mjs\"", nodePath, repo);
+  FMT(cmd, L"\"%ls\" \"%ls\\station.mjs\"", nodePath, repo);
   STARTUPINFOW si = { sizeof si };
   PROCESS_INFORMATION pi;
   startedAt = GetTickCount64();
@@ -809,16 +809,15 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     return 0;
   }
 
-  // the checkout: two up from the checkout's 渲染站.exe
-  wchar_t launcherDir[MAX_PATH], up2[MAX_PATH + 8], check[MAX_PATH + 64];
+  // the checkout: the folder that holds 渲染站.exe
+  wchar_t launcherDir[MAX_PATH], check[MAX_PATH + 64];
   lstrcpynW(launcherDir, launcher, MAX_PATH);
   slash = wcsrchr(launcherDir, L'\\');
   if (slash) *slash = 0;
-  FMT(up2, L"%ls\\..\\..", launcherDir);
-  GetFullPathNameW(up2, MAX_PATH, repo, NULL);
-  FMT(check, L"%ls\\promo\\remote\\station.mjs", repo);
+  GetFullPathNameW(launcherDir, MAX_PATH, repo, NULL);
+  FMT(check, L"%ls\\station.mjs", repo);
   if (!isFile(check)) {
-    MessageBoxW(NULL, L"渲染站.exe 要留在仓库的 promo\\remote 文件夹里，和 station.mjs 放在一起。\n\n桌面上的「渲染站」是它的快捷方式，以后从那里打开就行。", TITLE, MB_ICONERROR);
+    MessageBoxW(NULL, L"渲染站.exe 要和 station.mjs 放在同一个文件夹里（渲染站仓库的根）。\n\n桌面上的「渲染站」是它的快捷方式，以后从那里打开就行。", TITLE, MB_ICONERROR);
     return 1;
   }
   FMT(logPath, L"%ls\\.tools\\remote\\station.log", repo);

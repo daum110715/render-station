@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { createShellGate, executeShell, shellRequest } from './shell.mjs';
 import { serve } from './worker.mjs';
 
-const repo = resolve(import.meta.dirname, '../..');
+const repo = resolve(import.meta.dirname);
 const scratch = join(repo, '.tools/.scratch');
 mkdirSync(scratch, { recursive: true });
 const fixture = () => {
