@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { resolve, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createShellGate, executeShell, shellRequest } from './shell.mjs';
-import { serve } from './worker.mjs';
+import { HEADER, serve } from './worker.mjs';
 
 const repo = resolve(import.meta.dirname);
 const scratch = join(repo, '.tools/.scratch');
@@ -14,7 +14,7 @@ const fixture = () => {
   const policy = { enabled: true, rules: [] };
   const events = [];
   let saved = 0;
-  const gate = createShellGate({ workspace, policy: () => policy, save: () => saved++, audit: (line) => events.push(line), reviewTimeout: 50 });
+  const gate = createShellGate({ workspaces: () => [{ name: 'test', path: workspace }], policy: () => policy, save: () => saved++, audit: (line) => events.push(line), reviewTimeout: 50 });
   return { workspace, policy, gate, events, get saved() { return saved; }, close() { gate.revoke(); rmSync(workspace, { recursive: true, force: true }); } };
 };
 
@@ -76,14 +76,25 @@ test('YOLO requires local administrator, permits outside cwd, and resets on revo
   const f = fixture();
   try {
     assert.throws(() => f.gate.setYolo(true), /administrator/);
-    const gate = createShellGate({ workspace: f.workspace, policy: () => f.policy, save() {}, admin: true });
+    const gate = createShellGate({ workspaces: () => [{ name: 'test', path: f.workspace }], policy: () => f.policy, save() {}, admin: true });
     gate.setYolo(true);
     assert.equal((await gate.authorize({ command: 'pwd', cwd: '..' })).approval, 'yolo');
     gate.revoke();
     assert.equal(gate.state().mode, 'auto');
-    assert.equal(createShellGate({ workspace: f.workspace, policy: () => f.policy, save() {}, admin: true }).state().mode, 'auto');
+    assert.equal(createShellGate({ workspaces: () => [], policy: () => f.policy, save() {}, admin: true }).state().mode, 'auto');
     f.policy.enabled = false;
     assert.throws(() => gate.setYolo(true), /enabled/);
+  } finally { f.close(); }
+});
+
+test('a request names a registered workspace, or gets the first; with none, auto refuses', async () => {
+  const f = fixture();
+  try {
+    await assert.rejects(f.gate.authorize({ command: 'pwd', workspace: 'other' }), /no workspace "other"/);
+    const none = createShellGate({ workspaces: () => [], policy: () => f.policy, save() {} });
+    await assert.rejects(none.authorize({ command: 'pwd' }), /no workspace registered/);
+    f.policy.rules.push({ command: 'pwd', cwd: realpathSync(f.workspace) });
+    assert.equal((await f.gate.authorize({ command: 'pwd', workspace: 'test' })).workspace, 'test');
   } finally { f.close(); }
 });
 
@@ -102,15 +113,15 @@ test('execution returns output and exit status and kills a timed-out process tre
   } finally { f.close(); }
 });
 
-test('worker protocol runs an allowlisted shell, blocks while paused, and preserves render validation', async () => {
+test('worker protocol runs an allowlisted shell, blocks while paused, and refuses unknown jobs', async () => {
   const f = fixture();
   let accepting = true;
   const events = [];
-  const server = serve({ port: 0, shell: f.gate, accepting: () => accepting, on: (e) => events.push(e) });
+  const server = serve({ port: 0, workspaces: () => [{ name: 'test', path: f.workspace, env: {}, spec: { env: [], presets: {} } }], shell: f.gate, accepting: () => accepting, on: (e) => events.push(e) });
   await new Promise((done) => server.once('listening', done));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = async (payload) => {
-    const res = await fetch(`${base}/job`, { method: 'POST', headers: { 'x-qiqi-worker': '1' }, body: gzipSync(JSON.stringify(payload)) });
+    const res = await fetch(`${base}/job`, { method: 'POST', headers: { [HEADER]: '1' }, body: gzipSync(JSON.stringify(payload)) });
     const bytes = Buffer.from(await res.arrayBuffer());
     // fetch transparently decompresses gzip responses; ask.mjs uses node:http instead.
     return { status: res.status, reply: res.status === 200 ? JSON.parse(bytes.toString()) : null };
@@ -124,9 +135,13 @@ test('worker protocol runs an allowlisted shell, blocks while paused, and preser
     accepting = false;
     assert.equal((await post({ type: 'shell', command: 'echo protocol-ok' })).status, 503);
     accepting = true;
-    const render = await post({ type: 'render', files: {}, args: ['--unauthorized'] });
-    assert.equal(render.reply.ok, false);
-    assert.match(render.reply.log, /not taken/);
+    const old = await post({ type: 'render', files: {}, args: [] });
+    assert.equal(old.reply.ok, false);
+    assert.match(old.reply.log, /unknown job type/);
+    const preset = await post({ type: 'preset', workspace: 'test', preset: 'nothing' });
+    assert.equal(preset.reply.ok, false);
+    assert.equal(preset.reply.code, null);
+    assert.match(preset.reply.log, /no preset "nothing"/);
     assert.equal((await fetch(`${base}/hello`)).status, 403);
   } finally {
     server.closeAllConnections();

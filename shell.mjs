@@ -2,6 +2,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 export function isAdministrator() {
@@ -14,6 +15,7 @@ export function isAdministrator() {
 export function shellRequest(input, workspace, unrestricted = false) {
   if (!input || typeof input.command !== 'string' || !input.command.trim() || input.command.length > 32768 || input.command.includes('\0')) throw new Error('shell command must be nonempty text (max 32768 characters)');
   if (input.cwd != null && typeof input.cwd !== 'string') throw new Error('cwd must be a path');
+  if (!workspace) throw new Error('no workspace registered on this machine: add one in the local station settings');
   const root = realpathSync(workspace);
   const cwd = realpathSync(resolve(root, input.cwd ?? '.'));
   const rel = relative(root, cwd);
@@ -26,11 +28,20 @@ export function shellRequest(input, workspace, unrestricted = false) {
 
 export const matchesRule = (rule, request) => rule?.command === request.command && rule?.cwd === request.cwd;
 
-export function createShellGate({ workspace, policy, save, admin = false, changed = () => {}, audit = () => {}, reviewTimeout = 300000 }) {
+/** the gate for Shell jobs: `workspaces()`, the registered ones ([{ name, path }]); a job names one,
+ *  or gets the first (in YOLO, with none registered, the home folder) */
+export function createShellGate({ workspaces, policy, save, admin = false, changed = () => {}, audit = () => {}, reviewTimeout = 300000 }) {
   let yolo = false;
   let pending = null;
   let settle = null;
-  const state = () => ({ mode: !policy().enabled ? 'disabled' : yolo ? 'yolo' : 'auto', admin, workspace, pending, rules: policy().rules ?? [] });
+  const state = () => ({ mode: !policy().enabled ? 'disabled' : yolo ? 'yolo' : 'auto', admin, workspaces: workspaces().map((w) => w.name), pending, rules: policy().rules ?? [] });
+  function rootOf(name) {
+    if (name != null && typeof name !== 'string') throw new Error('workspace must be a name');
+    const list = workspaces();
+    const w = name ? list.find((x) => x.name === name) : list[0];
+    if (name && !w) throw new Error(`no workspace "${name}" on this machine`);
+    return w ? { name: w.name, path: w.path } : { name: null, path: yolo ? homedir() : null };
+  }
   const revoke = () => { yolo = false; settle?.(false); changed(); };
   return {
     state,
@@ -62,7 +73,8 @@ export function createShellGate({ workspace, policy, save, admin = false, change
     async authorize(input, signal) {
       if (!policy().enabled) throw new Error('Shell is disabled; enable it in the local station settings');
       if (signal?.aborted) throw new Error('request disconnected');
-      const request = shellRequest(input, workspace, yolo);
+      const root = rootOf(input.workspace);
+      const request = { ...shellRequest(input, root.path, yolo), workspace: root.name };
       let approval = yolo ? 'yolo' : (policy().rules ?? []).some((r) => matchesRule(r, request)) ? 'allowlist' : null;
       if (!approval) {
         if (pending) throw new Error('another shell approval is pending');
@@ -86,8 +98,8 @@ export function createShellGate({ workspace, policy, save, admin = false, change
         approval = 'manual';
       }
       if (!policy().enabled || signal?.aborted || (approval === 'yolo' && !yolo)) throw new Error('Shell authorization revoked');
-      // Resolve again: a symlink may have changed while awaiting the owner's decision.
-      const checked = shellRequest(input, workspace, approval === 'yolo');
+      // Resolve again: a symlink, or the workspace itself, may have changed while awaiting the owner's decision.
+      const checked = { ...shellRequest(input, rootOf(input.workspace).path, approval === 'yolo'), workspace: root.name };
       if (checked.cwd !== request.cwd) throw new Error('working directory changed during approval');
       audit(`Shell 执行（${approval}）：${JSON.stringify(checked)}`);
       return { ...checked, approval };
@@ -95,20 +107,26 @@ export function createShellGate({ workspace, policy, save, admin = false, change
   };
 }
 
-export function executeShell(request, { env = {}, signal, output = () => {} } = {}) {
+/** a process (no shell between), its output passed on as it comes and the last 256 KiB kept; it and
+ *  all it started are ended when `timeout` seconds pass (0: never) or `signal` aborts */
+export function runProcess({ file, args = [], cwd, env = {}, timeout = 0, signal, output = () => {} }) {
   return new Promise((done) => {
     const win = process.platform === 'win32';
-    const child = spawn(win ? 'powershell.exe' : '/bin/sh', win
-      ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(request.command, 'utf16le').toString('base64')]
-      : ['-c', request.command], { cwd: request.cwd, env: { ...process.env, ...env }, windowsHide: true, detached: !win, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     let stopped = false;
     let finished = false;
     const append = (text) => { log = (log + text).slice(-262144); output(String(text)); };
+    let child;
+    try {
+      child = spawn(file, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, detached: !win, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      append(`${e.message}\n`);
+      return done({ ok: false, code: null, log });
+    }
     const kill = () => {
       if (stopped || finished) return;
       stopped = true;
-      append('\nShell cancelled or timed out\n');
+      append('\nProcess cancelled or timed out\n');
       if (!child.pid) return;
       if (win) {
         const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
@@ -117,7 +135,7 @@ export function executeShell(request, { env = {}, signal, output = () => {} } = 
         try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       }
     };
-    const timer = setTimeout(kill, request.timeout * 1000);
+    const timer = timeout ? setTimeout(kill, timeout * 1000) : null;
     signal?.addEventListener('abort', kill, { once: true });
     if (signal?.aborted) kill();
     for (const stream of [child.stdout, child.stderr]) {
@@ -129,9 +147,23 @@ export function executeShell(request, { env = {}, signal, output = () => {} } = 
       finished = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', kill);
-      done({ ok: code === 0 && !stopped, code, log, files: {} });
+      done({ ok: code === 0 && !stopped, code, log });
     };
-    child.on('error', (e) => { append(`${e.message}\n`); end(1); });
+    child.on('error', (e) => { append(`${e.message}\n`); end(null); });
     child.on('close', end);
   });
+}
+
+export async function executeShell(request, { env = {}, signal, output = () => {} } = {}) {
+  const win = process.platform === 'win32';
+  const reply = await runProcess({
+    file: win ? 'powershell.exe' : '/bin/sh',
+    args: win ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(request.command, 'utf16le').toString('base64')] : ['-c', request.command],
+    cwd: request.cwd,
+    env,
+    timeout: request.timeout,
+    signal,
+    output,
+  });
+  return { ...reply, files: {} };
 }

@@ -6,9 +6,9 @@
     <title>渲染站</title>
     <link rel="icon" id="favicon" href="data:," />
     <!-- 渲染站's window (station.mjs serves it, at http://127.0.0.1:7799, in 渲染站.exe's own window or
-         any browser): how the worker and the tunnel to lemon are doing and this machine with them,
-         what the jobs made, what they print as they print it, the settings. In the site's own look,
-         light or dark as the system is. -->
+         any browser): how the worker and the tunnel to the server are doing and this machine with
+         them, what the jobs made, what they print as they print it, the settings and the workspaces.
+         Light or dark as the system is. -->
     <link rel="stylesheet" href="/fonts/lxgw/lxgwwenkai-regular.css" />
     <style>
       @font-face {
@@ -731,7 +731,7 @@
         overflow-wrap: anywhere;
       }
 
-      /* ——— 画廊: what the jobs made ——— */
+      /* ——— 输出: what the jobs made ——— */
       .group + .group {
         margin-top: 26px;
       }
@@ -807,6 +807,15 @@
         color: #fff;
         font: 12px/1.3 var(--ui);
         text-align: left;
+      }
+      .tile.doc {
+        display: grid;
+        place-items: center;
+      }
+      .tile.doc b {
+        font: 600 22px/1 var(--ui);
+        letter-spacing: 0.04em;
+        color: var(--ink-3);
       }
       .tile .play {
         position: absolute;
@@ -1064,7 +1073,8 @@
         font: 11px var(--ui);
         color: var(--ink-3);
       }
-      input[type='text'] {
+      input[type='text'],
+      textarea {
         width: 100%;
         padding: 8px 11px;
         border: 1px solid var(--line);
@@ -1076,7 +1086,13 @@
           border-color 0.25s,
           box-shadow 0.25s;
       }
-      input[type='text']:focus {
+      textarea {
+        min-height: 3.4em;
+        font: 12.5px/1.5 var(--mono);
+        resize: vertical;
+      }
+      input[type='text']:focus,
+      textarea:focus {
         border-color: var(--accent);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
         outline: none;
@@ -1097,6 +1113,57 @@
         display: grid;
         grid-template-columns: 1fr 8em;
         gap: 12px;
+      }
+      .two.wide {
+        grid-template-columns: 11em 1fr;
+      }
+      label > span small {
+        margin-left: 6px;
+        font-size: 11.5px;
+        color: var(--ink-3);
+      }
+      .hint {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .ws {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+        margin: 0;
+        padding: 14px 0 4px;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      .ws-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .ws-head b {
+        font: 400 16px/1.3 var(--hand);
+      }
+      .ws .switch {
+        border-top: 0;
+        padding: 0;
+      }
+      .ws-note {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--ink-3);
+        overflow-wrap: anywhere;
+      }
+      .ws-note.bad {
+        color: var(--bad);
+      }
+      #ws-add {
+        justify-self: start;
+      }
+      #save-error {
+        font-size: 12.5px;
+        color: var(--bad);
       }
       .switch {
         display: flex;
@@ -1256,7 +1323,7 @@
           <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" /><path d="M12.5 9 23.5 16 12.5 23z" /></svg>
           <div>
             <b>渲染站</b>
-            <small>qiqi.help 宣传片</small>
+            <small>替服务器分担任务</small>
           </div>
         </div>
         <nav class="nav" role="tablist" aria-label="页面">
@@ -1264,8 +1331,8 @@
           <button type="button" role="tab" data-page="home" title="总览">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0" /><path d="M12 15.5l3.6-4.2" /><path d="M4 19h16" /></svg><span>总览</span>
           </button>
-          <button type="button" role="tab" data-page="gallery" title="画廊">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17.5l5-4.5 4 3.5 3-2.5 4.5 3.8" /></svg><span>画廊</span><b class="count num" id="n-gallery"></b>
+          <button type="button" role="tab" data-page="gallery" title="输出">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17.5l5-4.5 4 3.5 3-2.5 4.5 3.8" /></svg><span>输出</span><b class="count num" id="n-gallery"></b>
           </button>
           <button type="button" role="tab" data-page="feed" title="动态">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 5 12 2.5-6h4" /></svg><span>动态</span>
@@ -1319,34 +1386,34 @@
             <div class="head"><h3>最近的任务</h3><span class="sub" id="jobs-sub"></span></div>
             <div class="card">
               <ol id="jobs"></ol>
-              <p class="empty" id="empty">还没有任务。lemon 用 ask.mjs 发来的任务会列在这里：点一下看它的输出，点「打开」看渲出来的东西。</p>
+              <p class="empty" id="empty">还没有任务。服务器用 cli.mjs 提交的任务会列在这里：点一下看它的输出，点「打开」看它产出的文件。</p>
             </div>
           </section>
           <p class="foot">关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</p>
         </section>
 
-        <!-- 画廊 -->
+        <!-- 输出 -->
         <section class="page" id="page-gallery" hidden>
           <div class="head">
-            <h2>画廊</h2>
+            <h2>输出</h2>
             <span class="sub" id="g-sub"></span>
             <button type="button" class="link end" id="g-folder" hidden>打开文件夹</button>
           </div>
           <div id="groups"></div>
-          <p class="empty card" id="g-empty">这里会摆出这台电脑渲出来的单帧、封面和片段，最近 30 次的。</p>
+          <p class="empty card" id="g-empty">这里列出任务产出、留在这台电脑上的文件，保留最近 30 次。图片和视频可以直接预览。</p>
         </section>
 
         <!-- 动态 -->
         <section class="page" id="page-feed" hidden>
           <div class="head">
             <h2>动态</h2>
-            <span class="sub">连接的经过，ssh 和 render.mjs 的输出</span>
+            <span class="sub">连接的经过，ssh 和任务的输出</span>
           </div>
           <div class="bar">
             <div class="chips" id="chips">
               <i class="knob" id="knob"></i>
               <button type="button" data-filter="all" aria-pressed="true">全部</button>
-              <button type="button" data-filter="render" aria-pressed="false">渲染</button>
+              <button type="button" data-filter="job" aria-pressed="false">任务</button>
               <button type="button" data-filter="tunnel" aria-pressed="false">连接</button>
             </div>
             <button type="button" class="link" id="to-end" hidden>回到最新 ↓</button>
@@ -1360,8 +1427,8 @@
           <div class="shell-panel">
             <h4>Shell 权限</h4>
             <p id="shell-mode"></p>
-            <p>auto：工作目录限定在仓库内；完整命令与目录匹配本机白名单后自动执行，其余请求由你审批。Windows 使用 PowerShell，其他系统使用 sh。</p>
-            <p>命令可以读写文件。目录检查与白名单是授权机制，不是系统沙箱；获准的程序仍拥有运行账户的权限。现有远程渲染脚本也使用该账户权限。</p>
+            <p>auto：工作目录限定在工作区内（没指定工作区时用第一个）；完整命令与目录匹配本机白名单后自动执行，其余请求由你审批。Windows 使用 PowerShell，其他系统使用 sh。</p>
+            <p>命令可以读写文件。目录检查与白名单是授权机制，不是系统沙箱；获准的程序仍拥有运行账户的权限。预设任务同样以该账户的权限运行。</p>
             <label class="switch"><span>允许接收 Shell 任务</span><input type="checkbox" id="shell-enabled" role="switch" /></label>
             <div class="shell-actions"><button type="button" id="shell-yolo">开启 YOLO</button></div>
             <p id="shell-admin"></p>
@@ -1371,20 +1438,16 @@
             <p id="shell-error" role="alert"></p>
           </div>
           <form class="card" id="form" autocomplete="off">
-            <h4>渲染用的东西</h4>
-            <label><span>渲染用的 qiqi.help 仓库<code>PROMO_ROOT</code></span><input type="text" name="PROMO_ROOT" placeholder="…\qiqi.help" /></label>
-            <label><span>录像目录<code>PROMO_WORK</code></span><input type="text" name="PROMO_WORK" placeholder="…\.tools\.scratch\promo\work" /></label>
-            <label><span>站点构建<code>PROMO_SITE</code></span><input type="text" name="PROMO_SITE" placeholder="留空用 qiqi.help 的 public\" /></label>
-            <label><span>Chrome<code>PROMO_CHROME</code></span><input type="text" name="PROMO_CHROME" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe" /></label>
-            <label><span>ffmpeg（要带 libx264）<code>PROMO_FFMPEG</code></span><input type="text" name="PROMO_FFMPEG" placeholder="…\ffmpeg.exe" /></label>
-            <label><span>临时浏览器配置<code>PROMO_PROFILES</code></span><input type="text" name="PROMO_PROFILES" placeholder="留空放在仓库的 .tools\.profiles" /></label>
-            <label class="switch"><span>用显卡画<small>不开就用软件绘制，慢很多</small></span><input type="checkbox" name="PROMO_GPU" role="switch" /></label>
-            <h4>连接 lemon</h4>
+            <h4>连接服务器</h4>
             <div class="two">
-              <label>SSH 地址<input type="text" name="target" placeholder="lemon@23.251.32.150" /></label>
-              <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22222" /></label>
+              <label>SSH 地址<input type="text" name="target" placeholder="用户名@服务器" /></label>
+              <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22" /></label>
             </div>
-            <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存，隧道重新连接</span></div>
+            <h4>工作区</h4>
+            <p class="hint">任务只在登记的工作区里运行。工作区根目录下的 render-station.json 规定它需要哪些设置、提供哪些预设任务；登记一个工作区，就表示信任它的预设任务。填好路径并保存后，这里会列出它需要的设置。</p>
+            <div id="ws-list"></div>
+            <button type="button" id="ws-add">添加工作区</button>
+            <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存</span><span id="save-error" role="alert"></span></div>
             <div class="group-set">
               <h4>这台电脑上</h4>
               <label class="switch"><span>自动更新<small>跟着仓库的新版本走；仓库里有你自己的改动时不动它</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
@@ -1425,7 +1488,6 @@
 
     <script>
       const $ = (s) => document.querySelector(s);
-      const KEYS = ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES'];
       const C = 2 * Math.PI * 52;
       const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
       let S = null;
@@ -1514,7 +1576,7 @@
       function renderShell() {
         if (!S.shell) return;
         const shell = S.shell;
-        $('#shell-mode').textContent = `当前：${shell.mode} · 工作区：${shell.workspace}`;
+        $('#shell-mode').textContent = `当前：${shell.mode} · 工作区：${shell.workspaces.join('、') || '还没有'}`;
         $('#shell-enabled').checked = shell.mode !== 'disabled';
         $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
         $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto' : '开启 YOLO';
@@ -1539,7 +1601,7 @@
         }
         const dialog = $('#shell-review');
         if (shell.pending) {
-          $('#shell-review-cwd').textContent = `工作目录：${shell.pending.cwd}`;
+          $('#shell-review-cwd').textContent = `工作区：${shell.pending.workspace ?? '（无）'} · 工作目录：${shell.pending.cwd}`;
           $('#shell-review-command').textContent = shell.pending.command;
           $('#shell-review-timeout').textContent = `执行限时 ${shell.pending.timeout} 秒；审批 5 分钟内有效。`;
           if (!dialog.open) dialog.showModal();
@@ -1548,7 +1610,7 @@
       $('#shell-enabled').onchange = (event) => shellPost('enabled', { on: event.target.checked });
       $('#shell-yolo').onclick = () => {
         const on = S.shell.mode !== 'yolo';
-        if (!on || confirm('本次会话允许 lemon 以渲染站账户权限执行任意 Shell 命令，且可使用任意目录。开启 YOLO？')) shellPost('yolo', { on });
+        if (!on || confirm('本次会话允许服务器以渲染站账户的权限执行任意 Shell 命令，且可使用任意目录。开启 YOLO？')) shellPost('yolo', { on });
       };
       for (const button of document.querySelectorAll('[data-shell-decision]')) button.onclick = () => shellPost('decide', { id: S.shell.pending?.id, action: button.dataset.shellDecision });
       $('#shell-review').addEventListener('cancel', (event) => { event.preventDefault(); shellPost('decide', { id: S.shell.pending?.id, action: 'deny' }); });
@@ -1580,12 +1642,13 @@
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
           gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击桌面上的「渲染站」。'],
-          busy: [shellJob ? '执行中' : '渲染中', `${shellJob ? '正在执行' : '正在渲染'}：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
-          idle: ['在线', '空闲，等 lemon 派活', `隧道 ${t.since ? clock(t.since) : ''} 连上。lemon 用 ask.mjs 发来任务，就会在这里开始渲。`],
-          connecting: ['连接中', '正在连接 lemon…', `ssh ${target}`],
-          retry: ['重连中', '连不上 lemon，马上再试', t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
-          auth: ['登录不上', 'lemon 不让登录', `${t.message ? `${t.message}。` : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target}，能直接进去就行。弄好后点「重新连接」。`],
-          off: ['已暂停', '暂停接单了', '隧道关着，lemon 发不来任务。点「继续接单」重新连上。'],
+          busy: ['执行中', `正在执行：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
+          idle: ['在线', '空闲，等待服务器的任务', `隧道 ${t.since ? clock(t.since) : ''} 连上。服务器用 cli.mjs 提交任务，就会在这里开始运行。`],
+          connecting: ['连接中', '正在连接服务器…', `ssh ${target}`],
+          retry: ['重连中', '连不上服务器，马上再试', t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
+          auth: ['登录不上', '服务器不让登录', `${t.message ? `${t.message}。` : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target}，能直接进去就行。弄好后点「重新连接」。`],
+          off: ['已暂停', '暂停接单了', '隧道关着，服务器发不来任务。点「继续接单」重新连上。'],
+          unset: ['未设置', '还没设置服务器', '在「设置」里填上服务器的 SSH 地址，渲染站就会连过去。'],
         }[mode] ?? [mode, mode, ''];
         set('chip', text[0]);
         set('headline', text[1]);
@@ -1609,17 +1672,17 @@
           small = '秒后重连';
         } else {
           big.className = 'word';
-          const label = { busy: shellJob ? '执行' : '准备', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', gone: '停了' }[mode] ?? '…';
+          const label = { busy: '执行', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', unset: '未设置', gone: '停了' }[mode] ?? '…';
           word(big, label);
           if (mode === 'busy') {
             spin = true;
-            small = shellJob ? '命令运行中' : '还没出帧';
+            small = shellJob ? '命令运行中' : '运行中';
           } else if (mode === 'idle') {
             p = 1;
-            small = `lemon:${t.port}`;
+            small = `端口 ${t.port}`;
           } else if (mode === 'connecting') {
             spin = true;
-            small = `lemon:${t.port ?? ''}`;
+            small = `端口 ${t.port ?? ''}`;
           } else if (mode === 'auth') p = 1;
           else if (mode === 'gone') small = '等它重启';
         }
@@ -1645,10 +1708,10 @@
         // the numbers
         if (!gone && t.state === 'up') {
           set('s-tunnel', uptime(now - t.since));
-          set('s-tunnel-sub', `lemon:${t.port} · ${clock(t.since)} 起`);
+          set('s-tunnel-sub', `端口 ${t.port} · ${clock(t.since)} 起`);
         } else {
           set('s-tunnel', '—');
-          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录不上', off: '关着' }[t.state] ?? ''));
+          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录不上', off: '关着', unset: '未设置' }[t.state] ?? ''));
         }
         const all = S.today.done + S.today.failed;
         count($('#s-today'), all);
@@ -1662,7 +1725,7 @@
 
         const notice = $('#notice');
         notice.hidden = gone || !S.missing.length;
-        if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。不填的话，任务会失败。`;
+        if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。补齐之前，相关的任务会失败。`;
         $('#badge').hidden = !S.missing.length;
         set('jobs-sub', S.jobs.length ? `${S.jobs.length} 个，最新的在上面` : '');
 
@@ -1670,7 +1733,8 @@
         renderJobs();
         renderShelf();
         if (!filled) fill();
-        for (const k of KEYS) $(`[name=${k}]`).classList.toggle('missing', S.missing.includes(k));
+        renderWorkspaces();
+        $('[name=target]').classList.toggle('missing', !S.config.ssh.target);
         $('#here').hidden = S.platform !== 'win32';
         $('#shortcut-row').hidden = !S.canShortcut;
         for (const [id, on] of [
@@ -1797,11 +1861,11 @@
               if (kept) {
                 const acts = document.createElement('div');
                 acts.className = 'acts';
-                acts.append(button('在画廊里看', () => showKept(kept[0])), button('在文件夹里显示', () => reveal(kept[0], true)));
+                acts.append(button('在「输出」里看', () => showKept(kept[0])), button('在文件夹里显示', () => reveal(kept[0], true)));
                 inner.append(acts);
               }
               const pre = document.createElement('pre');
-              pre.textContent = (j.files?.length ? `交回 lemon：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
+              pre.textContent = (j.files?.length ? `交回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
               inner.append(pre);
               fold.append(inner);
               li.append(fold);
@@ -1812,16 +1876,10 @@
         );
       }
 
-      // ——— 画廊 ———
+      // ——— 输出: the pictures and videos shown, the other files opened by the system ———
       let items = [];
-      const caption = (name) => {
-        const base = name.split('/').pop();
-        if (/^cover-4x3\./.test(base)) return '4:3 封面';
-        if (/^cover\./.test(base)) return '16:9 封面';
-        if (/\.mp4$/.test(base)) return '片段';
-        const t = base.match(/^(\d+(?:\.\d+)?)\.jpg$/);
-        return t ? `${t[1]} 秒` : base;
-      };
+      const caption = (name) => name.split('/').pop();
+      const video = (name) => /\.(mp4|webm)$/i.test(name);
       function renderShelf() {
         const shelf = S.shelf ?? [];
         const groups = $('#groups');
@@ -1832,7 +1890,7 @@
         $('#g-empty').hidden = shelf.length > 0;
         $('#g-folder').hidden = !shelf.length;
         set('g-sub', shelf.length ? `${shelf.length} 次任务，最新的在上面` : '');
-        items = shelf.flatMap((g) => g.files.map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
+        items = shelf.flatMap((g) => g.files.filter((f) => f.url).map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
         groups.replaceChildren(
           ...shelf.map((g) => {
             const sec = document.createElement('section');
@@ -1851,7 +1909,12 @@
               tile.type = 'button';
               tile.className = 'tile';
               tile.title = f.name;
-              if (/\.mp4$/.test(f.name)) {
+              if (!f.url) {
+                tile.classList.add('doc');
+                const ext = document.createElement('b');
+                ext.textContent = (f.name.match(/\.([^./]{1,6})$/)?.[1] ?? '文件').toUpperCase();
+                tile.append(ext);
+              } else if (video(f.name)) {
                 const v = document.createElement('video');
                 v.src = `${f.url}#t=0.1`;
                 v.muted = true;
@@ -1879,7 +1942,7 @@
               cap.className = 'cap';
               cap.textContent = caption(f.name);
               tile.append(cap);
-              tile.addEventListener('click', () => lightbox(items.findIndex((i) => i.path === f.path)));
+              tile.addEventListener('click', () => (f.url ? lightbox(items.findIndex((i) => i.path === f.path)) : reveal(f.path)));
               tiles.append(tile);
             }
             sec.append(head, tiles);
@@ -1904,7 +1967,7 @@
         at = (i + items.length) % items.length;
         const it = items[at];
         const stage = $('#lb-stage');
-        const media = document.createElement(/\.mp4$/.test(it.name) ? 'video' : 'img');
+        const media = document.createElement(video(it.name) ? 'video' : 'img');
         media.src = it.url;
         if (media.tagName === 'VIDEO') {
           media.controls = true;
@@ -1947,25 +2010,151 @@
         else if (e.key === 'ArrowRight') lightbox(at + 1);
       });
 
+      // ——— 设置: the workspaces, a block each: its name and path, the settings its file asks for,
+      // what else its jobs get, and its presets ———
+      let wsKey = '';
+      let dirty = false;
+      function renderWorkspaces(force = false) {
+        const key = JSON.stringify([S.config.workspaces, S.workspaces]);
+        if (!force && (dirty || key === wsKey)) return;
+        wsKey = key;
+        $('#ws-list').replaceChildren(...S.config.workspaces.map((w, i) => wsBlock(w, S.workspaces[i])));
+      }
+      function wsBlock(w, seen) {
+        const el = document.createElement('fieldset');
+        el.className = 'ws';
+        const field = (labelText, key, input) => {
+          const label = document.createElement('label');
+          const span = document.createElement('span');
+          span.textContent = labelText;
+          if (key) {
+            const code = document.createElement('code');
+            code.textContent = key;
+            span.append(code);
+          }
+          label.append(span, input);
+          return label;
+        };
+        const text = (value, placeholder) => {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = value ?? '';
+          input.placeholder = placeholder ?? '';
+          return input;
+        };
+        const head = document.createElement('div');
+        head.className = 'ws-head';
+        const title = document.createElement('b');
+        title.textContent = seen?.name || '新工作区';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'link';
+        remove.textContent = '移除';
+        remove.addEventListener('click', () => {
+          el.remove();
+          dirty = true;
+        });
+        head.append(title, remove);
+        const two = document.createElement('div');
+        two.className = 'two wide';
+        const name = text(w.name, '留空用 render-station.json 里的名字');
+        name.dataset.k = 'name';
+        const path = text(w.path, 'D:\\projects\\…');
+        path.dataset.k = 'path';
+        two.append(field('名字', null, name), field('路径', null, path));
+        el.append(head, two);
+        const declared = new Set();
+        for (const e of seen?.fields ?? []) {
+          declared.add(e.key);
+          const given = w.env?.[e.key];
+          if (e.type === 'switch') {
+            const label = document.createElement('label');
+            label.className = 'switch';
+            const span = document.createElement('span');
+            span.textContent = e.label || e.key;
+            if (e.hint) {
+              const small = document.createElement('small');
+              small.textContent = e.hint;
+              span.append(small);
+            }
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.setAttribute('role', 'switch');
+            box.checked = (given ?? e.default ?? '0') === '1';
+            box.dataset.env = e.key;
+            label.append(span, box);
+            el.append(label);
+          } else {
+            const input = text(given, e.placeholder);
+            input.dataset.env = e.key;
+            input.classList.toggle('missing', seen.missing.includes(e.key));
+            const label = field(e.label || e.key, e.key, input);
+            if (e.hint) label.title = e.hint;
+            el.append(label);
+          }
+        }
+        const extra = document.createElement('textarea');
+        extra.dataset.k = 'extra';
+        extra.rows = 2;
+        extra.spellcheck = false;
+        extra.value = Object.entries(w.env ?? {})
+          .filter(([k]) => !declared.has(k))
+          .map(([k, v]) => `${k}=${v}`)
+          .join('\n');
+        const more = field('其他环境变量', null, extra);
+        const small = document.createElement('small');
+        small.textContent = '每行一个，写成 名字=值';
+        more.firstChild.append(small);
+        el.append(more);
+        const note = document.createElement('p');
+        note.className = 'ws-note';
+        if (seen?.error) {
+          note.classList.add('bad');
+          note.textContent = seen.error === 'folder not found' ? '找不到这个文件夹。' : seen.error;
+        } else if (seen) note.textContent = seen.presets.length ? `预设任务：${seen.presets.map((p) => (p.description ? `${p.name}（${p.description}）` : p.name)).join('、')}` : '没有预设任务：工作区里没有 render-station.json，只能运行 Shell 任务。';
+        else note.textContent = '保存后读取这个文件夹里的 render-station.json。';
+        el.append(note);
+        return el;
+      }
+      $('#ws-add').addEventListener('click', () => {
+        $('#ws-list').append(wsBlock({ name: '', path: '', env: {} }, null));
+        dirty = true;
+      });
+      $('#form').addEventListener('input', () => (dirty = true));
+      /** the workspaces as the form has them; an "其他环境变量" line that is not NAME=value, refused */
+      function readWorkspaces() {
+        return [...$('#ws-list').children].map((el) => {
+          const env = {};
+          el.querySelector('[data-k=extra]')
+            .value.split('\n')
+            .forEach((line, n) => {
+              if (!line.trim()) return;
+              const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
+              if (!m) throw new Error(`「其他环境变量」第 ${n + 1} 行要写成 名字=值`);
+              env[m[1]] = m[2].trim();
+            });
+          for (const input of el.querySelectorAll('[data-env]')) env[input.dataset.env] = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
+          return { name: el.querySelector('[data-k=name]').value, path: el.querySelector('[data-k=path]').value, env };
+        });
+      }
+
       function fill() {
         filled = true;
         const f = $('#form');
-        for (const k of KEYS) f.elements[k].value = S.config.env[k] ?? '';
-        f.elements.PROMO_GPU.checked = S.config.env.PROMO_GPU === '1';
         f.elements.target.value = S.config.ssh.target ?? '';
         f.elements.port.value = S.config.ssh.port ?? '';
         // what is missing, unless another page was asked for
         if (S.missing.length && !location.hash) show('settings');
       }
 
-      // ——— 动态: what is said, and what ssh and render.mjs print ———
+      // ——— 动态: what is said, and what ssh and the jobs print ———
       const term = $('#term');
       const lines = [];
       let filter = 'all';
-      const KINDS = { render: ['render', 'out'], tunnel: ['tunnel', 'ssh'] };
-      const TAGS = { render: '渲染', tunnel: '连接', station: '渲染站', shell: 'Shell' };
+      const KINDS = { job: ['job', 'out', 'shell'], tunnel: ['tunnel', 'ssh'] };
+      const TAGS = { job: '任务', tunnel: '连接', station: '渲染站', shell: 'Shell' };
       const shows = (item) => !KINDS[filter] || KINDS[filter].includes(item.kind);
-      // render.mjs's progress, one line rewritten
+      // a job's progress ("frame n/total"), one line rewritten
       const progress = (item) => item?.kind === 'out' && /^frame \d+\/\d+/.test(item.text);
       function line(item) {
         const el = document.createElement('div');
@@ -2070,11 +2259,23 @@
       $('#form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const f = e.target;
-        const env = Object.fromEntries(KEYS.map((k) => [k, f.elements[k].value]));
-        env.PROMO_GPU = f.elements.PROMO_GPU.checked ? '1' : '0';
-        await post('/config', { env, ssh: { target: f.elements.target.value, port: f.elements.port.value } });
-        $('#saved').classList.add('on');
-        setTimeout(() => $('#saved').classList.remove('on'), 2200);
+        set('save-error', '');
+        try {
+          const res = await fetch('/config', {
+            method: 'POST',
+            headers: { 'x-station': '1', 'content-type': 'application/json' },
+            body: JSON.stringify({ workspaces: readWorkspaces(), ssh: { target: f.elements.target.value, port: f.elements.port.value } }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+          dirty = false;
+          render(data);
+          renderWorkspaces(true);
+          $('#saved').classList.add('on');
+          setTimeout(() => $('#saved').classList.remove('on'), 2200);
+        } catch (error) {
+          set('save-error', error.message);
+        }
       });
       // applied at once; not set back by the state while the change is on its way
       for (const id of ['autostart', 'shortcut', 'autoupdate'])

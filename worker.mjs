@@ -1,114 +1,104 @@
-// The render worker, on the owner's machine with the GPU: renders for lemon what lemon is too slow
-// to render. lemon reaches it through a reverse SSH tunnel opened from this machine, which the
-// render station (station.mjs) keeps up; by hand:
-//   ssh -N -R 7700:127.0.0.1:7700 -p 22222 lemon@23.251.32.150
-// A job (ask.mjs) brings lemon's promo/render.mjs, lib/ and stage/ as they stand there,
-// changes not yet committed included, and what to render. It is set up in .tools/remote/job/,
-// so this checkout is never touched, and rendered with this machine's clips, site build, assets
-// and tools (the environment render.mjs reads: PROMO_WORK, PROMO_SITE, PROMO_CHROME, PROMO_GPU,
-// PROMO_FFMPEG, PROMO_PROFILES); what it made goes back. One job at a time. Stills (full or half
-// size), the covers and clips; a clip always half size at 15 fps (--preview): until the cut is
-// out, nothing is rendered at full size and rate, and the final render is run here by hand.
+// The worker: runs on this machine what the server asks of it, one job at a time. The server reaches
+// it through the reverse SSH tunnel the station (station.mjs) keeps up; by hand:
+//   ssh -N -R 7700:127.0.0.1:7700 -p <port> <user>@<server>
+// Two kinds of job. A preset of a registered workspace (workspace.mjs: what its render-station.json
+// says it runs, which files a job may bring and which go back): what the job brings is set up in
+// .tools/remote/job/, so no checkout is touched by it, and what it made goes back and is kept here
+// too. A Shell command, which runs only as the owner allows here (shell.mjs).
 // usage: node worker.mjs [--port 7700]
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { executeShell } from './shell.mjs';
+import { executeShell, runProcess } from './shell.mjs';
+import { collect, commandOf, fill, missingEnv, resolveWorkspaces, uploadable } from './workspace.mjs';
 
 const repo = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const job = join(repo, '.tools/remote/job');
 /** the worker's port here */
 export const WORKER = 7700;
-/** the ports on lemon the tunnel may come in on, tried in turn: one still held by a connection
- *  that died in the machine's sleep is passed over (ask.mjs looks through the same) */
+/** the ports on the server the tunnel may come in on, tried in turn: one still held by a connection
+ *  that died in the machine's sleep is passed over (cli.mjs looks through the same) */
 export const PORTS = Array.from({ length: 10 }, (_, i) => 7700 + i);
-
-// what a job may bring, and ask render.mjs for
-const FILES = /^promo\/(render\.mjs|lib\/[\w.-]+|stage\/[\w.-]+)$/;
-const num = (v) => /^-?\d+(\.\d+)?$/.test(v);
-function check(argv) {
-  const out = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (['--cover', '--preview', '--partial', '--no-voice'].includes(a)) out.push(a);
-    else if (a === '--stills' && argv[i + 1]?.split(',').every(num)) out.push(a, argv[++i]);
-    else if ((a === '--from' || a === '--to') && num(argv[i + 1])) out.push(a, argv[++i]);
-    else throw new Error(`not taken: ${a}`);
-  }
-  // a clip: half size, 15 fps, into the job's own out/
-  if (!out.includes('--stills') && !out.includes('--cover')) {
-    if (!out.includes('--preview')) out.push('--preview');
-    out.push('--out', join(job, 'promo/out/clip.mp4'));
-  }
-  return out;
-}
-/** every file under dir, by its path from dir */
-const walk = (dir) =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+/** what the worker and cli.mjs say to each other, and the header every request carries */
+export const PROTOCOL = 1;
+export const HEADER = 'x-render-station';
+// a job's request, compressed and not
+const SENT = 64 * 1024 * 1024;
+const OPENED = 256 * 1024 * 1024;
 
 const pad = (n) => String(n).padStart(2, '0');
 /** now, as a folder's name that sorts as time does */
 const stamp = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 
-/** the worker on `port`; `env()`: what to add to the environment render.mjs runs in; `keep`: a
- *  folder to keep here what each job made, the latest 30 jobs' worth; `on(event)`:
- *  {type: 'start', id, args}, {type: 'log', id, text}, {type: 'end', id, ok, ms, files, tail, paths} */
-export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = null, shell = null, accepting = () => true } = {}) {
+/** what the server is told of the workspaces: their presets, and what each still lacks */
+const offer = (list) =>
+  list.map((w) => ({
+    name: w.name,
+    path: w.path,
+    ...(w.spec.error ? { error: w.spec.error } : {}),
+    missing: missingEnv(w),
+    presets: Object.fromEntries(Object.entries(w.spec.presets).map(([name, p]) => [name, { description: p.description ?? '', args: p.args ?? [], upload: p.upload ?? [], ...(p.timeout ? { timeout: p.timeout } : {}) }])),
+  }));
+
+/** the worker on `port`; `workspaces()`: the registered ones, resolved (workspace.mjs); `shell`: the
+ *  gate for Shell jobs, if they are taken; `keep`: a folder to keep here what each job made, the
+ *  latest 30 jobs' worth; `on(event)`: {type: 'start', id, kind, …}, {type: 'log', id, text},
+ *  {type: 'end', id, kind, ok, code, ms, files, tail, paths} */
+export function serve({ port = WORKER, workspaces = () => [], on = () => {}, keep = null, shell = null, accepting = () => true } = {}) {
   let busy = false;
   let next = 1;
   async function run(body, id, signal) {
     const t0 = Date.now();
     let log = '';
-    let code = 1;
-    let argv = [];
-    const made = {};
+    let code = null;
+    let kind = null;
+    let meta = {};
+    let made = {};
     try {
-      const payload = JSON.parse(gunzipSync(body, { maxOutputLength: 16 * 1024 * 1024 }));
-      if (payload.type === 'shell') {
+      const payload = JSON.parse(gunzipSync(body, { maxOutputLength: OPENED }));
+      kind = payload.type;
+      if (kind === 'shell') {
         if (!shell) throw new Error('Shell requires the local station approval service');
         const request = await shell.authorize(payload, signal);
         if (!accepting()) throw new Error('station paused');
-        on({ type: 'start', id, kind: 'shell', args: [], command: request.command, cwd: request.cwd, approval: request.approval });
-        const reply = await executeShell(request, { env: env(), signal, output: (text) => on({ type: 'log', id, text }) });
-        on({ type: 'end', id, kind: 'shell', ok: reply.ok, ms: Date.now() - t0, files: [], tail: reply.log.slice(-3000), paths: [], code: reply.code });
+        on({ type: 'start', id, kind, workspace: request.workspace, command: request.command, cwd: request.cwd, approval: request.approval });
+        const reply = await executeShell(request, { env: workspaces().find((w) => w.name === request.workspace)?.env ?? {}, signal, output: (text) => on({ type: 'log', id, text }) });
+        on({ type: 'end', id, kind, ok: reply.ok, code: reply.code, ms: Date.now() - t0, files: [], tail: reply.log.slice(-3000), paths: [] });
         return reply;
       }
-      if (payload.type && payload.type !== 'render') throw new Error('unknown job type');
-      const { files, args: asked } = payload;
-      argv = check(asked);
+      if (kind !== 'preset') throw new Error(`unknown job type: ${kind}`);
+      const w = workspaces().find((x) => x.name === payload.workspace);
+      if (!w) throw new Error(`no workspace "${payload.workspace}" on this machine`);
+      if (w.spec.error) throw new Error(`workspace ${w.name}: ${w.spec.error}`);
+      const preset = Object.hasOwn(w.spec.presets, payload.preset ?? '') ? w.spec.presets[payload.preset] : null;
+      if (!preset) throw new Error(`workspace ${w.name} has no preset "${payload.preset}"`);
+      const lack = missingEnv(w);
+      if (lack.length) throw new Error(`workspace ${w.name} is not set up here yet: ${lack.join(', ')} (in the local station settings)`);
+      const vars = { job, workspace: w.path };
+      const args = payload.args ?? [];
+      const argv = commandOf(preset, args, vars);
+      const files = payload.files ?? {};
+      for (const path of Object.keys(files)) if (!uploadable(preset, path)) throw new Error(`not taken by the preset: ${path}`);
       rmSync(job, { recursive: true, force: true });
+      mkdirSync(job, { recursive: true });
       for (const [path, data] of Object.entries(files)) {
-        if (!FILES.test(path)) throw new Error(`not taken: ${path}`);
         mkdirSync(dirname(join(job, path)), { recursive: true });
         writeFileSync(join(job, path), Buffer.from(data, 'base64'));
       }
-      if (!env().PROMO_ROOT) throw new Error('PROMO_ROOT is not set: the qiqi.help checkout to render from');
-      on({ type: 'start', id, args: argv });
-      code = await new Promise((done) => {
-        const p = spawn(process.execPath, [join(job, 'promo/render.mjs'), ...argv], { cwd: env().PROMO_ROOT, env: { ...process.env, ...env() }, windowsHide: true });
-        for (const s of [p.stdout, p.stderr])
-          s.on('data', (d) => {
-            log += d;
-            on({ type: 'log', id, text: String(d) });
-          });
-        p.on('error', (e) => {
-          log += `${e.message}\n`;
-          done(1);
-        });
-        p.on('close', done);
-      });
-      // what it made, but not the steps on the way to a clip
-      const out = join(job, 'promo/out');
-      for (const file of code === 0 ? walk(out) : []) {
-        if (/\.(video\.mp4|mix\.wav)$/.test(file)) continue;
-        made[relative(out, file).split('\\').join('/')] = readFileSync(file).toString('base64');
-      }
+      meta = { workspace: w.name, preset: payload.preset, args };
+      on({ type: 'start', id, kind, ...meta, command: argv });
+      const env = { ...w.env, ...Object.fromEntries(Object.entries(preset.env ?? {}).map(([k, v]) => [k, fill(v, vars)])) };
+      // node: the one running this, wherever it is
+      const reply = await runProcess({ file: argv[0] === 'node' ? process.execPath : argv[0], args: argv.slice(1), cwd: fill(preset.cwd ?? '{workspace}', vars), env, timeout: preset.timeout ?? 0, signal, output: (text) => on({ type: 'log', id, text }) });
+      log = reply.log;
+      code = reply.code;
+      if (reply.ok) made = collect(preset, vars);
+      if (!reply.ok) code ??= 1;
     } catch (e) {
-      log += `${e?.stack ?? e}\n`;
-      code = 1;
+      log += `${e?.message ?? e}\n`;
+      if (code === 0) code = 1;
     }
     const ok = code === 0;
     const paths = [];
@@ -118,26 +108,29 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
         for (const [name, data] of Object.entries(made)) {
           const file = join(into, name);
           mkdirSync(dirname(file), { recursive: true });
-          writeFileSync(file, Buffer.from(data, 'base64'));
+          writeFileSync(file, data);
           paths.push(file);
         }
         // what it was, for whoever looks at it later
-        writeFileSync(join(into, 'job.json'), JSON.stringify({ at: t0, ms: Date.now() - t0, args: argv }));
+        writeFileSync(join(into, 'job.json'), JSON.stringify({ at: t0, ms: Date.now() - t0, ...meta }));
         for (const old of readdirSync(keep).sort().slice(0, -30)) rmSync(join(keep, old), { recursive: true, force: true });
       } catch (e) {
         log += `not kept here: ${e.message}\n`;
       }
     }
-    on({ type: 'end', id, ok, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000), paths });
-    return { ok, log, files: made };
+    on({ type: 'end', id, kind, ok, code, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000), paths });
+    return { ok, code, log, files: Object.fromEntries(Object.entries(made).map(([k, v]) => [k, v.toString('base64')])) };
   }
 
   const server = createServer((req, res) => {
-    // only what ask.mjs sends, from here or through the tunnel: never a web page (it cannot send
-    // the header without asking first, and a name of its own is not 127.0.0.1)
+    // only what cli.mjs sends, from here or through the tunnel: never a web page (it cannot send the
+    // header without asking first, and a name of its own is not 127.0.0.1)
     const host = (req.headers.host ?? '').replace(/:\d+$/, '');
-    if (!['127.0.0.1', 'localhost'].includes(host) || req.headers['x-qiqi-worker'] !== '1') return res.writeHead(403).end();
-    if (req.method === 'GET' && req.url === '/hello') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ worker: 'qiqi-promo', busy, capabilities: ['render', ...(shell ? ['shell'] : [])] }));
+    if (!['127.0.0.1', 'localhost'].includes(host) || req.headers[HEADER] !== String(PROTOCOL)) return res.writeHead(403).end();
+    if (req.method === 'GET' && req.url === '/hello')
+      return res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ service: 'render-station', protocol: PROTOCOL, platform: process.platform, busy, accepting: accepting(), shell: shell ? shell.state().mode : 'disabled', workspaces: offer(workspaces()) }));
     if (req.method !== 'POST' || req.url !== '/job') return res.writeHead(404).end();
     if (!accepting()) return res.writeHead(503).end('station paused');
     if (busy) return res.writeHead(409).end('busy');
@@ -151,7 +144,7 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
     req.on('error', () => { busy = false; controller.abort(); });
     req.on('data', (c) => {
       size += c.length;
-      if (size > 16 * 1024 * 1024) { controller.abort(); req.destroy(); busy = false; }
+      if (size > SENT) { controller.abort(); req.destroy(); busy = false; }
       else chunks.push(c);
     });
     req.on('end', async () => {
@@ -161,22 +154,30 @@ export function serve({ port = WORKER, env = () => ({}), on = () => {}, keep = n
       } finally { busy = false; }
     });
   });
-  // a long render is one long request
+  // a long job is one long request
   server.requestTimeout = 0;
   server.listen(port, '127.0.0.1');
   return server;
 }
 
-// run by hand
+// run by hand: with the workspaces the station's settings register
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const port = Number(args.includes('--port') ? args[args.indexOf('--port') + 1] : WORKER);
+  const settings = () => {
+    try {
+      return JSON.parse(readFileSync(join(repo, '.tools/remote/config.json'), 'utf8')).workspaces ?? [];
+    } catch {
+      return [];
+    }
+  };
   serve({
     port,
+    workspaces: () => resolveWorkspaces(settings()),
     on: (e) => {
-      if (e.type === 'start') console.log(`${new Date().toLocaleTimeString()}  render.mjs ${e.args.join(' ')}`);
+      if (e.type === 'start') console.log(`${new Date().toLocaleTimeString()}  ${e.workspace}/${e.preset} ${e.args.join(' ')}`);
       if (e.type === 'log') process.stdout.write(e.text);
       if (e.type === 'end') console.log(`${e.ok ? 'done' : 'failed'} in ${(e.ms / 1000).toFixed(1)} s`);
     },
-  }).on('listening', () => console.log(`render worker on 127.0.0.1:${port}, jobs in ${job}`));
+  }).on('listening', () => console.log(`worker on 127.0.0.1:${port}, jobs in ${job}`));
 }

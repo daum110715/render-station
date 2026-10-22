@@ -1,4 +1,4 @@
-// Builds 渲染站.exe from station.c with mingw-w64, here on lemon: draws the icons (a
+// Builds 渲染站.exe from station.c with mingw-w64, here on Linux: draws the icons (a
 // dot in each state's colour with a play mark, as the window's) into .ico files, then compiles the
 // resources and the program against the WebView2 SDK (NuGet's Microsoft.Web.WebView2, unpacked in
 // .tools/webview2/), and puts the SDK's WebView2Loader.dll beside it. In .tools/exe-build/ on the

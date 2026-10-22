@@ -1,228 +1,332 @@
-# 渲染站
+# Render Station (渲染站)
 
-渲染站运行在一台 Windows 工作机上，通过反向 SSH 隧道接收 Linux 服务器 lemon 提交的任务。任务分两类：渲染 qiqi.help 宣传片的单帧、封面和预览片段，以及经工作机授权的 Shell 命令。
+English | [中文](README.zh-CN.md)
 
-本仓库与 qiqi.help 相互独立，有各自的提交历史，不引用 qiqi.help 的代码。渲染所需的源码、素材和依赖从一份 qiqi.help 检出读取：工作机上由配置项 `PROMO_ROOT` 指定，lemon 上默认为 `/www/daum/qiqi.help`。
+Render Station lets agents running on a server hand heavy jobs to another computer, currently a Windows machine. The machine that runs the jobs connects to the server through a reverse SSH tunnel, so it needs no public IP address and no open inbound port.
 
-## 术语
+The name comes from its first use: rendering a promotional video for qiqi.help. The station's own window and messages are in Chinese.
 
-| 术语 | 含义 |
+## Terms
+
+| Term | Meaning |
 |---|---|
-| 工作机 | 运行渲染站的 Windows 电脑，目前为站长的电脑。 |
-| lemon | 提交任务的 Linux 服务器，SSH 登录目标为 `lemon@23.251.32.150`，端口 22222。 |
-| 渲染服务 | `worker.mjs`，监听工作机的 `127.0.0.1:7700`，负责执行任务。 |
-| 渲染站 | 托盘程序 `渲染站.exe` 与后台进程 `station.mjs` 的合称，负责管理渲染服务、隧道和设置界面。 |
-| 工作区 | Shell 任务可以使用的目录，取渲染站启动时的 `PROMO_ROOT`；未设置时为本仓库。 |
+| Server | The machine that runs the agents and submits jobs, usually Linux. |
+| Device | The Windows computer that runs the station and executes jobs. |
+| Station | The tray program `渲染站.exe` together with the background process `station.mjs`. It manages the worker, the tunnel and the settings window. |
+| Worker | `worker.mjs`. It listens on the device's `127.0.0.1:7700` and executes jobs. |
+| Workspace | A folder registered on the device. Jobs run only in registered workspaces. |
+| Preset | A job defined in a workspace's `render-station.json`. The server can run it without approval each time. |
 
-## 工作原理
+## How it works
 
-1. 渲染站在工作机上启动渲染服务，并建立到 lemon 的反向隧道：`ssh -N -R 77xx:127.0.0.1:7700 -p 22222 lemon@23.251.32.150`。lemon 一侧的端口从 7700 开始；端口被失效的旧连接占用时，依次尝试下一个，最大为 7709。
-2. lemon 上的 `ask.mjs` 探测这些端口，找到有响应的渲染服务后提交任务。
-3. 渲染任务携带 lemon 上 qiqi.help 检出中的 `promo/render.mjs`、`lib/` 和 `stage/`，包括未提交的改动，压缩后约 20 KB。渲染服务在 `.tools/remote/job/` 中运行这份副本，不修改工作机上的 qiqi.help 检出。
-4. 渲染结果传回 lemon，同时在工作机的 `.tools/remote/out/<时间>/` 中保留一份，最多保留最近 30 次任务的结果。
+1. On the device, the station starts the worker and opens a reverse tunnel to the server: `ssh -N -R 77xx:127.0.0.1:7700 -p <port> <user>@<server>`. The server-side port starts at 7700. If a port is still held by a dead connection, the station tries the next one, up to 7709.
+2. On the server, `cli.mjs` probes these ports and submits the job to the worker that answers.
+3. There are two kinds of job:
+   - **Preset jobs.** The caller brings the files the preset allows (for example a script and its input). The device runs the preset's command in the job folder `.tools/remote/job/` and, on success, sends back the files in the preset's output folder.
+   - **Shell jobs.** A command runs in a workspace, subject to local authorization on the device (see "Shell permissions").
+4. The device also keeps a copy of each job's output in `.tools/remote/out/<time>/`, for the latest 30 jobs.
 
-渲染服务一次只执行一个任务。单帧约数百 KB，半尺寸片段约数 MB。2026-10-16 实测：往返时延约 200 ms，工作机至 lemon 约 2.7 MB/s，lemon 至工作机约 1.9 MB/s。因此单次请求的耗时主要取决于往返时延，而非传输量。
+The worker runs one job at a time.
 
-## 环境要求
+## Requirements
 
-工作机：
+Device:
 
-- Windows，已安装 Node.js 和 Git。
-- Chrome，以及带 libx264 的 ffmpeg。
-- 一份已安装依赖的 qiqi.help 检出。
-- 能以密钥登录 lemon（默认密钥或 ssh-agent 中的密钥）。在终端执行 `ssh -p 22222 lemon@23.251.32.150` 时不提示输入密码，即满足要求。
-- WebView2 运行时。缺少时，窗口改用 Edge 的应用窗口打开。
+- Windows with Node.js and Git.
+- Key-based SSH login to the server (the default key or one in ssh-agent). Running `ssh -p <port> <user>@<server>` in a terminal must not prompt for a password.
+- The WebView2 runtime. Without it, the window opens as an Edge app window instead.
+- Any other software a workspace's presets need, as that workspace documents.
 
-lemon：Node.js，以及一份 qiqi.help 检出。
+Server: Node.js 18 or later and a checkout of this repository.
 
-## 安装
+## Installation
 
-在工作机上：
+On the device:
 
-1. 克隆本仓库：`git clone https://github.com/daum110715/render-station.git`。
-2. 在仓库根目录执行 `npm install`，安装窗口界面使用的两个字体包（`@fontsource-variable/outfit`、`lxgw-wenkai-webfont`）。
-3. 双击仓库根目录下的 `渲染站.exe`。首次启动后，桌面和开始菜单中会出现「渲染站」快捷方式，此后可从快捷方式启动。
-4. 在窗口的「设置」页填写配置项（见「配置」），然后点击「保存」。
+1. Clone this repository: `git clone https://github.com/daum110715/render-station.git`.
+2. Run `npm install` in the repository root. It installs the two font packages the window uses.
+3. Double-click `渲染站.exe` in the repository root. After the first start, a 渲染站 shortcut appears on the desktop and in the Start menu; use it from then on.
+4. In the window's 设置 (Settings) page, enter the server's SSH address and port, register workspaces, and click 保存 (Save).
 
-`渲染站.exe` 必须与 `station.mjs` 位于同一目录，即仓库根目录。
+`渲染站.exe` must stay in the same folder as `station.mjs`, the repository root.
 
-从 qiqi.help 的 `promo/remote/` 迁移时，先退出旧实例，再按上述步骤从新位置启动。新实例会重新创建快捷方式和开机自启项。
+On the server, cloning this repository is enough: `cli.mjs` has no package dependencies.
 
-## 配置
+### Migrating from the old location
 
-配置保存在 `.tools/remote/config.json`，通过窗口的「设置」页修改。
+The station used to live in qiqi.help's `promo/remote/`. To migrate, quit the old instance from its tray menu, then start the station from the new location as described above. The new instance recreates the shortcuts and the autostart entry and removes the old autostart entry. The old `%LOCALAPPDATA%\qiqi-render-station\` folder can be deleted by hand. If the old `.tools\remote\config.json` (under the root of the qiqi.help checkout) is copied to the same place in the new repository before the first start, the server address, the Shell allowlist and the other settings carry over, and the old `PROMO_*` settings are converted into a workspace.
 
-| 配置项 | 说明 | Windows 上必填 |
-|---|---|---|
-| `PROMO_ROOT` | 渲染使用的 qiqi.help 检出。`render.mjs` 的依赖、`.tools`、站点构建和素材均从此处读取。 | 是 |
-| `PROMO_WORK` | 录像目录。 | 是 |
-| `PROMO_SITE` | 站点构建目录。留空时使用 `PROMO_ROOT` 下的 `public\`。 | 否 |
-| `PROMO_CHROME` | Chrome 可执行文件的路径。 | 是 |
-| `PROMO_FFMPEG` | ffmpeg 可执行文件的路径，须带 libx264。 | 是 |
-| `PROMO_PROFILES` | 临时浏览器配置目录。留空时使用 `PROMO_ROOT` 下的 `.tools\.profiles`。 | 否 |
-| `PROMO_GPU` | 对应开关「用显卡画」，默认开启。关闭后使用软件绘制，速度明显下降。 | 否 |
-| SSH 地址、端口 | 隧道的登录目标，默认为 `lemon@23.251.32.150` 和 `22222`。 | 否 |
+## Configuration
 
-在其他系统上，只有 `PROMO_ROOT` 和 `PROMO_WORK` 为必填项。必填项缺失时，任务会失败。
+The settings are stored in `.tools/remote/config.json` and edited in the window's Settings page.
 
-保存后，隧道重新连接。修改 `PROMO_ROOT` 后须重启渲染站，因为工作区在启动时确定。
+### Server
 
-「这台电脑上」一组开关，默认均为开启，关闭即撤销对应的设置：
+Write the SSH address as `user@server`. The port is the server's SSH port; when empty, 22 is used. The station opens no tunnel until an address is set. Changing either reconnects the tunnel.
 
-- 「自动更新」：见「自动更新」。
-- 「登录 Windows 后自动启动」：开启后可在任务管理器的「启动应用」中看到。
-- 「桌面和开始菜单里放『渲染站』」。
+### Workspaces
 
-## 使用
+Each workspace has:
 
-### 托盘图标
-
-托盘图标的颜色表示当前状态：
-
-| 颜色 | 状态 |
+| Item | Description |
 |---|---|
-| 绿色 | 空闲，等待任务 |
-| 紫色 | 正在执行任务 |
-| 黄色 | 正在连接 |
-| 红色 | 无法登录 lemon，或渲染站无法启动 |
-| 灰色 | 已暂停接单 |
+| Name | The name the server uses to call its presets. When empty, the station uses the `name` in the workspace file, then the folder name. Letters, digits, `.`, `_` and `-` only; names must be unique. |
+| Path | The folder on the device. |
+| Settings the workspace file declares | After the path is saved, the Settings page lists the fields from the file's `env`. While a required field is empty, the workspace's presets are refused. |
+| Other environment variables | One `NAME=value` per line, also passed to the workspace's jobs. |
 
-单击图标打开窗口。右键菜单包括「打开渲染站」「暂停接单」（暂停后为「继续接单」）「重新连接」「在浏览器里打开」「查看日志」和「退出渲染站」。任务完成时，系统弹出通知。
+Each workspace's presets are listed below it. The station rereads a workspace file when it changes; no restart is needed.
 
-### 窗口
+**Registering a workspace trusts its presets.** Presets run without approval. If a preset lets the caller upload a script and runs it, the caller can run any code on the device with the rights of the account the station runs under.
 
-窗口由 WebView2 加载 `station.html`，不使用系统标题栏，最小化、关闭和拖动的控件位于页面顶部。左侧导航包含四页：
+### This computer
 
-- 「总览」：运行状态、当日统计、最近两分钟的处理器、内存和显卡占用，以及最近的任务及其输出。
-- 「画廊」：本机保留的单帧、封面和片段。鼠标悬停时播放片段，单击查看大图，左右方向键切换。
-- 「动态」：连接过程，以及 ssh 和 `render.mjs` 的实时输出。
-- 「设置」：见「配置」和「Shell 权限」。
+These switches are on by default; turning one off undoes its effect:
 
-同一页面也可在浏览器中访问：`http://127.0.0.1:7799`。在地址后加 `#gallery`、`#feed` 或 `#settings` 可直接打开对应页面。
+- 自动更新 (Automatic updates): see "Automatic updates".
+- 登录 Windows 后自动启动 (Start when signing in to Windows): visible under Startup apps in Task Manager.
+- 桌面和开始菜单里放「渲染站」 (Shortcuts on the desktop and in the Start menu).
 
-### 运行状态与日志
+## Workspace file
 
-工作机从睡眠中唤醒、网络中断或渲染服务退出后，渲染站会自动重建隧道并重启服务。运行日志位于 `.tools/remote/station.log`。
+The `render-station.json` file in a workspace's root declares the settings the workspace needs and the presets it offers. A workspace without this file can run Shell jobs only. Example:
 
-隧道建立期间，任何能登录 lemon 的用户都可以让工作机运行本仓库的代码。不使用时，应在窗口或托盘菜单中选择「暂停接单」。暂停后隧道关闭，lemon 无法提交任务。
-
-## 提交任务
-
-以下命令在 lemon 上执行。`ask.mjs` 自动查找隧道所在的端口。
-
-### 渲染任务
-
-参数与 qiqi.help 的 `promo/render.mjs` 相同：
-
-```sh
-node /www/daum/render-station/ask.mjs --stills 19.9,20.3        # 单帧，全尺寸；加 --preview 为半尺寸
-node /www/daum/render-station/ask.mjs --cover                   # 两张封面
-node /www/daum/render-station/ask.mjs --from 13.49 --to 21.45   # 片段，固定为半尺寸、15 fps
+```json
+{
+  "name": "video",
+  "env": [
+    { "key": "FFMPEG", "label": "ffmpeg", "required": true, "placeholder": "C:\\ffmpeg\\bin\\ffmpeg.exe" }
+  ],
+  "presets": {
+    "transcode": {
+      "description": "Convert the uploaded video to H.264",
+      "command": ["node", "{job}/transcode.mjs", "{args}"],
+      "upload": ["transcode.mjs", "input/*"],
+      "args": ["--crf", "\\d{1,2}"],
+      "collect": "{job}/output",
+      "timeout": 3600
+    }
+  }
+}
 ```
 
-录像尚未录全时，加 `--partial`。结果保存在 `/www/daum/render-station/.tools/.scratch/<时间>/`。
+The `render-station.json` at the root of the qiqi.help repository is a real-world example.
 
-`ask.mjs` 读取以下环境变量：
+### `env`: required settings
 
-- `PROMO_ROOT`：提供渲染源码的 qiqi.help 检出，默认为 `/www/daum/qiqi.help`。
-- `PROMO_REMOTE`：隧道端口。设置后不再自动探测。
+| Field | Description |
+|---|---|
+| `key` | The environment variable's name. |
+| `label` | The name shown in the Settings page. |
+| `required` | `true` for required, or a platform name such as `"win32"` for required on that platform only. |
+| `placeholder` | Hint text in the input field. |
+| `hint` | Additional explanation. |
+| `type` | `"text"` (default) or `"switch"`. A switch's value is `"1"` or `"0"`. |
+| `default` | The value used when the field is empty. |
 
-渲染服务只接受单帧、封面和半尺寸片段。按站长 2026-10-16 的约定，qiqi.help 正式上线前不渲染最高分辨率和最高帧率的视频；成片须在工作机上直接运行 `render.mjs`。
+### `presets`
 
-### Shell 任务
+| Field | Description |
+|---|---|
+| `command` | Required. An argument list whose first item is the program; `node` means the station's own Node.js. No shell interprets it. `"{args}"` expands to the caller's arguments and may appear at most once. |
+| `args` | The arguments accepted, as a list of regular expressions; each argument must fully match one of them. When omitted, no arguments are accepted. |
+| `upload` | The files a caller may bring, as relative globs (`*` and `?` stay within a folder, `**` crosses folders). The server collects matching files from the `--src` folder; the device accepts only matching files and puts them in the job folder. |
+| `collect` | When the command succeeds (exit code 0), the files in this folder are sent back to the server. |
+| `exclude` | Files not to send back, as globs; a glob without `/` matches a file name in any folder. |
+| `cwd` | The working directory; defaults to `{workspace}`. |
+| `env` | Additional environment variables. |
+| `timeout` | Time limit in seconds, 1–86400; no limit when omitted. |
+| `description` | Shown in the Settings page and in `cli.mjs status`. |
+
+`command`, `cwd`, `env` and `collect` may use two placeholders: `{job}`, the job folder (`.tools/remote/job/` on the device, emptied before each job), and `{workspace}`, the workspace's path.
+
+## Using the station
+
+### Tray icon
+
+The tray icon's color shows the state:
+
+| Color | State |
+|---|---|
+| Green | Idle, waiting for jobs |
+| Purple | Running a job |
+| Yellow | Connecting |
+| Red | Cannot log in to the server, or the station cannot start |
+| Gray | Paused, or no server set |
+
+Click the icon to open the window. The right-click menu has 打开渲染站 (Open), 暂停接单 (Pause; 继续接单, Resume, while paused), 重新连接 (Reconnect), 在浏览器里打开 (Open in browser), 查看日志 (View log) and 退出渲染站 (Quit). A notification appears when a job finishes.
+
+### Window
+
+The window is `station.html` in WebView2, without a system title bar; the minimize, close and drag controls are at the top of the page. The sidebar has four pages:
+
+- 总览 (Overview): the state, today's counts, the last two minutes of CPU, memory and GPU load, and the recent jobs with their output.
+- 输出 (Output): the files the jobs produced, kept on this device. Images and videos can be previewed (videos play on hover, click to enlarge, arrow keys to browse); other files open in their default program.
+- 动态 (Activity): the connection's progress and the live output of ssh and the jobs.
+- 设置 (Settings): see "Configuration" and "Shell permissions".
+
+The same page is available in a browser at `http://127.0.0.1:7799`; append `#gallery`, `#feed` or `#settings` to open a page directly.
+
+Lines of the form `frame 12/300` in a job's output are read as progress and shown on the Overview page's ring.
+
+### State and logs
+
+After the device wakes from sleep, loses the network, or the worker exits, the station reopens the tunnel and restarts the worker on its own. The log is `.tools/remote/station.log`.
+
+While the tunnel is open, anyone who can log in to the server can run the device's presets. Pause the station (in the window or the tray menu) when it is not needed; pausing closes the tunnel.
+
+## Submitting jobs
+
+Run these on the server. `cli.mjs` finds the tunnel's port on its own; set `RENDER_STATION_PORT` to use only that port. Options must come before the target (the preset or the command).
 
 ```sh
-node /www/daum/render-station/ask.mjs --shell 'node --version'
-node /www/daum/render-station/ask.mjs --shell 'node promo/capture/rec.mjs archive' --cwd . --timeout 600
+node cli.mjs status [--json]
+node cli.mjs run [--json] [--src <dir>] [--out <dir>] <workspace>/<preset> [args…]
+node cli.mjs shell [--json] [--workspace <name>] [--cwd <dir>] [--timeout <s>] <command…>
 ```
 
-- `--cwd`：工作机上的工作目录，默认为工作区。
-- `--timeout`：执行时限，单位为秒，默认 600，上限 7200。
+### Device status
 
-命令在 Windows 上由非交互、不加载配置文件的 PowerShell 执行，在其他系统上由 `/bin/sh` 执行。Shell 任务不同步源码，只能使用工作机上已有的文件；qiqi.help 的录像脚本及其参数以该仓库的 `promo/capture/clips/` 为准。
+`status` shows whether the device is online and idle, and each workspace's presets and missing settings.
 
-执行期间，输出实时显示在「动态」页。执行结束后，输出的最后 256 KiB 和退出码返回 lemon，托盘图标照常弹出通知。
+### Preset jobs
 
-命令会显示在审批窗口中并写入日志，因此不得在命令中包含密钥或密码。
+```sh
+cd /path/to/project
+node /path/to/render-station/cli.mjs run video/transcode --crf 23
+```
 
-## Shell 权限
+- Everything after `<workspace>/<preset>` is passed to the preset as arguments.
+- `--src`: the folder the preset's `upload` globs are matched in; defaults to the current folder. Uploads may total at most 48 MB.
+- `--out`: where returned files are saved; defaults to `.tools/results/<time>/` in this repository. Returned files may total at most 128 MB.
 
-渲染站默认不接受 Shell 任务。须在工作机的「设置 → Shell 权限」中开启，开启后为 auto 模式。
+### Shell jobs
 
-### auto 模式
+```sh
+node cli.mjs shell 'node --version'
+node cli.mjs shell --workspace video --cwd input --timeout 600 'dir'
+```
 
-- 实际工作目录（解析符号链接后）必须位于工作区内。
-- 完整命令和工作目录与白名单中的某一条精确匹配时，自动执行。不按解释器或命令前缀放行。
-- 未匹配时，工作机弹出审批窗口，可选择「拒绝」「仅本次允许」或「允许并加入白名单」。5 分钟内未获批准的任务失败。
-- 白名单保存在工作机的 `.tools/remote/config.json` 中，可在设置页删除条目。
+- `--workspace`: the workspace; defaults to the first one registered on the device.
+- `--cwd`: the working directory within the workspace; defaults to its root.
+- `--timeout`: time limit in seconds; default 600, maximum 7200.
 
-### YOLO 模式
+On Windows the command runs in a non-interactive PowerShell that loads no profile; elsewhere, in `/bin/sh`. It gets the workspace's environment variables. Shell jobs bring no files and can use only files already on the device. A command not on the allowlist waits for manual approval on the device, for up to 5 minutes.
 
-- 开启步骤：退出正在运行的渲染站；在 Windows 上右键选择「以管理员身份运行」（其他系统须以 root 运行）；在设置页开启 YOLO 并确认。
-- 渲染站检查当前进程是否具有管理员权限，通过后允许任意命令和任意工作目录。
-- 该模式只保存在内存中。暂停接单、重新连接或重启后，恢复为 auto 模式。
+While the command runs, its output appears live on the Activity page. When it ends, the last 256 KiB of output and the exit code go back to the server. Commands are shown in the approval dialog and written to the log, so never put keys or passwords in them.
 
-### 安全边界
+### JSON output
 
-- 任务协议不提供修改白名单或切换模式的接口。这些操作只能在工作机的设置页完成，lemon 无法通过任务参数开启 YOLO 模式。
-- 该机制是授权机制，不是操作系统级沙箱。获准的命令可以读写文件，拥有渲染站运行账户的全部权限；目录检查只约束初始工作目录。
-- 白名单记录的是命令文本，不固定命令所引用脚本的内容。脚本修改后，同一条命令仍会自动执行。
-- 渲染任务本身会运行 lemon 发送的 JavaScript，属于已信任的代码通道，不受 Shell 白名单约束。
-- 拒绝、审批超时或提交方断开连接时，待审批的命令不会执行。
-- 关闭 Shell 权限或暂停接单后，后续任务被拒绝，待审批的请求和 YOLO 模式被撤销，已在运行的命令不会被中止。执行超时或提交方断开连接时，渲染站会尝试结束该命令的进程树。
-- 模式切换、待审批的请求、人工决定、执行的命令、工作目录和执行结果均记录在工作机的 `.tools/remote/station.log` 中。
+With `--json`, `cli.mjs` prints one JSON object to standard output:
 
-### Agent 使用授权
+| Field | Description |
+|---|---|
+| `ok` | Whether the job succeeded. |
+| `exitCode` | The command's exit code; `null` if the command did not run. |
+| `kind` | `"preset"` or `"shell"`. |
+| `workspace`, `preset`, `args` | The preset job's workspace, preset and arguments. |
+| `command` | The Shell job's command. |
+| `seconds` | Elapsed time. |
+| `outDir`, `files` | The folder of the returned files and each file's path. |
+| `log` | The command's output (the last 256 KiB). |
+| `error` | Why the job failed; `null` on success. |
 
-站长已于 2026-10-17 授权：agent 可以通过工作机上已批准的白名单，或工作机本地开启的 YOLO 模式提交 Shell 任务，无需因使用远程 Shell 而逐次请求许可。具体的工作范围以站长交代的任务为准。
+`status --json` prints the device's details: `online`, `platform`, `busy`, `accepting`, `shell` (the Shell mode) and `workspaces` (each with `name`, `path`, `missing`, `presets`, and `error` if its file is invalid).
 
-## 自动更新
+### Exit status
 
-开启后，渲染站在启动 1 分钟后检查一次，此后每 30 分钟检查一次，以快进方式合并当前分支的上游分支。通过 `git clone` 得到的检出已设置上游分支。也可以在设置页点击「现在检查」手动检查。
+| Exit status | Meaning |
+|---|---|
+| The command's own | The command ran; 0 on success. |
+| 1 | The job failed before running, for example an argument the preset does not accept, or a denied approval. |
+| 2 | `cli.mjs` was used incorrectly. |
+| 3 | No worker answered, or it is busy or paused. |
 
-以下情况不更新：工作树中有未提交的改动，或存在未推送的提交。有任务正在执行时，等任务完成后再更新。
+A command's own exit status can coincide with 1, 2 or 3; use `exitCode` in the `--json` output when the difference matters.
 
-更新涉及渲染站的代码时，渲染站自动重启；`渲染站.exe` 更新后，托盘程序自动替换为新版本。
+## Shell permissions
 
-## 托盘程序
+The station refuses Shell jobs by default. Enable them on the device under 设置 → Shell 权限 (Settings → Shell permissions); they start in auto mode.
 
-`渲染站.exe` 的源码为 `exe/station.c`，其行为如下：
+### Auto mode
 
-- 从仓库启动时，先将自身和 `WebView2Loader.dll` 复制到 `%LOCALAPPDATA%\qiqi-render-station\`，再从该位置运行。因此仓库中的 exe 不会被占用，更新时可以直接替换。
-- 在后台启动 `station.mjs`，进程退出后自动重新启动。
-- 将渲染站及其启动的 ssh、Chrome 和 ffmpeg 放入同一个作业对象，退出时一并结束。
-- 需要工作机已安装 Node.js。
+- The actual working directory, after resolving symbolic links, must be inside the chosen workspace.
+- A command runs automatically when the full command and the working directory exactly match an allowlist entry. Nothing is allowed by interpreter or command prefix.
+- Otherwise the request waits for approval in the station's window (a dialog appears while the window is open), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). A request not approved within 5 minutes fails.
+- The allowlist is stored in the device's `.tools/remote/config.json`; entries can be removed in the Settings page.
 
-## 不使用托盘程序运行
+### YOLO mode
 
-先手动设置环境变量：至少 `PROMO_ROOT` 和 `PROMO_WORK`，Windows 上还需 `PROMO_CHROME` 和 `PROMO_FFMPEG`。然后在两个终端中分别运行：
+- To enable it: quit the running station; on Windows, right-click it and choose Run as administrator (elsewhere, run it as root); then turn on YOLO in the Settings page and confirm.
+- The station checks that its process has administrator rights; then any command and any working directory are allowed. With no workspace registered, working directories are relative to the user's home folder.
+- The mode is kept in memory only. Pausing, reconnecting or restarting returns to auto mode.
+
+### Security boundaries
+
+- The job protocol has no way to change the allowlist, switch modes or register workspaces. These happen only in the device's Settings page; the server cannot turn on YOLO mode through job parameters.
+- This is an authorization mechanism, not an operating-system sandbox. An approved command can read and write files with all the rights of the station's account; the directory check constrains only the initial working directory.
+- The allowlist records command text and does not pin the content of scripts the command uses. If a script changes, the same command still runs automatically.
+- Presets do not go through the Shell allowlist; for the trust they carry, see "Workspaces".
+- A pending command never runs after a denial, an approval timeout, or the submitter disconnecting.
+- Turning off Shell permissions or pausing refuses further jobs and cancels pending requests and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
+- Mode changes, pending requests, manual decisions, executed commands, working directories and results are written to the device's `.tools/remote/station.log`.
+
+## Automatic updates
+
+When enabled, the station checks one minute after starting and every 30 minutes after that, fast-forwarding to the current branch's upstream. A checkout made with `git clone` already has an upstream. The 现在检查 (Check now) button in the Settings page checks immediately.
+
+The station does not update while the working tree has uncommitted changes or there are unpushed commits. If a job is running, it waits for the job to finish.
+
+When the station's code changes, the station restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
+
+## Tray program
+
+`渲染站.exe`, built from `exe/station.c`:
+
+- When started from the repository, it copies itself and `WebView2Loader.dll` to `%LOCALAPPDATA%\render-station\` and runs from there, so the repository's exe is never locked and updates can replace it.
+- Starts `station.mjs` in the background and restarts it whenever it exits.
+- Puts the station, ssh and the jobs' processes in one job object, so they all end when it quits.
+- Requires Node.js on the device.
+
+## Running without the tray program
+
+Register workspaces in `.tools/remote/config.json` (or once through the tray program), then run in two terminals:
 
 ```sh
 node worker.mjs
-ssh -N -R 7700:127.0.0.1:7700 -p 22222 lemon@23.251.32.150
+ssh -N -R 7700:127.0.0.1:7700 -p <port> <user>@<server>
 ```
 
-## 开发
+Run this way, there is no approval interface for Shell jobs, so only presets run.
 
-- 测试：`node shell.test.mjs`。
-- 编译 `渲染站.exe`：`node exe/build.mjs`，在 Linux 上交叉编译，输出到仓库根目录。需要 mingw-w64（`x86_64-w64-mingw32-gcc`），以及解压到 `.tools/webview2/` 的 WebView2 SDK（NuGet 包 `Microsoft.Web.WebView2`）。
-- 修改 `exe/` 中的文件后，须重新编译，并将 `渲染站.exe` 与源码一并提交。
+## Known limitations
 
-## 文件
+- One server works with one device.
+- Each job is one synchronous HTTP request: if the submitter disconnects, including when the tunnel drops, the job is stopped.
+- Uploads may total at most 48 MB and returned files at most 128 MB.
 
-| 路径 | 说明 |
+## Development
+
+- Tests: `node --test`.
+- Build `渲染站.exe`: `node exe/build.mjs`. It cross-compiles on Linux into the repository root and needs mingw-w64 (`x86_64-w64-mingw32-gcc`) and the WebView2 SDK (the NuGet package `Microsoft.Web.WebView2`) unpacked in `.tools/webview2/`.
+- After changing anything in `exe/`, rebuild and commit `渲染站.exe` together with the sources.
+
+## Files
+
+| Path | Description |
 |---|---|
-| `worker.mjs` | 渲染服务：接收任务，在 `.tools/remote/job/` 中执行，并返回结果。 |
-| `ask.mjs` | 在 lemon 上提交任务的命令行工具。 |
-| `shell.mjs` | Shell 任务的审批、白名单和执行。 |
-| `shell.test.mjs` | `shell.mjs` 的测试。 |
-| `station.mjs` | 渲染站的后台进程：管理渲染服务、隧道和配置，并在 `127.0.0.1:7799` 上提供窗口页面。 |
-| `station.html` | 渲染站的窗口页面。 |
-| `渲染站.exe` | 托盘程序的编译产物。 |
-| `WebView2Loader.dll` | 托盘程序窗口所需的 WebView2 加载器。 |
-| `exe/` | 托盘程序的源码（`station.c`、`station.rc`、`station.manifest`）和编译脚本 `build.mjs`。 |
-| `.tools/` | 运行时数据（`remote/config.json`、`remote/station.log`、`remote/job/`、`remote/out/`）和 WebView2 SDK（`webview2/`），不纳入版本控制。 |
+| `cli.mjs` | The command-line tool for submitting jobs from the server. |
+| `worker.mjs` | The worker: receives jobs, runs them and returns the results. |
+| `workspace.mjs` | Reading and checking workspace files, globs, and presets' commands and output. |
+| `shell.mjs` | Approval, allowlist and execution of Shell jobs. |
+| `station.mjs` | The station's background process: manages the worker, the tunnel and the settings, and serves the window at `127.0.0.1:7799`. |
+| `station.html` | The station's window. |
+| `渲染站.exe` | The built tray program. |
+| `WebView2Loader.dll` | The WebView2 loader the tray program's window needs. |
+| `exe/` | The tray program's sources (`station.c`, `station.rc`, `station.manifest`) and its build script `build.mjs`. |
+| `*.test.mjs` | Tests. |
+| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/job/`, `remote/out/`, `results/`) and the WebView2 SDK (`webview2/`); not under version control. |
 
-## 许可
+## License
 
-本仓库以 MIT 许可证发布，见 `LICENSE`。`WebView2Loader.dll` 除外：该文件由 Microsoft 提供，按 Microsoft WebView2 的许可条款使用，不适用 MIT 许可证。
+MIT; see `LICENSE`. The exception is `WebView2Loader.dll`, which is Microsoft's and is used under the Microsoft WebView2 license terms, not the MIT License.

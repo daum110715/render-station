@@ -1,18 +1,18 @@
-// 渲染站.exe, the render station's tray icon on the owner's Windows machine, and what the owner
-// double-clicks. It starts the station (station.mjs, with node) with no window at all, starts it
-// again whenever it stops, and shows in its colour how it is doing (green waiting, purple
-// rendering, amber connecting, red stuck, grey paused); a click opens the station's window: a
+// 渲染站.exe, the render station's tray icon on the Windows machine that takes the server's heavy
+// work, and what its owner double-clicks. It starts the station (station.mjs, with node) with no
+// window at all, starts it again whenever it stops, and shows in its colour how it is doing (green
+// waiting, purple at work, amber connecting, red stuck, grey paused); a click opens the station's window: a
 // window of its own with no frame but the page's (station.html in WebView2, through
 // WebView2Loader.dll beside it), or failing that Edge's app window. The page drags it, minimizes
 // and closes it, and opens what a job made, by messages. It keeps what the settings ask for: starting with
 // Windows (a value under HKCU\...\Run, so it shows in Task Manager's startup apps) and 渲染站 on
-// the desktop and in the Start menu. The station and all it starts (ssh, a render's Chrome and
-// ffmpeg) run in a job object, so quitting, or this ending any other way, ends them too. Only one
+// the desktop and in the Start menu. The station and all it starts (ssh, the jobs and what they
+// start) run in a job object, so quitting, or this ending any other way, ends them too. Only one
 // runs: a second one opens the window and goes. It stays in the checkout beside station.mjs, but runs
-// from a copy of itself in %LOCALAPPDATA%\qiqi-render-station\ (it copies itself there, with the
+// from a copy of itself in %LOCALAPPDATA%\render-station\ (it copies itself there, with the
 // loader, and starts the copy), so the checkout's file is never held and an update can replace it;
 // when the station has updated it, the copy starts the checkout's again (--after) and goes.
-// Built on lemon with mingw-w64: node exe/build.mjs
+// Built on Linux with mingw-w64: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
 #define UNICODE
@@ -38,7 +38,9 @@
 
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
-#define RUN_NAME L"qiqi 渲染站"
+#define RUN_NAME L"渲染站"
+// the value it had while the station was part of qiqi.help, taken away
+#define OLD_RUN_NAME L"qiqi 渲染站"
 #define LINK_NAME L"渲染站.lnk"
 #define TITLE L"渲染站"
 enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_BROWSER, CMD_LOG, CMD_QUIT };
@@ -439,7 +441,7 @@ static int makeFrame(void) {
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
   int w = DIP(840), h = DIP(940);
   if (h > work.bottom - work.top - DIP(32)) h = work.bottom - work.top - DIP(32);
-  frame = CreateWindowExW(0, L"QiqiRenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+  frame = CreateWindowExW(0, L"RenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
   // the edge dark with the page, the corners round (Windows 11)
@@ -478,6 +480,7 @@ static void openWindow(void) {
 static void runKey(int on) {
   HKEY k;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
+  RegDeleteValueW(k, OLD_RUN_NAME);
   if (on) {
     wchar_t v[MAX_PATH + 16];
     FMT(v, L"\"%ls\" /quiet", launcher);
@@ -504,7 +507,7 @@ static void link(int folder, int on) {
   IShellLinkW_SetPath(sl, launcher);
   IShellLinkW_SetWorkingDirectory(sl, dirOf);
   IShellLinkW_SetIconLocation(sl, launcher, 0);
-  IShellLinkW_SetDescription(sl, L"qiqi.help 宣传片的渲染站");
+  IShellLinkW_SetDescription(sl, L"渲染站：替服务器运行高负载任务");
   if (SUCCEEDED(IShellLinkW_QueryInterface(sl, &IID_IPersistFile, (void **)&pf))) {
     IPersistFile_Save(pf, path, TRUE);
     IPersistFile_Release(pf);
@@ -593,7 +596,7 @@ static void tick(void) {
   fails = 0;
   gaveUp = 0;
   const wchar_t *mode = f[0];
-  if (!wcscmp(mode, L"auth") && wcscmp(lastMode, L"auth")) balloon(L"lemon 不让登录", L"自动连接要用不输密码的密钥登录。点这里打开渲染站看看。", NIIF_ERROR);
+  if (!wcscmp(mode, L"auth") && wcscmp(lastMode, L"auth")) balloon(L"服务器不让登录", L"自动连接要用不输密码的密钥登录。点这里打开渲染站看看。", NIIF_ERROR);
   lstrcpynW(lastMode, mode, 16);
   show(iconFor(mode), f[1]);
   lstrcpynW(toggleText, f[2], 32);
@@ -604,7 +607,7 @@ static void tick(void) {
     lstrcpynW(lastKey, f[3], 64);
   } else if (f[3][0] && wcscmp(f[3], lastKey)) {
     lstrcpynW(lastKey, f[3], 64);
-    balloon(f[4], f[5], wcscmp(f[4], L"渲染完成") ? NIIF_WARNING : NIIF_INFO);
+    balloon(f[4], f[5], wcscmp(f[4], L"任务完成") ? NIIF_WARNING : NIIF_INFO);
   }
   keep(f[6][0] == L'1', f[7][0] == L'1');
   if (n > 8 && f[8][0] == L'1') return again();
@@ -635,7 +638,7 @@ static void again(void) {
 }
 
 static void quit(void) {
-  if (!wcscmp(lastMode, L"busy") && MessageBoxW(hwnd, L"正在渲染。现在退出，这个任务就作废了。", TITLE, MB_OKCANCEL | MB_ICONWARNING) != IDOK) return;
+  if (!wcscmp(lastMode, L"busy") && MessageBoxW(hwnd, L"有任务正在运行。现在退出，这个任务就作废了。", TITLE, MB_OKCANCEL | MB_ICONWARNING) != IDOK) return;
   quitting = 1;
   KillTimer(hwnd, 1);
   post("/quit");
@@ -770,11 +773,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   wchar_t home[MAX_PATH], copy[MAX_PATH + 32];
   home[0] = 0;
   if (GetEnvironmentVariableW(L"LOCALAPPDATA", home, MAX_PATH)) {
-    wcsncat(home, L"\\qiqi-render-station", MAX_PATH - wcslen(home) - 1);
+    wcsncat(home, L"\\render-station", MAX_PATH - wcslen(home) - 1);
   }
   int isCopy = home[0] && !_wcsicmp(exeDir, home);
   lstrcpynW(launcher, isCopy && from ? from : exePath, MAX_PATH);
-  HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\qiqi-render-station-tray");
+  HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\render-station-tray");
   if (!isCopy && home[0] && !running) {
     wchar_t dll[MAX_PATH + 32], dllCopy[MAX_PATH + 32];
     CreateDirectoryW(home, NULL);
@@ -796,10 +799,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     // could not: from here, as before
   }
   if (running) CloseHandle(running);
-  CreateMutexW(NULL, TRUE, L"Local\\qiqi-render-station-tray");
+  CreateMutexW(NULL, TRUE, L"Local\\render-station-tray");
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
     // the one running opens its window, and may bring it to the front
-    HWND other = FindWindowW(L"QiqiRenderStation", NULL);
+    HWND other = FindWindowW(L"RenderStation", NULL);
     if (other && !quiet) {
       DWORD pid = 0;
       GetWindowThreadProcessId(other, &pid);
@@ -851,13 +854,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   fc.hbrBackground = CreateSolidBrush(dark ? RGB(0x17, 0x12, 0x16) : RGB(0xf8, 0xf6, 0xf5));
   fc.hIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
   fc.hIconSm = icons[ICON_BUSY];
-  fc.lpszClassName = L"QiqiRenderStationWindow";
+  fc.lpszClassName = L"RenderStationWindow";
   RegisterClassExW(&fc);
 
   WNDCLASSW wc = { 0 };
   wc.lpfnWndProc = proc;
   wc.hInstance = inst;
-  wc.lpszClassName = L"QiqiRenderStation";
+  wc.lpszClassName = L"RenderStation";
   RegisterClassW(&wc);
   hwnd = CreateWindowExW(0, wc.lpszClassName, TITLE, WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
   taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");

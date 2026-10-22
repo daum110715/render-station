@@ -1,10 +1,11 @@
-// 渲染站, the render station, on the owner's machine: keeps the render worker (worker.mjs) and the
-// reverse SSH tunnel to lemon up, through sleep, wake and lost networks, and shows both in a small
-// window (station.html, at http://127.0.0.1:7799): what it is doing, what ssh and render.mjs print
-// as they print it, the jobs lately done, the settings. The tray icon, 渲染站.exe (exe/station.c),
-// starts it and starts it again if it stops, and keeps what the settings ask of Windows (starting
-// with it, the shortcuts), as /tray tells it. Its settings, the paths render.mjs needs and how to
-// reach lemon, are in .tools/remote/config.json; what it did, in station.log.
+// 渲染站, the render station, on the machine that takes the server's heavy work: keeps the worker
+// (worker.mjs) and the reverse SSH tunnel to the server up, through sleep, wake and lost networks,
+// and shows both in a small window (station.html, at http://127.0.0.1:7799): what it is doing, what
+// ssh and the jobs print as they print it, the jobs lately done and what they made, the settings.
+// The tray icon, 渲染站.exe (exe/station.c), starts it and starts it again if it stops, and keeps
+// what the settings ask of Windows (starting with it, the shortcuts), as /tray tells it. Its
+// settings, the server and the workspaces, are in .tools/remote/config.json; what it did, in
+// station.log.
 // usage: node station.mjs
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
@@ -15,6 +16,7 @@ import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
 import { createShellGate, isAdministrator } from './shell.mjs';
+import { NAME, missingEnv, resolveWorkspaces } from './workspace.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = resolve(here);
@@ -48,7 +50,7 @@ process.on('uncaughtException', (e) => {
   log(`出错退出：${e?.stack ?? e}`);
   process.exit(1);
 });
-/** the window's feed, the latest 600 lines: what the station says ('station', 'tunnel', 'render')
+/** the window's feed, the latest 600 lines: what the station says ('station', 'tunnel', 'job', 'shell')
  *  and what ssh and render.mjs print ('ssh', 'out') */
 const feed = [];
 let fresh = [];
@@ -77,26 +79,58 @@ function liner(each) {
 
 // ——— settings ———
 const CONFIG = join(dir, 'config.json');
-const KEYS = ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_SITE', 'PROMO_CHROME', 'PROMO_FFMPEG', 'PROMO_PROFILES', 'PROMO_GPU'];
-// lemon by its address, so no ssh config is needed (the key: the owner's default one, or the agent's)
-const LEMON = { target: 'lemon@23.251.32.150', port: '22222' };
-// what render.mjs cannot do without here (on Windows its defaults are lemon's)
-const NEEDED = win ? ['PROMO_ROOT', 'PROMO_WORK', 'PROMO_CHROME', 'PROMO_FFMPEG'] : ['PROMO_ROOT', 'PROMO_WORK'];
 let config = {
-  env: Object.fromEntries(KEYS.map((k) => [k, process.env[k] ?? (k === 'PROMO_GPU' ? '1' : '')])),
-  ssh: { ...LEMON },
+  // the server by its address, so no ssh config is needed (the key: the default one, or the agent's)
+  ssh: { target: '', port: '' },
+  // the folders jobs may work in, [{ name, path, env }] (workspace.mjs)
+  workspaces: [],
   paused: false,
   shell: { enabled: false, rules: [] },
 };
 try {
   const saved = JSON.parse(readFileSync(CONFIG, 'utf8'));
-  config = { ...config, ...saved, env: { ...config.env, ...saved.env }, ssh: { ...config.ssh, ...saved.ssh } };
+  config = { ...config, ...saved, ssh: { ...config.ssh, ...saved.ssh } };
 } catch {}
 const save = () => writeFileSync(CONFIG, JSON.stringify(config, null, 2));
+// settings from before workspaces, the checkout render.mjs ran in (PROMO_ROOT) and the rest of its
+// environment, become one
+if (config.env) {
+  const { PROMO_ROOT: path, ...env } = config.env;
+  if (path && !config.workspaces.length) config.workspaces = [{ name: '', path, env: Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')) }];
+  delete config.env;
+  save();
+}
 config.shell = { enabled: false, rules: [], ...config.shell };
+/** the workspaces, as jobs see them */
+const workspaces = () => resolveWorkspaces(config.workspaces);
+/** what the settings still lack: the server, and what each workspace's file asks for */
+const lacking = () => [
+  ...(config.ssh.target ? [] : ['服务器的 SSH 地址']),
+  ...workspaces().flatMap((w) => missingEnv(w).map((k) => `${w.name} 的「${w.spec.env.find((e) => e.key === k)?.label ?? k}」`)),
+];
+/** the workspaces as the window edits them, checked */
+function checkWorkspaces(list) {
+  if (!Array.isArray(list) || list.length > 32) throw new Error('工作区的格式不对');
+  const out = list.map((w) => {
+    const name = String(w?.name ?? '').trim();
+    const path = String(w?.path ?? '').trim();
+    if (name && !NAME.test(name)) throw new Error(`工作区的名字只能用字母、数字和「.」「_」「-」：${name}`);
+    if (!path) throw new Error('每个工作区都要填路径');
+    const env = {};
+    for (const [k, v] of Object.entries(w?.env ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`不是环境变量的名字：${k}`);
+      if (String(v).trim() !== '') env[k] = String(v).trim();
+    }
+    return { name, path, env };
+  });
+  const names = resolveWorkspaces(out).map((w) => w.name);
+  const twice = names.find((n, i) => names.indexOf(n) !== i);
+  if (twice) throw new Error(`有两个工作区都叫 ${twice}：给其中一个另起名字`);
+  return out;
+}
 const shellToken = randomBytes(32).toString('hex');
 const shellGate = createShellGate({
-  workspace: config.env.PROMO_ROOT || repo,
+  workspaces,
   policy: () => config.shell,
   save,
   admin: isAdministrator(),
@@ -196,7 +230,7 @@ async function checkUpdate() {
   // not in the middle of a render
   if (job || shellGate.state().pending) {
     updateAfterJob = true;
-    return done('waiting', '有新版本，这个任务渲完就更新');
+    return done('waiting', '有新版本，当前任务完成后更新');
   }
   const changed = (await git(['diff', '--name-only', 'HEAD', up.out])).out.split(/\r?\n/);
   const merged = await git(['merge', '--ff-only', '--quiet', up.out]);
@@ -215,7 +249,7 @@ async function checkUpdate() {
 }
 
 // ——— what the jobs made, kept here (KEEP): newest first, each with its files ———
-const MEDIA = { '.jpg': 'image/jpeg', '.png': 'image/png', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+const MEDIA = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const walkAll = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkAll(join(d, e.name)) : [join(d, e.name)]));
 let shelf = [];
 function restock() {
@@ -232,11 +266,13 @@ function restock() {
               meta = JSON.parse(readFileSync(join(d, 'job.json'), 'utf8'));
             } catch {}
             const files = walkAll(d)
-              .filter((f) => MEDIA[extname(f)])
+              .filter((f) => relative(d, f) !== 'job.json')
               // 9.5 before 10.45
               .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
-              .map((f) => ({ url: `/files/${relative(KEEP, f).split(sep).map(encodeURIComponent).join('/')}`, path: f, name: relative(d, f).split(sep).join('/') }));
-            return { name, at: meta.at ?? statSync(d).mtimeMs, ms: meta.ms ?? null, what: meta.args ? describe(meta.args) : name, files };
+              .map((f) => ({ url: MEDIA[extname(f)] ? `/files/${relative(KEEP, f).split(sep).map(encodeURIComponent).join('/')}` : null, path: f, name: relative(d, f).split(sep).join('/') }));
+            // kept before presets: a render's arguments only
+            const what = meta.preset ? label({ kind: 'preset', ...meta }) : meta.args ? `渲染 ${meta.args.join(' ')}` : name;
+            return { name, at: meta.at ?? statSync(d).mtimeMs, ms: meta.ms ?? null, what, files };
           })
           .filter((g) => g.files.length);
   } catch {
@@ -251,8 +287,16 @@ const view = () => ({
   today: today.day === new Date().toDateString() ? today : { done: 0, failed: 0 },
   workerError,
   config,
+  // as jobs see them, in the settings' order
+  workspaces: workspaces().map((w) => ({
+    name: w.name,
+    error: w.spec.error ?? null,
+    fields: w.spec.env,
+    presets: Object.entries(w.spec.presets).map(([name, p]) => ({ name, description: p.description ?? '' })),
+    missing: missingEnv(w),
+  })),
   shell: shellGate.state(),
-  missing: NEEDED.filter((k) => !config.env[k]),
+  missing: lacking(),
   // what the tray icon is to keep: both, unless switched off
   autostart: config.autostart !== false,
   shortcut: config.shortcut !== false,
@@ -271,9 +315,9 @@ const view = () => ({
  *  (1: it was updated) */
 function trayView() {
   const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
-  const tip = { busy: `${job?.kind === 'shell' ? '执行中' : '渲染中'}：${job?.what}`, idle: `空闲，已连上 lemon:${tunnel.port}`, connecting: '正在连接 lemon', retry: '连不上 lemon，会自己重试', auth: 'lemon 不让登录，点开看看', off: '已暂停接单' }[mode] ?? mode;
+  const tip = { busy: `执行中：${job?.what}`, idle: `空闲，已连上服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '连不上服务器，会自己重试', auth: '服务器不让登录，点开看看', off: '已暂停接单', unset: '还没设置服务器，点开填写' }[mode] ?? mode;
   const last = jobs[0];
-  const tell = !last ? ['', ''] : last.ok ? ['任务完成', `${last.what}，用了 ${took(last.ms)}，已交回 lemon。`] : ['任务失败', `${last.what}。输出在渲染站的「动态」里。`];
+  const tell = !last ? ['', ''] : last.ok ? ['任务完成', `${last.what}，用了 ${took(last.ms)}，结果已交回服务器。`] : ['任务失败', `${last.what}。输出在渲染站的「动态」里。`];
   const v = view();
   return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
@@ -294,41 +338,34 @@ function push() {
 /** where what the jobs made is kept here too, to be looked at: the latest 30 jobs' worth */
 const KEEP = join(repo, '.tools/remote/out');
 /** what a job is, in a few words */
-function describe(args) {
-  const get = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
-  if (args.includes('--stills')) return `单帧 ${get('--stills').split(',').join('、')}${args.includes('--preview') ? '（半尺寸）' : ''}`;
-  if (args.includes('--cover')) return '封面';
-  return `片段 ${get('--from') ?? '开头'}–${get('--to') ?? '结尾'} 秒（半尺寸）`;
-}
+const label = (e) => (e.kind === 'shell' ? `Shell：${e.command}` : `${e.workspace}/${e.preset}${e.args?.length ? ` ${e.args.join(' ')}` : ''}`);
 function startWorker() {
   let out = null;
   const server = serve({
-    env: () => Object.fromEntries(Object.entries(config.env).filter(([, v]) => v !== '')),
+    workspaces,
     keep: KEEP,
     shell: shellGate,
     accepting: () => !config.paused && !quitting,
     on: (e) => {
       if (e.type === 'start') {
         const isShell = e.kind === 'shell';
-        const n = e.args.includes('--stills') ? e.args[e.args.indexOf('--stills') + 1].split(',').length : e.args.includes('--cover') ? 2 : null;
-        job = { id: e.id, kind: e.kind ?? 'render', what: isShell ? `Shell：${e.command}` : describe(e.args), started: Date.now(), n: 0, total: n, ms: null, frames: !isShell && n == null };
-        note(isShell ? 'shell' : 'render', `收到任务 #${e.id}：${job.what}`);
-        say('out', isShell ? `> [${e.cwd}] ${e.command} (${e.approval})` : `> node render.mjs ${e.args.join(' ')}`);
+        job = { id: e.id, kind: e.kind, what: label(e), started: Date.now(), n: 0, total: null, ms: null, frames: false };
+        note(isShell ? 'shell' : 'job', `收到任务 #${e.id}：${job.what}`);
+        say('out', isShell ? `> [${e.cwd}] ${e.command} (${e.approval})` : `> ${e.command.join(' ')}`);
         out = liner((line) => say('out', line));
       } else if (e.type === 'log' && job) {
-        // render.mjs: "frame n/total  T=…  ms ms/frame" every 30 frames; a path a still or a cover
-        const frames = [...e.text.matchAll(/frame (\d+)\/(\d+)\s+T=[\d.]+\s+(\d+) ms\/frame/g)].at(-1);
-        if (frames) Object.assign(job, { n: Number(frames[1]), total: Number(frames[2]), ms: Number(frames[3]) });
-        else if (!job.frames) job.n += (e.text.match(/\.jpg(\r?\n|$)/g) ?? []).length;
+        // progress, as a job prints it: "frame n/total", and after it "T=…  ms ms/frame" (render.mjs)
+        const frames = [...e.text.matchAll(/frame (\d+)\/(\d+)(?:\s+T=[\d.]+\s+(\d+) ms\/frame)?/g)].at(-1);
+        if (frames) Object.assign(job, { n: Number(frames[1]), total: Number(frames[2]), ms: frames[3] ? Number(frames[3]) : null, frames: true });
         out?.(e.text);
       } else if (e.type === 'end') {
-        if (e.kind === 'shell') note('shell', `Shell 结果 #${e.id}：${e.ok ? '成功' : '失败'}，退出码 ${e.code ?? 'unknown'}`);
+        if (e.kind === 'shell') note('shell', `Shell 结果 #${e.id}：${e.ok ? '成功' : '失败'}，退出码 ${e.code ?? '无'}`);
         out?.('', true);
         out = null;
         // turned away before it started: why
         if (!job) say('out', e.tail.trim());
         const what = job?.what ?? '（没开始就被退回）';
-        jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, paths: e.paths, tail: e.tail, rate: job?.frames ? job.ms : null });
+        jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, paths: e.paths, tail: e.tail, rate: job?.ms ?? null });
         jobs.length = Math.min(jobs.length, 20);
         if (today.day !== new Date().toDateString()) today = { day: new Date().toDateString(), done: 0, failed: 0 };
         today[e.ok ? 'done' : 'failed']++;
@@ -337,7 +374,7 @@ function startWorker() {
           updateAfterJob = false;
           setTimeout(checkUpdate, 1000);
         }
-        note('render', e.ok ? `任务 #${e.id} 完成：${what}，用了 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件交回 lemon` : ''}` : `任务 #${e.id} 失败：${what}，用了 ${took(e.ms)}`);
+        note('job', e.ok ? `任务 #${e.id} 完成：${what}，用了 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件交回服务器` : ''}` : `任务 #${e.id} 失败：${what}，用了 ${took(e.ms)}`);
         job = null;
       }
       push();
@@ -345,11 +382,11 @@ function startWorker() {
   });
   server.on('listening', () => {
     workerError = null;
-    note('station', `渲染服务就绪，在 127.0.0.1:${WORKER}`);
+    note('station', `任务服务就绪，在 127.0.0.1:${WORKER}`);
   });
   server.on('error', (e) => {
     workerError = e.code === 'EADDRINUSE' ? `${WORKER} 端口被占用了：是不是另开了一个 worker.mjs？` : e.message;
-    note('station', `渲染服务起不来：${workerError}，10 秒后再试`);
+    note('station', `任务服务起不来：${workerError}，10 秒后再试`);
     // try again once whatever held the port has let go
     setTimeout(startWorker, 10000);
   });
@@ -366,6 +403,10 @@ function connect() {
     tunnel = { state: 'off' };
     return push();
   }
+  if (!config.ssh.target) {
+    tunnel = { state: 'unset' };
+    return push();
+  }
   const port = PORTS[slot % PORTS.length];
   const args = [
     '-N', '-T', '-v',
@@ -380,7 +421,7 @@ function connect() {
     '-R', `${port}:127.0.0.1:${WORKER}`,
     config.ssh.target,
   ];
-  note('tunnel', `连接 lemon：ssh ${config.ssh.target}${config.ssh.port ? ` -p ${config.ssh.port}` : ''}，lemon 那头用 ${port} 端口`);
+  note('tunnel', `连接服务器：ssh ${config.ssh.target}${config.ssh.port ? ` -p ${config.ssh.port}` : ''}，服务器那头用 ${port} 端口`);
   const p = spawn('ssh', args, { windowsHide: true });
   ssh = p;
   tunnel = { state: 'connecting', port };
@@ -390,7 +431,7 @@ function connect() {
     if (ssh !== p || tunnel.state !== 'connecting') return;
     tunnel = { state: 'up', port, since: Date.now() };
     tries = 0;
-    note('tunnel', `隧道通了：lemon 的 127.0.0.1:${port} 连到这台电脑的渲染服务`);
+    note('tunnel', `隧道通了：服务器的 127.0.0.1:${port} 连到这台电脑的任务服务`);
   };
   // ssh -v says so; or, failing that, still there after a while with nothing refused
   const still = setTimeout(up, 10000);
@@ -426,15 +467,15 @@ function connect() {
     // nothing to be done by trying again: the key, the host's key, no ssh at all
     if (/Permission denied|Host key verification failed|Could not resolve hostname|ENOENT/i.test(err)) {
       tunnel = { state: 'auth', message: said };
-      return note('tunnel', `lemon 不让登录：${said || '没有说原因'}`);
+      return note('tunnel', `服务器不让登录：${said || '没有说原因'}`);
     }
-    // the port on lemon still held by a connection that died: the next one, at once
+    // the port on the server still held by a connection that died: the next one, at once
     const held = /remote port forwarding failed/i.test(err);
     if (held) slot++;
     const wait = held ? 500 : Math.min(30000, 2000 * 2 ** Math.min(tries, 4));
     tries++;
     tunnel = { state: 'retry', retryAt: Date.now() + wait, wait, message: said };
-    note('tunnel', held ? `lemon 的 ${port} 端口还被断掉的旧连接占着，换下一个` : `隧道断了${said ? `：${said}` : ''}，${Math.round(wait / 1000)} 秒后重连`);
+    note('tunnel', held ? `服务器的 ${port} 端口还被断掉的旧连接占着，换下一个` : `隧道断了${said ? `：${said}` : ''}，${Math.round(wait / 1000)} 秒后重连`);
     timer = setTimeout(connect, wait);
   };
   p.on('error', (e) => end(e.code === 'ENOENT' ? 'ENOENT: no ssh on this machine' : e.message));
@@ -573,11 +614,19 @@ const ui = createServer(async (req, res) => {
       note('tunnel', '重新连接');
       restart();
     } else if (path === '/config') {
-      for (const k of KEYS) if (typeof data.env?.[k] === 'string') config.env[k] = data.env[k].trim();
-      if (data.ssh) config.ssh = { target: String(data.ssh.target ?? '').trim() || LEMON.target, port: String(data.ssh.port ?? '').trim() };
+      let reconnect = false;
+      if (data.ssh) {
+        const ssh = { target: String(data.ssh.target ?? '').trim(), port: String(data.ssh.port ?? '').trim() };
+        if (ssh.port && !/^\d{1,5}$/.test(ssh.port)) throw new Error('端口要填数字');
+        // never an option of ssh's own
+        if (/^-|\s/.test(ssh.target)) throw new Error('SSH 地址的写法是「用户名@服务器」');
+        reconnect = ssh.target !== config.ssh.target || ssh.port !== config.ssh.port;
+        config.ssh = ssh;
+      }
+      if (data.workspaces) config.workspaces = checkWorkspaces(data.workspaces);
       save();
       note('station', '设置已保存');
-      restart();
+      if (reconnect) restart();
     } else if (path === '/autostart') {
       config.autostart = !!data.on;
       save();

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="qiqi.help.render-station" version="1.0.0.0" />
+  <assemblyIdentity type="win32" name="render-station" version="1.0.0.0" />
   <!-- the message boxes and menus in today's look -->
   <dependency>
     <dependentAssembly>
