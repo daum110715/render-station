@@ -50,14 +50,14 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
       if (typeof on !== 'boolean') throw new Error('on must be boolean');
       if (on && (!admin || !policy().enabled)) throw new Error('YOLO requires an elevated administrator station and shell enabled');
       yolo = on;
-      audit(`Shell 模式：${on ? 'YOLO（管理员本次会话）' : 'auto'}`);
+      audit(`Shell 模式：${on ? 'YOLO（仅限本次会话，管理员权限）' : 'auto'}`);
       changed();
     },
     remove(index) {
       if (!Number.isInteger(index) || index < 0 || index >= (policy().rules ?? []).length) throw new Error('rule no longer exists');
       const [rule] = policy().rules.splice(index, 1);
       save();
-      audit(`移除 Shell 白名单：${JSON.stringify(rule)}`);
+      audit(`已从 Shell 白名单中移除：${JSON.stringify(rule)}`);
       changed();
     },
     decide(id, action) {
@@ -67,7 +67,7 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
         if (!policy().rules.some((r) => matchesRule(r, pending))) policy().rules.push({ command: pending.command, cwd: pending.cwd });
         save();
       }
-      audit(`Shell 本地审批 ${action}：${JSON.stringify(pending)}`);
+      audit(`Shell 审批结果（${{ once: '仅本次允许', remember: '允许并加入白名单', deny: '拒绝' }[action]}）：${JSON.stringify(pending)}`);
       settle(action !== 'deny');
     },
     async authorize(input, signal) {
@@ -91,7 +91,7 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
             done(ok);
           };
           signal?.addEventListener('abort', aborted, { once: true });
-          audit(`Shell 等待本地审批：${JSON.stringify(pending)}`);
+          audit(`Shell 请求等待审批：${JSON.stringify(pending)}`);
           changed();
         });
         if (!allowed) throw new Error('Shell approval denied, expired or cancelled');
@@ -101,7 +101,7 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
       // Resolve again: a symlink, or the workspace itself, may have changed while awaiting the owner's decision.
       const checked = { ...shellRequest(input, rootOf(input.workspace).path, approval === 'yolo'), workspace: root.name };
       if (checked.cwd !== request.cwd) throw new Error('working directory changed during approval');
-      audit(`Shell 执行（${approval}）：${JSON.stringify(checked)}`);
+      audit(`执行 Shell 命令（${{ allowlist: '白名单', manual: '人工批准', yolo: 'YOLO' }[approval]}）：${JSON.stringify(checked)}`);
       return { ...checked, approval };
     },
   };

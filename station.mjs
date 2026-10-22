@@ -47,7 +47,7 @@ const LOG = join(dir, 'station.log');
 if (existsSync(LOG) && statSync(LOG).size > 1e6) rmSync(LOG);
 const log = (line) => appendFileSync(LOG, `${new Date().toISOString()}  ${line}\n`);
 process.on('uncaughtException', (e) => {
-  log(`出错退出：${e?.stack ?? e}`);
+  log(`渲染站因错误退出：${e?.stack ?? e}`);
   process.exit(1);
 });
 /** the window's feed, the latest 600 lines: what the station says ('station', 'tunnel', 'job', 'shell')
@@ -106,26 +106,26 @@ const workspaces = () => resolveWorkspaces(config.workspaces);
 /** what the settings still lack: the server, and what each workspace's file asks for */
 const lacking = () => [
   ...(config.ssh.target ? [] : ['服务器的 SSH 地址']),
-  ...workspaces().flatMap((w) => missingEnv(w).map((k) => `${w.name} 的「${w.spec.env.find((e) => e.key === k)?.label ?? k}」`)),
+  ...workspaces().flatMap((w) => missingEnv(w).map((k) => `工作区 ${w.name} 的「${w.spec.env.find((e) => e.key === k)?.label ?? k}」`)),
 ];
 /** the workspaces as the window edits them, checked */
 function checkWorkspaces(list) {
-  if (!Array.isArray(list) || list.length > 32) throw new Error('工作区的格式不对');
+  if (!Array.isArray(list) || list.length > 32) throw new Error('工作区配置的格式无效');
   const out = list.map((w) => {
     const name = String(w?.name ?? '').trim();
     const path = String(w?.path ?? '').trim();
-    if (name && !NAME.test(name)) throw new Error(`工作区的名字只能用字母、数字和「.」「_」「-」：${name}`);
-    if (!path) throw new Error('每个工作区都要填路径');
+    if (name && !NAME.test(name)) throw new Error(`工作区名称只能包含字母、数字和「.」「_」「-」：${name}`);
+    if (!path) throw new Error('每个工作区都必须填写路径');
     const env = {};
     for (const [k, v] of Object.entries(w?.env ?? {})) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`不是环境变量的名字：${k}`);
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new Error(`无效的环境变量名：${k}`);
       if (String(v).trim() !== '') env[k] = String(v).trim();
     }
     return { name, path, env };
   });
   const names = resolveWorkspaces(out).map((w) => w.name);
   const twice = names.find((n, i) => names.indexOf(n) !== i);
-  if (twice) throw new Error(`有两个工作区都叫 ${twice}：给其中一个另起名字`);
+  if (twice) throw new Error(`工作区名称重复：${twice}。请为其中一个指定其他名称`);
   return out;
 }
 const shellToken = randomBytes(32).toString('hex');
@@ -219,28 +219,28 @@ async function checkUpdate() {
   update = { ...update, state: 'checking' };
   push();
   const up = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
-  if (!up.ok) return done('error', '这份仓库没有跟着远程分支，或者这台电脑没装 git');
+  if (!up.ok) return done('error', '当前分支未设置上游分支，或本机未安装 Git');
   const fetched = await git(['fetch', '--quiet']);
-  if (!fetched.ok) return done('error', `取不到更新：${fetched.err}`);
+  if (!fetched.ok) return done('error', `获取更新失败：${fetched.err}`);
   const behind = await git(['rev-list', '--count', `HEAD..${up.out}`]);
-  if (behind.out === '0') return done('current', '已经是最新');
+  if (behind.out === '0') return done('current', '已是最新版本');
   const ahead = await git(['rev-list', '--count', `${up.out}..HEAD`]);
   const dirty = await git(['status', '--porcelain', '--untracked-files=no']);
-  if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但这份仓库里有${dirty.out ? '没提交的改动' : '没推上去的提交'}，没有自动更新`);
+  if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但仓库中存在${dirty.out ? '未提交的改动' : '未推送的提交'}，未自动更新`);
   // not in the middle of a render
   if (job || shellGate.state().pending) {
     updateAfterJob = true;
-    return done('waiting', '有新版本，当前任务完成后更新');
+    return done('waiting', '发现新版本，将在当前任务完成后更新');
   }
   const changed = (await git(['diff', '--name-only', 'HEAD', up.out])).out.split(/\r?\n/);
   const merged = await git(['merge', '--ff-only', '--quiet', up.out]);
-  if (!merged.ok) return done('error', `更新没成功：${merged.err}`);
+  if (!merged.ok) return done('error', `更新失败：${merged.err}`);
   await readVersion();
-  note('station', `更新到最新版：${behind.out} 个新提交`);
-  done('updated', `${behind.out} 个新提交，已更新`);
+  note('station', `已更新到最新版本（${behind.out} 个新提交）`);
+  done('updated', `已更新（${behind.out} 个新提交）`);
   if (changed.some((f) => /^(渲染站\.exe|WebView2Loader\.dll)$/.test(f))) trayAgain = true;
   else if (changed.some((f) => /^[\w.-]+\.mjs$/.test(f))) {
-    note('station', '渲染站的代码变了，马上重新启动');
+    note('station', '渲染站的代码已更新，即将重新启动');
     setTimeout(() => {
       stop();
       process.exit(75);
@@ -315,11 +315,11 @@ const view = () => ({
  *  (1: it was updated) */
 function trayView() {
   const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
-  const tip = { busy: `执行中：${job?.what}`, idle: `空闲，已连上服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '连不上服务器，会自己重试', auth: '服务器不让登录，点开看看', off: '已暂停接单', unset: '还没设置服务器，点开填写' }[mode] ?? mode;
+  const tip = { busy: `执行中：${job?.what}`, idle: `空闲，已连接服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '无法连接服务器，将自动重试', auth: '无法登录服务器，请打开渲染站查看', off: '已暂停接收任务', unset: '尚未配置服务器，请在设置中填写' }[mode] ?? mode;
   const last = jobs[0];
-  const tell = !last ? ['', ''] : last.ok ? ['任务完成', `${last.what}，用了 ${took(last.ms)}，结果已交回服务器。`] : ['任务失败', `${last.what}。输出在渲染站的「动态」里。`];
+  const tell = !last ? ['', ''] : last.ok ? ['任务已完成', `${last.what}，耗时 ${took(last.ms)}，结果已返回服务器。`] : ['任务失败', `${last.what}。详细输出见渲染站的「动态」页。`];
   const v = view();
-  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '继续接单' : '暂停接单', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
+  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '恢复接收任务' : '暂停接收任务', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
     .join('\n');
 }
@@ -359,12 +359,12 @@ function startWorker() {
         if (frames) Object.assign(job, { n: Number(frames[1]), total: Number(frames[2]), ms: frames[3] ? Number(frames[3]) : null, frames: true });
         out?.(e.text);
       } else if (e.type === 'end') {
-        if (e.kind === 'shell') note('shell', `Shell 结果 #${e.id}：${e.ok ? '成功' : '失败'}，退出码 ${e.code ?? '无'}`);
+        if (e.kind === 'shell') note('shell', `Shell 任务 #${e.id} 执行${e.ok ? '成功' : '失败'}，退出码：${e.code ?? '无'}`);
         out?.('', true);
         out = null;
         // turned away before it started: why
         if (!job) say('out', e.tail.trim());
-        const what = job?.what ?? '（没开始就被退回）';
+        const what = job?.what ?? '（未开始执行即被拒绝）';
         jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, paths: e.paths, tail: e.tail, rate: job?.ms ?? null });
         jobs.length = Math.min(jobs.length, 20);
         if (today.day !== new Date().toDateString()) today = { day: new Date().toDateString(), done: 0, failed: 0 };
@@ -374,7 +374,7 @@ function startWorker() {
           updateAfterJob = false;
           setTimeout(checkUpdate, 1000);
         }
-        note('job', e.ok ? `任务 #${e.id} 完成：${what}，用了 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件交回服务器` : ''}` : `任务 #${e.id} 失败：${what}，用了 ${took(e.ms)}`);
+        note('job', e.ok ? `任务 #${e.id} 已完成：${what}，耗时 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件已返回服务器` : ''}` : `任务 #${e.id} 失败：${what}，耗时 ${took(e.ms)}`);
         job = null;
       }
       push();
@@ -382,11 +382,11 @@ function startWorker() {
   });
   server.on('listening', () => {
     workerError = null;
-    note('station', `任务服务就绪，在 127.0.0.1:${WORKER}`);
+    note('station', `任务服务已就绪，监听 127.0.0.1:${WORKER}`);
   });
   server.on('error', (e) => {
-    workerError = e.code === 'EADDRINUSE' ? `${WORKER} 端口被占用了：是不是另开了一个 worker.mjs？` : e.message;
-    note('station', `任务服务起不来：${workerError}，10 秒后再试`);
+    workerError = e.code === 'EADDRINUSE' ? `端口 ${WORKER} 已被占用，可能另有一个 worker.mjs 正在运行` : e.message;
+    note('station', `任务服务无法启动：${workerError}。10 秒后重试`);
     // try again once whatever held the port has let go
     setTimeout(startWorker, 10000);
   });
@@ -421,7 +421,7 @@ function connect() {
     '-R', `${port}:127.0.0.1:${WORKER}`,
     config.ssh.target,
   ];
-  note('tunnel', `连接服务器：ssh ${config.ssh.target}${config.ssh.port ? ` -p ${config.ssh.port}` : ''}，服务器那头用 ${port} 端口`);
+  note('tunnel', `正在连接服务器：ssh ${config.ssh.target}${config.ssh.port ? ` -p ${config.ssh.port}` : ''}，服务器端端口 ${port}`);
   const p = spawn('ssh', args, { windowsHide: true });
   ssh = p;
   tunnel = { state: 'connecting', port };
@@ -431,7 +431,7 @@ function connect() {
     if (ssh !== p || tunnel.state !== 'connecting') return;
     tunnel = { state: 'up', port, since: Date.now() };
     tries = 0;
-    note('tunnel', `隧道通了：服务器的 127.0.0.1:${port} 连到这台电脑的任务服务`);
+    note('tunnel', `隧道已建立：服务器的 127.0.0.1:${port} 已连接到本机的任务服务`);
   };
   // ssh -v says so; or, failing that, still there after a while with nothing refused
   const still = setTimeout(up, 10000);
@@ -467,7 +467,7 @@ function connect() {
     // nothing to be done by trying again: the key, the host's key, no ssh at all
     if (/Permission denied|Host key verification failed|Could not resolve hostname|ENOENT/i.test(err)) {
       tunnel = { state: 'auth', message: said };
-      return note('tunnel', `服务器不让登录：${said || '没有说原因'}`);
+      return note('tunnel', `无法登录服务器：${said || '原因不明'}`);
     }
     // the port on the server still held by a connection that died: the next one, at once
     const held = /remote port forwarding failed/i.test(err);
@@ -475,7 +475,7 @@ function connect() {
     const wait = held ? 500 : Math.min(30000, 2000 * 2 ** Math.min(tries, 4));
     tries++;
     tunnel = { state: 'retry', retryAt: Date.now() + wait, wait, message: said };
-    note('tunnel', held ? `服务器的 ${port} 端口还被断掉的旧连接占着，换下一个` : `隧道断了${said ? `：${said}` : ''}，${Math.round(wait / 1000)} 秒后重连`);
+    note('tunnel', held ? `服务器端端口 ${port} 仍被已断开的旧连接占用，改用下一个端口` : `隧道已断开${said ? `：${said}` : ''}。${Math.round(wait / 1000)} 秒后重新连接`);
     timer = setTimeout(connect, wait);
   };
   p.on('error', (e) => end(e.code === 'ENOENT' ? 'ENOENT: no ssh on this machine' : e.message));
@@ -499,7 +499,7 @@ let tick = Date.now();
 setInterval(() => {
   const now = Date.now();
   if (now - tick > 30000 && !config.paused && !quitting) {
-    note('tunnel', '电脑刚醒，重新连接');
+    note('tunnel', '本机已从睡眠中唤醒，重新连接');
     restart();
   }
   tick = now;
@@ -539,7 +539,7 @@ const body = (req) =>
   });
 function quit() {
   quitting = true;
-  log('渲染站退出');
+  log('渲染站已退出');
   stop();
   setTimeout(() => process.exit(0), 300);
 }
@@ -593,7 +593,7 @@ const ui = createServer(async (req, res) => {
       config.shell.enabled = data.on;
       if (!data.on) shellGate.revoke();
       save();
-      note('shell', `Shell 接单：${data.on ? '开启（auto）' : '关闭'}`);
+      note('shell', `Shell 任务：${data.on ? '已开启（auto 模式）' : '已关闭'}`);
     } else if (path === '/shell/yolo') {
       shellGate.setYolo(data.on);
     } else if (path === '/shell/decide') {
@@ -604,22 +604,22 @@ const ui = createServer(async (req, res) => {
       config.paused = true;
       save();
       stop();
-      note('station', '暂停接单，隧道关了');
+      note('station', '已暂停接收任务，隧道已关闭');
     } else if (path === '/resume') {
       config.paused = false;
       save();
-      note('station', '继续接单');
+      note('station', '已恢复接收任务');
       restart();
     } else if (path === '/reconnect') {
-      note('tunnel', '重新连接');
+      note('tunnel', '手动重新连接');
       restart();
     } else if (path === '/config') {
       let reconnect = false;
       if (data.ssh) {
         const ssh = { target: String(data.ssh.target ?? '').trim(), port: String(data.ssh.port ?? '').trim() };
-        if (ssh.port && !/^\d{1,5}$/.test(ssh.port)) throw new Error('端口要填数字');
+        if (ssh.port && !/^\d{1,5}$/.test(ssh.port)) throw new Error('端口必须是数字');
         // never an option of ssh's own
-        if (/^-|\s/.test(ssh.target)) throw new Error('SSH 地址的写法是「用户名@服务器」');
+        if (/^-|\s/.test(ssh.target)) throw new Error('SSH 地址的格式应为「用户名@服务器」');
         reconnect = ssh.target !== config.ssh.target || ssh.port !== config.ssh.port;
         config.ssh = ssh;
       }
@@ -630,11 +630,11 @@ const ui = createServer(async (req, res) => {
     } else if (path === '/autostart') {
       config.autostart = !!data.on;
       save();
-      note('station', data.on ? '登录 Windows 后自动启动：开' : '登录 Windows 后自动启动：关');
+      note('station', data.on ? '登录 Windows 后自动启动：已开启' : '登录 Windows 后自动启动：已关闭');
     } else if (path === '/shortcut') {
       config.shortcut = !!data.on;
       save();
-      note('station', data.on ? '桌面和开始菜单里放上「渲染站」' : '桌面和开始菜单里的「渲染站」拿掉');
+      note('station', data.on ? '已在桌面和开始菜单中创建「渲染站」快捷方式' : '已删除桌面和开始菜单中的「渲染站」快捷方式');
     } else if (path === '/update') checkUpdate();
     else if (path === '/autoupdate') {
       config.autoUpdate = !!data.on;
@@ -650,7 +650,7 @@ const ui = createServer(async (req, res) => {
       return quit();
     } else return res.writeHead(404).end();
   } catch (e) {
-    note('station', `${path} 出错：${e.message}`);
+    note('station', `请求 ${path} 失败：${e.message}`);
     return res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: e.message }));
   }
   push();
@@ -662,7 +662,7 @@ ui.on('error', (e) => {
   throw e;
 });
 ui.listen(UI, '127.0.0.1', () => {
-  note('station', `渲染站启动，窗口在 http://127.0.0.1:${UI}`);
+  note('station', `渲染站已启动，窗口地址：http://127.0.0.1:${UI}`);
   restock();
   readVersion();
   startWorker();

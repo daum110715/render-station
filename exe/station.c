@@ -99,7 +99,7 @@ static void say(const wchar_t *fmt, ...) {
   CloseHandle(f);
 }
 #define DIP(v) MulDiv(v, dpi, 96)
-static wchar_t toggleText[32] = L"暂停接单", lastMode[16], lastKey[64];
+static wchar_t toggleText[32] = L"暂停接收任务", lastMode[16], lastKey[64];
 
 static int isFile(const wchar_t *p) {
   DWORD a = GetFileAttributesW(p);
@@ -295,10 +295,10 @@ static HRESULT STDMETHODCALLTYPE onNavigated(ICoreWebView2NavigationCompletedEve
   if (!frame) return S_OK;
   if (ok) {
     KillTimer(frame, TIMER_WATCH);
-    say(L"窗口：页面打开了");
+    say(L"窗口：页面已加载");
     return S_OK;
   }
-  say(L"窗口：页面没打开（WebErrorStatus %d），第 %d 次", (int)status, navTries + 1);
+  say(L"窗口：页面加载失败（WebErrorStatus %d），第 %d 次", (int)status, navTries + 1);
   if (++navTries < 6) SetTimer(frame, TIMER_RETRY, 1000, NULL);
   else PostMessageW(frame, WM_GIVE_UP, 0, 0);
   return S_OK;
@@ -311,7 +311,7 @@ static HRESULT STDMETHODCALLTYPE onFailed(ICoreWebView2ProcessFailedEventHandler
   (void)sender;
   COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
   ICoreWebView2ProcessFailedEventArgs_get_ProcessFailedKind(args, &kind);
-  say(L"窗口：WebView2 的进程出了问题（ProcessFailedKind %d）", (int)kind);
+  say(L"窗口：WebView2 进程异常（ProcessFailedKind %d）", (int)kind);
   if (!frame) return S_OK;
   if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED && ++crashes < 3 && wv) ICoreWebView2_Reload(wv);
   else PostMessageW(frame, WM_GIVE_UP, 0, 0);
@@ -323,7 +323,7 @@ static ICoreWebView2ProcessFailedEventHandler failedHandler = { &failedTable };
 static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *self, HRESULT result, ICoreWebView2Controller *made) {
   (void)self;
   if (FAILED(result) || !made || !frame) {
-    say(L"窗口：WebView2 没建起来（0x%08lx）", (unsigned long)result);
+    say(L"窗口：WebView2 创建失败（0x%08lx）", (unsigned long)result);
     if (frame) PostMessageW(frame, WM_GIVE_UP, 0, 0);
     else openEdge();
     return S_OK;
@@ -361,7 +361,7 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   GetClientRect(frame, &rc);
   ICoreWebView2Controller_put_Bounds(ctl, rc);
   ICoreWebView2Controller_put_IsVisible(ctl, TRUE);
-  say(L"窗口：WebView2 建好了，%ldx%ld，打开页面", rc.right - rc.left, rc.bottom - rc.top);
+  say(L"窗口：WebView2 已创建（%ldx%ld），正在加载页面", rc.right - rc.left, rc.bottom - rc.top);
   navTries = 0;
   crashes = 0;
   ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
@@ -383,7 +383,7 @@ static HRESULT STDMETHODCALLTYPE onEnvironment(ICoreWebView2CreateCoreWebView2En
   HRESULT made = E_FAIL;
   if (SUCCEEDED(result) && env && frame) made = ICoreWebView2Environment_CreateCoreWebView2Controller(env, frame, &controllerHandler);
   if (FAILED(made)) {
-    say(L"窗口：WebView2 起不来（0x%08lx / 0x%08lx）", (unsigned long)result, (unsigned long)made);
+    say(L"窗口：WebView2 无法启动（0x%08lx / 0x%08lx）", (unsigned long)result, (unsigned long)made);
     fallBack();
   }
   return S_OK;
@@ -423,7 +423,7 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     KillTimer(h, wp);
     if (wp == TIMER_RETRY && wv) ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
     if (wp == TIMER_WATCH) {
-      say(L"窗口：12 秒了页面还没出来");
+      say(L"窗口：页面 12 秒内未加载完成");
       fallBack();
     }
     return 0;
@@ -470,9 +470,9 @@ static void openWindow(void) {
     FMT(data, L"%ls\\.tools\\remote\\webview2", repo);
     HRESULT hr = createEnv(NULL, data, NULL, &environmentHandler);
     if (SUCCEEDED(hr)) return;
-    say(L"窗口：WebView2 起不来（0x%08lx）", (unsigned long)hr);
+    say(L"窗口：WebView2 无法启动（0x%08lx）", (unsigned long)hr);
   } else
-    say(createEnv ? L"窗口：建不了窗口" : L"窗口：没有 WebView2Loader.dll");
+    say(createEnv ? L"窗口：无法创建窗口" : L"窗口：缺少 WebView2Loader.dll");
   fallBack();
 }
 
@@ -507,7 +507,7 @@ static void link(int folder, int on) {
   IShellLinkW_SetPath(sl, launcher);
   IShellLinkW_SetWorkingDirectory(sl, dirOf);
   IShellLinkW_SetIconLocation(sl, launcher, 0);
-  IShellLinkW_SetDescription(sl, L"渲染站：替服务器运行高负载任务");
+  IShellLinkW_SetDescription(sl, L"渲染站：为服务器运行高负载任务");
   if (SUCCEEDED(IShellLinkW_QueryInterface(sl, &IID_IPersistFile, (void **)&pf))) {
     IPersistFile_Save(pf, path, TRUE);
     IPersistFile_Release(pf);
@@ -568,9 +568,9 @@ static void down(void) {
   if (fails >= 3) {
     if (!gaveUp) {
       gaveUp = 1;
-      balloon(L"渲染站起不来", L"连着几次一启动就停了，原因在日志里（点这里打开）。", NIIF_ERROR);
+      balloon(L"渲染站无法启动", L"渲染站连续多次启动后立即退出，原因请查看日志（单击此处打开）。", NIIF_ERROR);
     }
-    return show(ICON_BAD, L"渲染站 · 起不来，右键查看日志");
+    return show(ICON_BAD, L"渲染站 · 无法启动，请右键查看日志");
   }
   startStation();
   show(ICON_OFF, L"渲染站 · 正在启动");
@@ -596,7 +596,7 @@ static void tick(void) {
   fails = 0;
   gaveUp = 0;
   const wchar_t *mode = f[0];
-  if (!wcscmp(mode, L"auth") && wcscmp(lastMode, L"auth")) balloon(L"服务器不让登录", L"自动连接要用不输密码的密钥登录。点这里打开渲染站看看。", NIIF_ERROR);
+  if (!wcscmp(mode, L"auth") && wcscmp(lastMode, L"auth")) balloon(L"无法登录服务器", L"自动连接须使用无需密码的密钥登录。单击此处打开渲染站查看详情。", NIIF_ERROR);
   lstrcpynW(lastMode, mode, 16);
   show(iconFor(mode), f[1]);
   lstrcpynW(toggleText, f[2], 32);
@@ -607,7 +607,7 @@ static void tick(void) {
     lstrcpynW(lastKey, f[3], 64);
   } else if (f[3][0] && wcscmp(f[3], lastKey)) {
     lstrcpynW(lastKey, f[3], 64);
-    balloon(f[4], f[5], wcscmp(f[4], L"任务完成") ? NIIF_WARNING : NIIF_INFO);
+    balloon(f[4], f[5], wcscmp(f[4], L"任务已完成") ? NIIF_WARNING : NIIF_INFO);
   }
   keep(f[6][0] == L'1', f[7][0] == L'1');
   if (n > 8 && f[8][0] == L'1') return again();
@@ -638,7 +638,7 @@ static void again(void) {
 }
 
 static void quit(void) {
-  if (!wcscmp(lastMode, L"busy") && MessageBoxW(hwnd, L"有任务正在运行。现在退出，这个任务就作废了。", TITLE, MB_OKCANCEL | MB_ICONWARNING) != IDOK) return;
+  if (!wcscmp(lastMode, L"busy") && MessageBoxW(hwnd, L"有任务正在运行。现在退出将中止该任务。", TITLE, MB_OKCANCEL | MB_ICONWARNING) != IDOK) return;
   quitting = 1;
   KillTimer(hwnd, 1);
   post("/quit");
@@ -656,7 +656,7 @@ static void menu(int x, int y) {
   AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_TOGGLE, toggleText);
   AppendMenuW(m, MF_STRING | (up && !off ? 0 : MF_GRAYED), CMD_RECONNECT, L"重新连接");
   AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-  AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_BROWSER, L"在浏览器里打开");
+  AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_BROWSER, L"在浏览器中打开");
   AppendMenuW(m, MF_STRING, CMD_LOG, L"查看日志");
   AppendMenuW(m, MF_STRING, CMD_QUIT, L"退出渲染站");
   SetMenuDefaultItem(m, CMD_OPEN, FALSE);
@@ -820,12 +820,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   GetFullPathNameW(launcherDir, MAX_PATH, repo, NULL);
   FMT(check, L"%ls\\station.mjs", repo);
   if (!isFile(check)) {
-    MessageBoxW(NULL, L"渲染站.exe 要和 station.mjs 放在同一个文件夹里（渲染站仓库的根）。\n\n桌面上的「渲染站」是它的快捷方式，以后从那里打开就行。", TITLE, MB_ICONERROR);
+    MessageBoxW(NULL, L"渲染站.exe 必须与 station.mjs 位于同一文件夹（渲染站仓库的根目录）。\n\n桌面上的「渲染站」是它的快捷方式，以后可从快捷方式启动。", TITLE, MB_ICONERROR);
     return 1;
   }
   FMT(logPath, L"%ls\\.tools\\remote\\station.log", repo);
   if (!findNode()) {
-    MessageBoxW(NULL, L"没找到 Node.js。装好 Node.js（nodejs.org，选 LTS）之后再打开渲染站。", TITLE, MB_ICONERROR);
+    MessageBoxW(NULL, L"未找到 Node.js。请先安装 Node.js（nodejs.org，LTS 版本），再启动渲染站。", TITLE, MB_ICONERROR);
     return 1;
   }
 

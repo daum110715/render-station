@@ -85,7 +85,7 @@ These switches are on by default; turning one off undoes its effect:
 
 - 自动更新 (Automatic updates): see "Automatic updates".
 - 登录 Windows 后自动启动 (Start when signing in to Windows): visible under Startup apps in Task Manager.
-- 桌面和开始菜单里放「渲染站」 (Shortcuts on the desktop and in the Start menu).
+- 在桌面和开始菜单中创建「渲染站」快捷方式 (Shortcuts on the desktop and in the Start menu).
 
 ## Workspace file
 
@@ -154,7 +154,7 @@ The tray icon's color shows the state:
 | Red | Cannot log in to the server, or the station cannot start |
 | Gray | Paused, or no server set |
 
-Click the icon to open the window. The right-click menu has 打开渲染站 (Open), 暂停接单 (Pause; 继续接单, Resume, while paused), 重新连接 (Reconnect), 在浏览器里打开 (Open in browser), 查看日志 (View log) and 退出渲染站 (Quit). A notification appears when a job finishes.
+Click the icon to open the window. The right-click menu has 打开渲染站 (Open), 暂停接收任务 (Pause; 恢复接收任务, Resume, while paused), 重新连接 (Reconnect), 在浏览器中打开 (Open in browser), 查看日志 (View log) and 退出渲染站 (Quit). A notification appears when a job finishes.
 
 ### Window
 
@@ -273,7 +273,7 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 ## Automatic updates
 
-When enabled, the station checks one minute after starting and every 30 minutes after that, fast-forwarding to the current branch's upstream. A checkout made with `git clone` already has an upstream. The 现在检查 (Check now) button in the Settings page checks immediately.
+When enabled, the station checks one minute after starting and every 30 minutes after that, fast-forwarding to the current branch's upstream. A checkout made with `git clone` already has an upstream. The 立即检查 (Check now) button in the Settings page checks immediately.
 
 The station does not update while the working tree has uncommitted changes or there are unpushed commits. If a job is running, it waits for the job to finish.
 

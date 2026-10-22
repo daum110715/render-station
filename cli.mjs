@@ -86,7 +86,7 @@ for (const p of process.env.RENDER_STATION_PORT ? [Number(process.env.RENDER_STA
     break;
   }
 }
-const OFFLINE = 'no worker reached: on the other machine the render station is not running, is paused, or has not connected yet';
+const OFFLINE = 'no worker reachable: the render station on the device is not running, is paused, or has not connected yet';
 if (what === 'status') {
   if (!hello) finish({ online: false, error: OFFLINE }, 3);
   if (opts.json) finish({ online: true, port, ...hello }, 0);
@@ -98,7 +98,7 @@ if (what === 'status') {
   if (!hello.workspaces.length) console.log('no workspaces registered');
   process.exit(0);
 }
-if (hello && hello.protocol !== PROTOCOL) finish({ ok: false, exitCode: null, error: `the worker speaks protocol ${hello.protocol}, this cli.mjs ${PROTOCOL}: update one of them` }, 1);
+if (hello && hello.protocol !== PROTOCOL) finish({ ok: false, exitCode: null, error: `protocol mismatch: the worker uses version ${hello.protocol}, this cli.mjs version ${PROTOCOL}; update one of them` }, 1);
 if (!hello) finish({ ok: false, exitCode: null, error: OFFLINE }, 3);
 
 let payload;
@@ -134,7 +134,7 @@ if (what === 'run') {
 }
 
 const t0 = Date.now();
-const res = await call(port, 'POST', '/job', gzipSync(JSON.stringify(payload))).catch((e) => finish({ ok: false, exitCode: null, ...meta, error: `the worker went away: ${e.message}` }, 3));
+const res = await call(port, 'POST', '/job', gzipSync(JSON.stringify(payload))).catch((e) => finish({ ok: false, exitCode: null, ...meta, error: `lost the connection to the worker: ${e.message}` }, 3));
 if (res.status === 409) finish({ ok: false, exitCode: null, ...meta, error: 'the worker is busy with another job' }, 3);
 if (res.status === 503) finish({ ok: false, exitCode: null, ...meta, error: 'the render station is paused' }, 3);
 if (res.status !== 200) finish({ ok: false, exitCode: null, ...meta, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);

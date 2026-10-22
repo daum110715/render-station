@@ -115,7 +115,7 @@ export function serve({ port = WORKER, workspaces = () => [], on = () => {}, kee
         writeFileSync(join(into, 'job.json'), JSON.stringify({ at: t0, ms: Date.now() - t0, ...meta }));
         for (const old of readdirSync(keep).sort().slice(0, -30)) rmSync(join(keep, old), { recursive: true, force: true });
       } catch (e) {
-        log += `not kept here: ${e.message}\n`;
+        log += `could not keep a local copy: ${e.message}\n`;
       }
     }
     on({ type: 'end', id, kind, ok, code, ms: Date.now() - t0, files: Object.keys(made), tail: log.slice(-3000), paths });

@@ -1323,7 +1323,7 @@
           <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" /><path d="M12.5 9 23.5 16 12.5 23z" /></svg>
           <div>
             <b>渲染站</b>
-            <small>替服务器分担任务</small>
+            <small>为服务器分担任务</small>
           </div>
         </div>
         <nav class="nav" role="tablist" aria-label="页面">
@@ -1343,7 +1343,7 @@
         </nav>
         <div class="side-foot">
           <span class="pill" id="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
-          <button type="button" class="link" id="in-browser" hidden>在浏览器里打开 ↗</button>
+          <button type="button" class="link" id="in-browser" hidden>在浏览器中打开 ↗</button>
         </div>
       </aside>
 
@@ -1360,7 +1360,7 @@
               <p id="detail"></p>
               <p id="nums" class="num"></p>
               <div class="actions">
-                <button type="button" id="toggle">暂停接单</button>
+                <button type="button" id="toggle">暂停接收任务</button>
                 <button type="button" id="reconnect" hidden>重新连接</button>
               </div>
             </div>
@@ -1369,12 +1369,12 @@
           <div class="stats">
             <div class="stat card"><span>隧道</span><b id="s-tunnel">—</b><small id="s-tunnel-sub"></small></div>
             <div class="stat card"><span>今天</span><b id="s-today">0</b><small id="s-today-sub">个任务</small></div>
-            <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">还没有</small></div>
+            <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">暂无</small></div>
             <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
           </div>
 
           <section class="machine">
-            <div class="head"><h3>这台电脑</h3><span class="sub" id="m-sub"></span></div>
+            <div class="head"><h3>本机</h3><span class="sub" id="m-sub"></span></div>
             <div class="charts">
               <div class="chart card c-cpu" id="c-cpu"><span>处理器</span><b>—</b><small></small></div>
               <div class="chart card c-mem" id="c-mem"><span>内存</span><b>—</b><small></small></div>
@@ -1386,10 +1386,10 @@
             <div class="head"><h3>最近的任务</h3><span class="sub" id="jobs-sub"></span></div>
             <div class="card">
               <ol id="jobs"></ol>
-              <p class="empty" id="empty">还没有任务。服务器用 cli.mjs 提交的任务会列在这里：点一下看它的输出，点「打开」看它产出的文件。</p>
+              <p class="empty" id="empty">暂无任务。服务器通过 cli.mjs 提交的任务将列在此处：单击任务可查看其输出，单击「打开」可查看其产出的文件。</p>
             </div>
           </section>
-          <p class="foot">关掉这个窗口，渲染站照样在后台工作。要退出，右键任务栏右下角的图标。</p>
+          <p class="foot">关闭此窗口后，渲染站仍在后台运行。如需退出，请右键单击任务栏通知区域中的渲染站图标。</p>
         </section>
 
         <!-- 输出 -->
@@ -1400,14 +1400,14 @@
             <button type="button" class="link end" id="g-folder" hidden>打开文件夹</button>
           </div>
           <div id="groups"></div>
-          <p class="empty card" id="g-empty">这里列出任务产出、留在这台电脑上的文件，保留最近 30 次。图片和视频可以直接预览。</p>
+          <p class="empty card" id="g-empty">此处列出任务产出并保留在本机的文件，最多保留最近 30 次任务。图片和视频可直接预览。</p>
         </section>
 
         <!-- 动态 -->
         <section class="page" id="page-feed" hidden>
           <div class="head">
             <h2>动态</h2>
-            <span class="sub">连接的经过，ssh 和任务的输出</span>
+            <span class="sub">连接过程，以及 ssh 和任务的输出</span>
           </div>
           <div class="bar">
             <div class="chips" id="chips">
@@ -1427,13 +1427,13 @@
           <div class="shell-panel">
             <h4>Shell 权限</h4>
             <p id="shell-mode"></p>
-            <p>auto：工作目录限定在工作区内（没指定工作区时用第一个）；完整命令与目录匹配本机白名单后自动执行，其余请求由你审批。Windows 使用 PowerShell，其他系统使用 sh。</p>
-            <p>命令可以读写文件。目录检查与白名单是授权机制，不是系统沙箱；获准的程序仍拥有运行账户的权限。预设任务同样以该账户的权限运行。</p>
+            <p>auto 模式：工作目录限定在工作区内（未指定工作区时使用第一个）；完整命令与工作目录均与白名单匹配时自动执行，其余请求须经本机审批。Windows 上使用 PowerShell，其他系统使用 sh。</p>
+            <p>命令可以读写文件。目录检查与白名单属于授权机制，并非系统沙箱；获准的命令拥有渲染站运行账户的全部权限。预设任务同样以该账户的权限运行。</p>
             <label class="switch"><span>允许接收 Shell 任务</span><input type="checkbox" id="shell-enabled" role="switch" /></label>
             <div class="shell-actions"><button type="button" id="shell-yolo">开启 YOLO</button></div>
             <p id="shell-admin"></p>
-            <p>YOLO 允许任意命令和目录，只能由以管理员身份运行的本机渲染站开启；暂停、重连或重启后关闭。关闭权限或暂停接单不会中止已经开始的命令。</p>
-            <h4>手动批准的白名单</h4>
+            <p>YOLO 模式允许任意命令和工作目录，仅能在以管理员身份运行的渲染站中开启；暂停接收任务、重新连接或重启后自动关闭。关闭 Shell 权限或暂停接收任务不会中止已在运行的命令。</p>
+            <h4>白名单</h4>
             <ul id="shell-rules"></ul>
             <p id="shell-error" role="alert"></p>
           </div>
@@ -1444,18 +1444,18 @@
               <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22" /></label>
             </div>
             <h4>工作区</h4>
-            <p class="hint">任务只在登记的工作区里运行。工作区根目录下的 render-station.json 规定它需要哪些设置、提供哪些预设任务；登记一个工作区，就表示信任它的预设任务。填好路径并保存后，这里会列出它需要的设置。</p>
+            <p class="hint">任务只在已登记的工作区中运行。工作区根目录下的 render-station.json 规定该工作区所需的设置和提供的预设任务；登记工作区，即表示信任其预设任务。填写路径并保存后，此处将列出该工作区所需的设置。</p>
             <div id="ws-list"></div>
             <button type="button" id="ws-add">添加工作区</button>
             <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存</span><span id="save-error" role="alert"></span></div>
             <div class="group-set">
-              <h4>这台电脑上</h4>
-              <label class="switch"><span>自动更新<small>跟着仓库的新版本走；仓库里有你自己的改动时不动它</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
-              <div class="update"><span id="u-state">还没查过</span><button type="button" class="link" id="u-check">现在检查</button></div>
+              <h4>本机</h4>
+              <label class="switch"><span>自动更新<small>跟随仓库的新版本自动更新；仓库中有本地改动时不更新</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
+              <div class="update"><span id="u-state">尚未检查</span><button type="button" class="link" id="u-check">立即检查</button></div>
               <div class="version" id="version"></div>
               <div id="here">
-                <label class="switch"><span>登录 Windows 后自动启动<small>开机后自己在后台跑起来；任务管理器的「启动应用」里也能看到它</small></span><input type="checkbox" id="autostart" role="switch" /></label>
-                <label class="switch" id="shortcut-row"><span>桌面和开始菜单里放「渲染站」<small>双击就能打开这个窗口，不弹终端</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
+                <label class="switch"><span>登录 Windows 后自动启动<small>登录后在后台自动运行；可在任务管理器的「启动应用」中查看</small></span><input type="checkbox" id="autostart" role="switch" /></label>
+                <label class="switch" id="shortcut-row"><span>在桌面和开始菜单中创建「渲染站」快捷方式<small>双击快捷方式即可打开此窗口，不显示终端窗口</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
               </div>
             </div>
           </form>
@@ -1469,7 +1469,7 @@
         <p id="shell-review-cwd"></p>
         <pre id="shell-review-command"></pre>
         <p id="shell-review-timeout"></p>
-        <p>只批准你信任的完整命令。加入白名单后，相同目录中的这条命令会自动执行；命令引用的脚本后续仍可能变化。</p>
+        <p>请只批准你信任的完整命令。加入白名单后，同一工作目录中的同一命令将自动执行；命令所引用脚本的内容此后仍可能变化。</p>
         <div class="shell-actions">
           <button type="button" data-shell-decision="deny">拒绝</button>
           <button type="button" data-shell-decision="once">仅本次允许</button>
@@ -1480,7 +1480,7 @@
 
     <div class="lightbox" id="lightbox" hidden>
       <div class="lb-stage" id="lb-stage"></div>
-      <div class="lb-bar"><span id="lb-cap"></span><span class="n num" id="lb-n"></span><button type="button" id="lb-open">用系统打开</button><button type="button" id="lb-show">在文件夹里显示</button></div>
+      <div class="lb-bar"><span id="lb-cap"></span><span class="n num" id="lb-n"></span><button type="button" id="lb-open">用默认程序打开</button><button type="button" id="lb-show">在文件夹中显示</button></div>
       <button type="button" class="lb-nav prev" id="lb-prev" aria-label="上一个"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" /></svg></button>
       <button type="button" class="lb-nav next" id="lb-next" aria-label="下一个"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg></button>
       <button type="button" class="lb-close" id="lb-close" aria-label="关闭"><svg viewBox="0 0 16 16"><path d="m3.5 3.5 9 9m0-9-9 9" /></svg></button>
@@ -1576,17 +1576,17 @@
       function renderShell() {
         if (!S.shell) return;
         const shell = S.shell;
-        $('#shell-mode').textContent = `当前：${shell.mode} · 工作区：${shell.workspaces.join('、') || '还没有'}`;
+        $('#shell-mode').textContent = `当前模式：${shell.mode} · 工作区：${shell.workspaces.join('、') || '无'}`;
         $('#shell-enabled').checked = shell.mode !== 'disabled';
         $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
-        $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto' : '开启 YOLO';
-        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '开启 YOLO：先退出渲染站，再右键以管理员身份运行（非 Windows 系统需 root）。';
+        $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto 模式' : '开启 YOLO';
+        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '如需开启 YOLO：请先退出渲染站，再右键选择「以管理员身份运行」（其他系统须以 root 运行）。';
         const key = JSON.stringify(shell.rules);
         if (key !== shellRulesKey) {
           shellRulesKey = key;
           const list = $('#shell-rules');
           list.replaceChildren();
-          if (!shell.rules.length) list.textContent = '尚无白名单。收到请求时可以手动加入。';
+          if (!shell.rules.length) list.textContent = '白名单为空。审批请求时可选择加入白名单。';
           shell.rules.forEach((rule, index) => {
             const row = document.createElement('li');
             const text = document.createElement('pre');
@@ -1603,14 +1603,14 @@
         if (shell.pending) {
           $('#shell-review-cwd').textContent = `工作区：${shell.pending.workspace ?? '（无）'} · 工作目录：${shell.pending.cwd}`;
           $('#shell-review-command').textContent = shell.pending.command;
-          $('#shell-review-timeout').textContent = `执行限时 ${shell.pending.timeout} 秒；审批 5 分钟内有效。`;
+          $('#shell-review-timeout').textContent = `执行时限 ${shell.pending.timeout} 秒；请在 5 分钟内审批。`;
           if (!dialog.open) dialog.showModal();
         } else if (dialog.open) dialog.close();
       }
       $('#shell-enabled').onchange = (event) => shellPost('enabled', { on: event.target.checked });
       $('#shell-yolo').onclick = () => {
         const on = S.shell.mode !== 'yolo';
-        if (!on || confirm('本次会话允许服务器以渲染站账户的权限执行任意 Shell 命令，且可使用任意目录。开启 YOLO？')) shellPost('yolo', { on });
+        if (!on || confirm('开启后，本次会话中服务器可以渲染站账户的权限执行任意 Shell 命令，并可使用任意工作目录。确定开启 YOLO 吗？')) shellPost('yolo', { on });
       };
       for (const button of document.querySelectorAll('[data-shell-decision]')) button.onclick = () => shellPost('decide', { id: S.shell.pending?.id, action: button.dataset.shellDecision });
       $('#shell-review').addEventListener('cancel', (event) => { event.preventDefault(); shellPost('decide', { id: S.shell.pending?.id, action: 'deny' }); });
@@ -1641,14 +1641,14 @@
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
-          gone: ['没在运行', '渲染站没在运行', '后台停了。托盘图标几秒内会把它重新拉起来；托盘里也没有它的话，双击桌面上的「渲染站」。'],
-          busy: ['执行中', `正在执行：${j?.what}`, j ? `${clock(j.started)} 开始，已经 ${took(now - j.started)}` : ''],
-          idle: ['在线', '空闲，等待服务器的任务', `隧道 ${t.since ? clock(t.since) : ''} 连上。服务器用 cli.mjs 提交任务，就会在这里开始运行。`],
+          gone: ['未运行', '渲染站未运行', '后台进程已停止，托盘程序将在几秒内自动重启。如果托盘中也没有渲染站，请双击桌面上的「渲染站」。'],
+          busy: ['执行中', `正在执行：${j?.what}`, j ? `${clock(j.started)} 开始，已运行 ${took(now - j.started)}` : ''],
+          idle: ['在线', '空闲，等待服务器提交任务', `隧道于 ${t.since ? clock(t.since) : ''} 建立。服务器通过 cli.mjs 提交的任务将在本机运行。`],
           connecting: ['连接中', '正在连接服务器…', `ssh ${target}`],
-          retry: ['重连中', '连不上服务器，马上再试', t.message || '网络断了，或者电脑刚醒，会自己连回去。'],
-          auth: ['登录不上', '服务器不让登录', `${t.message ? `${t.message}。` : ''}自动连接要用不输密码的密钥登录：在终端里运行 ssh ${target}，能直接进去就行。弄好后点「重新连接」。`],
-          off: ['已暂停', '暂停接单了', '隧道关着，服务器发不来任务。点「继续接单」重新连上。'],
-          unset: ['未设置', '还没设置服务器', '在「设置」里填上服务器的 SSH 地址，渲染站就会连过去。'],
+          retry: ['重连中', '无法连接服务器，即将重试', t.message || '网络中断或本机刚从睡眠中唤醒，渲染站将自动重新连接。'],
+          auth: ['登录失败', '无法登录服务器', `${t.message ? `${t.message}。` : ''}自动连接须使用无需密码的密钥登录：请在终端中运行 ssh ${target}，确认无需输入密码即可登录，然后单击「重新连接」。`],
+          off: ['已暂停', '已暂停接收任务', '隧道已关闭，服务器无法提交任务。单击「恢复接收任务」重新连接。'],
+          unset: ['未配置', '尚未配置服务器', '请在「设置」中填写服务器的 SSH 地址，渲染站随后将自动连接。'],
         }[mode] ?? [mode, mode, ''];
         set('chip', text[0]);
         set('headline', text[1]);
@@ -1672,7 +1672,7 @@
           small = '秒后重连';
         } else {
           big.className = 'word';
-          const label = { busy: '执行', idle: '在线', connecting: '连接', auth: '登不上', off: '暂停', unset: '未设置', gone: '停了' }[mode] ?? '…';
+          const label = { busy: '执行', idle: '在线', connecting: '连接', auth: '失败', off: '暂停', unset: '未配置', gone: '停止' }[mode] ?? '…';
           word(big, label);
           if (mode === 'busy') {
             spin = true;
@@ -1684,7 +1684,7 @@
             spin = true;
             small = `端口 ${t.port ?? ''}`;
           } else if (mode === 'auth') p = 1;
-          else if (mode === 'gone') small = '等它重启';
+          else if (mode === 'gone') small = '等待重启';
         }
         const arc = $('#arc');
         $('#meter').classList.toggle('spin', spin);
@@ -1695,12 +1695,12 @@
 
         if (j && j.total > 0 && j.frames) {
           const left = j.ms ? took((j.total - j.n) * j.ms) : '…';
-          set('nums', `${j.ms ?? '…'} ms/帧 · 还要约 ${left}`);
-        } else if (j && j.total > 0 && j.n) set('nums', `还要约 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`);
+          set('nums', `${j.ms ?? '…'} ms/帧 · 预计剩余 ${left}`);
+        } else if (j && j.total > 0 && j.n) set('nums', `预计剩余 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`);
         else set('nums', '');
 
         const toggle = $('#toggle');
-        set(toggle, t.state === 'off' ? '继续接单' : '暂停接单');
+        set(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
         toggle.classList.toggle('primary', t.state === 'off');
         toggle.hidden = gone;
         $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
@@ -1708,26 +1708,26 @@
         // the numbers
         if (!gone && t.state === 'up') {
           set('s-tunnel', uptime(now - t.since));
-          set('s-tunnel-sub', `端口 ${t.port} · ${clock(t.since)} 起`);
+          set('s-tunnel-sub', `端口 ${t.port} · ${clock(t.since)} 建立`);
         } else {
           set('s-tunnel', '—');
-          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录不上', off: '关着', unset: '未设置' }[t.state] ?? ''));
+          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录失败', off: '已关闭', unset: '未配置' }[t.state] ?? ''));
         }
         const all = S.today.done + S.today.failed;
         count($('#s-today'), all);
-        set('s-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，都完成了' : '个任务');
+        set('s-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，全部成功' : '个任务');
         const last = S.jobs[0];
         set('s-last', last ? took(last.ms) : '—');
-        set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '完成' : '失败'}` : '还没有');
+        set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '成功' : '失败'}` : '暂无');
         const rate = j?.ms ?? S.jobs.find((x) => x.rate)?.rate;
         if (rate) count($('#s-rate'), rate);
         else word($('#s-rate'), '—');
 
         const notice = $('#notice');
         notice.hidden = gone || !S.missing.length;
-        if (S.missing.length) notice.textContent = `设置里还缺：${S.missing.join('、')}。补齐之前，相关的任务会失败。`;
+        if (S.missing.length) notice.textContent = `设置尚不完整，缺少：${S.missing.join('、')}。补全之前，相关任务将无法运行。`;
         $('#badge').hidden = !S.missing.length;
-        set('jobs-sub', S.jobs.length ? `${S.jobs.length} 个，最新的在上面` : '');
+        set('jobs-sub', S.jobs.length ? `共 ${S.jobs.length} 个，按时间倒序排列` : '');
 
         charts();
         renderJobs();
@@ -1744,10 +1744,10 @@
         ])
           if (!flying.has(id)) $(`#${id}`).checked = on;
         const u = S.update;
-        const said = { idle: '还没查过', checking: '正在查有没有新版本…', current: '已经是最新', updated: u.message, blocked: u.message, waiting: u.message, error: u.message }[u.state] ?? '';
+        const said = { idle: '尚未检查', checking: '正在检查更新…', current: '已是最新版本', updated: u.message, blocked: u.message, waiting: u.message, error: u.message }[u.state] ?? '';
         set('u-state', `${said}${u.at && u.state !== 'checking' ? `（${clock(u.at)}）` : ''}`);
         $('#u-check').hidden = u.state === 'checking';
-        set('version', S.version ? `当前版本 ${S.version.commit}，${day(S.version.at)}提交` : '');
+        set('version', S.version ? `当前版本：${S.version.commit}（提交于 ${day(S.version.at)}）` : '');
       }
 
       // ——— this machine: a line of the last two minutes each, sliding left as it goes ———
@@ -1835,7 +1835,7 @@
               });
               return b;
             };
-            row.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '完成' : '失败'));
+            row.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '成功' : '失败'));
             // what it made, kept on this machine too
             const kept = j.paths?.length ? j.paths : null;
             if (kept) {
@@ -1861,11 +1861,11 @@
               if (kept) {
                 const acts = document.createElement('div');
                 acts.className = 'acts';
-                acts.append(button('在「输出」里看', () => showKept(kept[0])), button('在文件夹里显示', () => reveal(kept[0], true)));
+                acts.append(button('在「输出」中查看', () => showKept(kept[0])), button('在文件夹中显示', () => reveal(kept[0], true)));
                 inner.append(acts);
               }
               const pre = document.createElement('pre');
-              pre.textContent = (j.files?.length ? `交回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（没有输出）').trim();
+              pre.textContent = (j.files?.length ? `已返回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（无输出）').trim();
               inner.append(pre);
               fold.append(inner);
               li.append(fold);
@@ -1889,7 +1889,7 @@
         groups.dataset.key = key;
         $('#g-empty').hidden = shelf.length > 0;
         $('#g-folder').hidden = !shelf.length;
-        set('g-sub', shelf.length ? `${shelf.length} 次任务，最新的在上面` : '');
+        set('g-sub', shelf.length ? `共 ${shelf.length} 次任务，按时间倒序排列` : '');
         items = shelf.flatMap((g) => g.files.filter((f) => f.url).map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
         groups.replaceChildren(
           ...shelf.map((g) => {
@@ -1900,7 +1900,7 @@
             const b = document.createElement('b');
             b.textContent = g.what;
             const meta = document.createElement('span');
-            meta.textContent = `${day(g.at)}${g.ms ? ` · 用了 ${took(g.ms)}` : ''}`;
+            meta.textContent = `${day(g.at)}${g.ms ? ` · 耗时 ${took(g.ms)}` : ''}`;
             head.append(b, meta);
             const tiles = document.createElement('div');
             tiles.className = 'tiles';
@@ -2057,11 +2057,11 @@
         head.append(title, remove);
         const two = document.createElement('div');
         two.className = 'two wide';
-        const name = text(w.name, '留空用 render-station.json 里的名字');
+        const name = text(w.name, '留空时使用 render-station.json 中的名称');
         name.dataset.k = 'name';
         const path = text(w.path, 'D:\\projects\\…');
         path.dataset.k = 'path';
-        two.append(field('名字', null, name), field('路径', null, path));
+        two.append(field('名称', null, name), field('路径', null, path));
         el.append(head, two);
         const declared = new Set();
         for (const e of seen?.fields ?? []) {
@@ -2103,16 +2103,16 @@
           .join('\n');
         const more = field('其他环境变量', null, extra);
         const small = document.createElement('small');
-        small.textContent = '每行一个，写成 名字=值';
+        small.textContent = '每行一个，格式为 名称=值';
         more.firstChild.append(small);
         el.append(more);
         const note = document.createElement('p');
         note.className = 'ws-note';
         if (seen?.error) {
           note.classList.add('bad');
-          note.textContent = seen.error === 'folder not found' ? '找不到这个文件夹。' : seen.error;
-        } else if (seen) note.textContent = seen.presets.length ? `预设任务：${seen.presets.map((p) => (p.description ? `${p.name}（${p.description}）` : p.name)).join('、')}` : '没有预设任务：工作区里没有 render-station.json，只能运行 Shell 任务。';
-        else note.textContent = '保存后读取这个文件夹里的 render-station.json。';
+          note.textContent = seen.error === 'folder not found' ? '找不到该文件夹。' : seen.error;
+        } else if (seen) note.textContent = seen.presets.length ? `预设任务：${seen.presets.map((p) => (p.description ? `${p.name}（${p.description}）` : p.name)).join('、')}` : '无预设任务：该工作区中没有 render-station.json，只能运行 Shell 任务。';
+        else note.textContent = '保存后将读取该文件夹中的 render-station.json。';
         el.append(note);
         return el;
       }
@@ -2130,7 +2130,7 @@
             .forEach((line, n) => {
               if (!line.trim()) return;
               const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
-              if (!m) throw new Error(`「其他环境变量」第 ${n + 1} 行要写成 名字=值`);
+              if (!m) throw new Error(`「其他环境变量」第 ${n + 1} 行的格式应为 名称=值`);
               env[m[1]] = m[2].trim();
             });
           for (const input of el.querySelectorAll('[data-env]')) env[input.dataset.env] = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
