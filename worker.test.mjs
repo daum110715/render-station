@@ -50,7 +50,7 @@ mkdirSync(new URL('../out/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../out/times.json', import.meta.url), JSON.stringify({ start, end: Date.now() }));
 `;
 
-function fixture({ manage = null } = {}) {
+function fixture({ manage = null, clip = null } = {}) {
   const base = mkdtempSync(join(scratch, 'worker-test-'));
   const workspace = join(base, 'workspace');
   const src = join(base, 'src');
@@ -62,7 +62,7 @@ function fixture({ manage = null } = {}) {
   const settings = [{ name: '', path: workspace, env: {} }];
   const keep = join(base, 'keep');
   const limits = { all: 2 };
-  const server = serve({ port: 0, workspaces: () => resolveWorkspaces(settings), keep, jobs: join(base, 'jobs'), limit: () => limits.all, manage });
+  const server = serve({ port: 0, workspaces: () => resolveWorkspaces(settings), keep, jobs: join(base, 'jobs'), limit: () => limits.all, manage, clip });
   const ready = new Promise((done) => server.once('listening', done));
   // the steps the worker told of, and the reply (fetch undoes the gzip itself)
   const post = async (payload) => {
@@ -312,5 +312,44 @@ test('cli.mjs ls says when it waits for approval; presets, ws and help say what 
     assert.match((await cli(['help', 'ls'])).stdout, /^usage: rs ls/);
     assert.match((await cli(['sh', '--help'])).stdout, /^usage: rs shell/);
     assert.equal((await cli(['nothing'])).code, 2);
+  } finally { f.close(); }
+});
+
+test('cli.mjs clip puts text or a picture on the device\'s clipboard, and reads what came from it here', async () => {
+  const sent = [];
+  const clip = { on: () => true, set: async (input) => (sent.push(input), { type: input.type, size: Buffer.from(input.text ?? input.data, input.text == null ? 'base64' : 'utf8').length }) };
+  const f = fixture({ clip });
+  try {
+    await f.ready;
+    const cli = (args, input) =>
+      new Promise((done) => {
+        const p = execFile(process.execPath, [join(repo, 'cli.mjs'), ...args], { env: { ...process.env, HOME: f.base, RENDER_STATION_PORT: String(f.server.address().port) } }, (e, stdout, stderr) => done({ code: e?.code ?? 0, stdout, stderr }));
+        p.stdin.end(input);
+      });
+    assert.equal((await cli(['clip', 'set', 'hello', 'there'])).code, 0);
+    assert.deepEqual(sent[0], { type: 'text', text: 'hello there' });
+    assert.equal((await cli(['clip', 'set'], 'BM is text')).code, 0);
+    assert.deepEqual(sent[1], { type: 'text', text: 'BM is text' });
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    writeFileSync(join(f.base, 'shot.png'), png);
+    const image = JSON.parse((await cli(['clip', 'set', '--json', '--file', join(f.base, 'shot.png')])).stdout);
+    assert.deepEqual(image, { ok: true, type: 'image', size: png.length });
+    assert.equal(sent[2].data, png.toString('base64'));
+    clip.on = () => false;
+    const off = await cli(['clip', 'set', 'x']);
+    assert.equal(off.code, 1);
+    assert.match(off.stderr, /has not turned on/);
+    // what came from the device: no worker needed
+    const none = await cli(['clip']);
+    assert.equal(none.code, 1);
+    const dir = join(f.base, '.render-station/clipboard');
+    mkdirSync(join(dir, 'history'), { recursive: true });
+    writeFileSync(join(dir, 'history/20261023-120000-1.txt'), 'copied there');
+    writeFileSync(join(dir, 'latest.txt'), 'copied there');
+    const read = await cli(['clip'], '');
+    assert.equal(read.stdout, 'copied there');
+    const listed = JSON.parse((await cli(['clip', 'ls', '--json'])).stdout);
+    assert.deepEqual(listed.entries.map((e) => [e.type, e.size]), [['text', 12]]);
+    assert.equal((await cli(['clip', 'nope'])).code, 2);
   } finally { f.close(); }
 });

@@ -6,7 +6,7 @@
 // `exe` runs it on the device (render-station.json): one copy of the flags, wherever it compiles.
 // usage: node exe/compile.mjs <folder> [--setup]   (--setup: the installer's program alone)
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 
 const dir = resolve(process.argv[2] ?? '.');
@@ -29,8 +29,9 @@ const flags = ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc']
 if (!setupOnly) {
   run('windres', ['-c', '65001', '-i', 'station.rc', '-O', 'coff', '-o', 'station.res.o']);
   // the SDK's headers (in sdk/) as a system's: its IIDs, defined in the header, are not ours to be
-  // warned about
-  run('gcc', [...flags, '-isystem', join(dir, 'sdk'), '-o', join(out, '渲染站.exe'), 'station.c', 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi', '-lcomctl32']);
+  // warned about; and on Linux, shim/'s EventToken.h for the eventtoken.h mingw-w64 has
+  const shim = existsSync(join(dir, 'shim')) ? ['-isystem', join(dir, 'shim')] : [];
+  run('gcc', [...flags, '-isystem', join(dir, 'sdk'), ...shim, '-o', join(out, '渲染站.exe'), 'station.c', 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi', '-lcomctl32']);
   copyFileSync(join(dir, 'WebView2Loader.dll'), join(out, 'WebView2Loader.dll'));
 }
 run('windres', ['-c', '65001', '-i', 'setup.rc', '-O', 'coff', '-o', 'setup.res.o']);

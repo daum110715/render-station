@@ -24,6 +24,7 @@ This installs the commands `render-station` and `rs` into npm's global `bin` fol
 | `shell` | `sh` | Run a command in a workspace. |
 | `workspace` | `ws` | List the workspaces, or add, change or remove one. |
 | `ls` | | List a folder on the device, or its drives. |
+| `clip` | | Read what was copied on the device, or put something on its clipboard. |
 | `help` | | Show what the commands do. |
 
 ## Common rules
@@ -113,6 +114,7 @@ Runs a command on the device and prints its whole output and its exit code. The 
 - `--cwd`: a folder within the workspace, relative to its root; defaults to the root.
 - `--timeout`: time limit in seconds; default 600, maximum 7200.
 - On Windows the command runs in a non-interactive PowerShell that loads no profile. It gets the workspace's settings as environment variables. No files are brought along.
+- The output is always UTF-8. When the command ends with a non-zero exit code, the job ends with it too; when the last command fails without one (a PowerShell command's error, for example), the exit code is 1.
 - A command not on the device's allowlist waits up to 5 minutes for the owner's approval; the command then reports that it is waiting.
 - Commands are shown in the approval dialog and written to the device's log. Never put keys or passwords in them.
 
@@ -171,6 +173,30 @@ rs ls 'F:\projects'
 ```
 
 `--json` prints `ok`, `path` (the folder in full; `null` for the drive list), `entries` (each with `name`, `type` (`"folder"` or `"file"`), `size` in bytes (`null` for folders) and `modified` in milliseconds since 1970) and `more` (how many entries were left out).
+
+## clip
+
+```sh
+rs clip [--json]
+rs clip ls [--json]
+rs clip set [<text…>] [--file <path>] [--json]
+```
+
+While the device has 同步剪贴板 (Sync clipboard) on, text and pictures copied there are written to `~/.render-station/clipboard/` on the server by themselves; see "Clipboard sync" in the README.
+
+- `rs clip`: prints the newest. Text as it is; for a picture, the path of its PNG.
+- `rs clip ls`: lists the last 50, newest first, with the time, type, size, path and the start of the text.
+- These two read the files on the server and do not need the device.
+- `rs clip set`: puts something on the device's clipboard: the text after the command, the file `--file` names, or standard input. A PNG, JPEG, GIF, BMP or TIFF goes there as a picture, anything else as UTF-8 text; up to 20 MB. Text that starts with `--` goes after `--`. What is put there is not sent back.
+
+```sh
+rs clip
+rs clip ls
+git diff | rs clip set
+rs clip set --file shot.png
+```
+
+With `--json`, `rs clip` prints `ok`, `path`, `type` (`"text"` or `"image"`), `size` in bytes and `at` in milliseconds since 1970, and `text` for text; `rs clip ls` prints `ok` and `entries`, each with the same fields but `text`; `rs clip set` prints `ok`, `type` and `size`.
 
 ## help
 

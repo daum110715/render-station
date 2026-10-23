@@ -24,6 +24,7 @@ npm link
 | `shell` | `sh` | 在工作区中执行命令。 |
 | `workspace` | `ws` | 列出工作区，或添加、修改、移除工作区。 |
 | `ls` | | 列出设备上某个文件夹的内容，或列出设备的磁盘。 |
+| `clip` | | 读取设备上复制的内容，或写入设备的剪贴板。 |
 | `help` | | 查看命令说明。 |
 
 ## 通用规则
@@ -113,6 +114,7 @@ rs shell [--workspace <名称>] [--cwd <目录>] [--timeout <秒>] [--json] <命
 - `--cwd`：工作区中的文件夹，相对于工作区根目录，默认为根目录。
 - `--timeout`：执行时限，单位为秒，默认 600，上限 7200。
 - 在 Windows 上，命令由非交互、不加载配置文件的 PowerShell 执行，并以环境变量的形式获得该工作区的设置。Shell 任务不带上任何文件。
+- 输出一律为 UTF-8。命令以非零退出码结束时，任务的退出码与之相同；最后一条命令出错但没有退出码时（例如 PowerShell 命令出错），退出码为 1。
 - 不在设备白名单中的命令须等待设备上的审批，最长 5 分钟；此时命令会提示正在等待审批。
 - 命令会显示在审批窗口中并写入设备的日志，因此不得在命令中包含密钥或密码。
 
@@ -171,6 +173,30 @@ rs ls 'F:\projects'
 ```
 
 加 `--json` 时输出 `ok`、`path`（文件夹的完整路径，列出磁盘时为 `null`）、`entries`（每项包括 `name`、`type`（`"folder"` 或 `"file"`）、以字节为单位的 `size`（文件夹为 `null`）、以 1970 年起的毫秒数表示的 `modified`）和 `more`（未列出的项数）。
+
+## clip
+
+```sh
+rs clip [--json]
+rs clip ls [--json]
+rs clip set [<文字…>] [--file <路径>] [--json]
+```
+
+设备上开启「同步剪贴板」后，在设备上复制的文字和图片会自动写入服务器的 `~/.render-station/clipboard/`，见 README 的「剪贴板同步」。
+
+- `rs clip`：输出最新的一份。文字原样输出；图片输出其 PNG 文件的路径。
+- `rs clip ls`：列出最近 50 份，从新到旧，包括时间、类型、大小、路径和文字的开头。
+- 以上两个命令只读取服务器上的文件，不需要设备在线。
+- `rs clip set`：写入设备的剪贴板，内容依次取自命令后的文字、`--file` 指定的文件或标准输入。PNG、JPEG、GIF、BMP 和 TIFF 文件作为图片写入，其余内容作为 UTF-8 文字写入；上限 20 MB。以 `--` 开头的文字须放在 `--` 之后。写入的内容不会再同步回服务器。
+
+```sh
+rs clip
+rs clip ls
+git diff | rs clip set
+rs clip set --file shot.png
+```
+
+加 `--json` 时，`rs clip` 输出 `ok`、`path`、`type`（`"text"` 或 `"image"`）、以字节为单位的 `size`、以 1970 年起的毫秒数表示的 `at`，文字另有 `text`；`rs clip ls` 输出 `ok` 和 `entries`，各项字段同上（不含 `text`）；`rs clip set` 输出 `ok`、`type` 和 `size`。
 
 ## help
 

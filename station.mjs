@@ -5,11 +5,13 @@
 // The tray icon, 渲染站.exe (exe/station.c), starts it and starts it again if it stops, and keeps
 // what the settings ask of Windows (starting with it, the shortcuts), as /tray tells it. Its
 // settings, the server and the workspaces, are in .tools/remote/config.json; what it did, in
-// station.log.
+// station.log. While the owner has it so, it keeps this machine's clipboard in step with the server:
+// what is copied here (the tray icon hands it over) goes there through ssh, what the server sends
+// is put on it here.
 // usage: node station.mjs
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cpus, freemem, totalmem } from 'node:os';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
@@ -94,6 +96,8 @@ let config = {
   // what the server may do to the workspaces: 'off', 'ask' (each change waits for the owner's
   // approval in the window) or 'allow'
   manage: 'ask',
+  // the clipboard in step with the server's
+  clipboard: false,
 };
 try {
   const saved = JSON.parse(readFileSync(CONFIG, 'utf8'));
@@ -487,6 +491,7 @@ const view = () => ({
   update,
   version,
   autoUpdate: config.autoUpdate !== false,
+  clipboard: { on: !!config.clipboard, last: clipLast },
   // the window's look: 'plum' or 'cream'
   theme: config.theme === 'cream' ? 'cream' : 'plum',
   paths: { log: LOG },
@@ -507,8 +512,8 @@ function askChanged() {
   asking = { key: `ask:${p.id}`, at: Date.now(), title: '有请求待审批', text: `服务器请求${clip(what, 120)}。单击此处打开渲染站审批，请在 5 分钟内处理。` };
 }
 /** for the tray icon, a line each: the mode, its tip, the pause item, what to tell of (its key, its
- *  title and text), starting with Windows and the shortcuts (1 or 0), and whether to start itself
- *  again (1: it was updated) */
+ *  title and text), starting with Windows and the shortcuts (1 or 0), whether to start itself again
+ *  (1: it was updated), and whether to hand over what is copied (1: the clipboard is in step) */
 function trayView() {
   const mode = running.size ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
   const waiting = queued.size ? `，另有 ${queued.size} 个任务排队` : '';
@@ -522,7 +527,7 @@ function trayView() {
   };
   const tell = asking && (!ended || asking.at > ended.at) ? asking : ended;
   const v = view();
-  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '恢复接收任务' : '暂停接收任务', tell?.key ?? '', tell?.title ?? '', tell?.text ?? '', v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
+  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '恢复接收任务' : '暂停接收任务', tell?.key ?? '', tell?.title ?? '', tell?.text ?? '', v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0', config.clipboard ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
     .join('\n');
 }
@@ -552,6 +557,7 @@ function startWorker() {
     keep: KEEP,
     shell: shellGate,
     manage: { mode: manageMode, change: serverChange, browse: serverBrowse },
+    clip: { on: () => !!config.clipboard, set: clipSet },
     accepting: () => !config.paused && !quitting,
     on: (e) => {
       if (e.type === 'queued') {
@@ -606,6 +612,9 @@ function startWorker() {
 }
 
 // ——— the tunnel: ssh, again and again ———
+/** what every ssh to the server is run with: never asking for a password (there is nobody to type
+ *  it), giving up on a server that does not answer */
+const sshOptions = () => ['-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', ...(config.ssh.port ? ['-p', config.ssh.port] : [])];
 let ssh = null;
 let timer = null;
 let tries = 0;
@@ -622,15 +631,12 @@ function connect() {
   }
   const port = PORTS[slot % PORTS.length];
   const args = [
-    '-N', '-T', '-v',
-    // never ask for a password: there is nobody to type it
-    '-o', 'BatchMode=yes',
+    '-N', '-v',
+    ...sshOptions(),
     '-o', 'ExitOnForwardFailure=yes',
     // a connection that died in sleep is noticed in under a minute
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
-    '-o', 'ConnectTimeout=15',
-    ...(config.ssh.port ? ['-p', config.ssh.port] : []),
     '-R', `${port}:127.0.0.1:${WORKER}`,
     config.ssh.target,
   ];
@@ -645,6 +651,8 @@ function connect() {
     tunnel = { state: 'up', port, since: Date.now() };
     tries = 0;
     note('tunnel', `隧道已建立：服务器的 127.0.0.1:${port} 已连接到本机的任务服务`);
+    // what was copied while there was no getting through
+    sendClip();
   };
   // ssh -v says so; or, failing that, still there after a while with nothing refused
   const still = setTimeout(up, 10000);
@@ -722,6 +730,111 @@ setInterval(() => {
   tick = now;
 }, 5000);
 
+// ——— the clipboard, in step with the server's while config.clipboard says so. What is copied here
+// (渲染站.exe hands it over: /clip, text or a PNG) goes to the server with ssh, into
+// ~/.render-station/clipboard/ there, where cli.mjs clip reads it: the latest of a few copied in a
+// row, once the tunnel is up. What the server sends (worker.mjs /clip, cli.mjs clip set) is put on the
+// clipboard here by 渲染站.exe --clip-set, marked so it does not come back. Neither is shown but in
+// the feed and the log, and what was copied is not written there ———
+const CLIP_MAX = 20 * 1024 * 1024;
+const CLIP_KIND = { text: '文字', image: '图片' };
+const bytes = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+const clipDigest = (type, data) => createHash('sha256').update(type).update(data).digest('hex');
+/** the last that went either way ({ way: 'up' | 'down', type, size, at }), for the window */
+let clipLast = null;
+/** what is to go next ({ type, data, digest, tries }); what the server has already, to go no more */
+let clipOutbox = null;
+let clipHave = null;
+let clipSending = false;
+let clipTimer = null;
+/** on the server: what comes in kept as history/<time>.<ext>, and as latest.<ext>, the newest 50 kept */
+const clipRemote = (ext) =>
+  `exec sh -c 'd="$HOME/.render-station/clipboard"; mkdir -p "$d/history" && f="$d/history/$(date +%Y%m%d-%H%M%S)-$$.${ext}" && cat > "$f.part" && mv "$f.part" "$f" && rm -f "$d"/latest.* && cp "$f" "$d/latest.${ext}" && ls -1 "$d/history" | sort -r | tail -n +51 | while read -r x; do rm -f "$d/history/$x"; done'`;
+function clipIn(type, data) {
+  if (!data.length) return;
+  const digest = clipDigest(type, data);
+  if (digest === clipHave || digest === clipOutbox?.digest) return;
+  clipOutbox = { type, data, digest, tries: 0 };
+  clearTimeout(clipTimer);
+  clipTimer = setTimeout(sendClip, 600);
+}
+function sendClip() {
+  clearTimeout(clipTimer);
+  if (clipSending || !clipOutbox || !config.clipboard || !config.ssh.target || tunnel.state !== 'up') return;
+  const item = clipOutbox;
+  clipOutbox = null;
+  clipSending = true;
+  const p = spawn('ssh', [...sshOptions(), config.ssh.target, clipRemote(item.type === 'image' ? 'png' : 'txt')], { windowsHide: true });
+  let err = '';
+  p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+  p.stdin.on('error', () => {});
+  p.stdin.end(item.data);
+  const limit = setTimeout(() => p.kill(), 120000);
+  let ended = false;
+  const end = (code) => {
+    if (ended) return;
+    ended = true;
+    clearTimeout(limit);
+    clipSending = false;
+    const what = `${CLIP_KIND[item.type]}，${bytes(item.data.length)}`;
+    if (code === 0) {
+      clipHave = item.digest;
+      clipLast = { way: 'up', type: item.type, size: item.data.length, at: Date.now() };
+      note('station', `剪贴板：已同步到服务器（${what}）`);
+    } else {
+      const why = err.split(/\r?\n/).filter((l) => l.trim()).at(-1) ?? `ssh 退出码 ${code}`;
+      // again in a while, unless something newer has been copied meanwhile
+      const again = !clipOutbox && ++item.tries < 3;
+      if (again) clipOutbox = item;
+      note('station', `剪贴板：同步到服务器失败（${what}）：${why}${again ? '。15 秒后重试' : ''}`);
+      if (again) return (clipTimer = setTimeout(sendClip, 15000), push());
+    }
+    push();
+    sendClip();
+  };
+  p.on('error', (e) => ((err += e.message), end(null)));
+  p.on('close', end);
+}
+/** what is copied here, as 渲染站.exe hands it over: the body, text or (image/png) a picture */
+function takeClip(req, res) {
+  const chunks = [];
+  let size = 0;
+  req.on('data', (c) => {
+    size += c.length;
+    if (size <= CLIP_MAX) chunks.push(c);
+  });
+  req.on('end', () => {
+    if (!config.clipboard) return res.writeHead(403).end();
+    if (size > CLIP_MAX) return res.writeHead(413).end();
+    clipIn((req.headers['content-type'] ?? '').startsWith('image/png') ? 'image' : 'text', Buffer.concat(chunks));
+    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+  });
+}
+/** what the server sends ({ type: 'text', text } or { type: 'image', data: base64 }), on the clipboard */
+async function clipSet(input) {
+  if (!win) throw new Error('the clipboard is in step on Windows only');
+  const type = input?.type;
+  if (type === 'text' ? typeof input.text !== 'string' : type !== 'image' || typeof input.data !== 'string') throw new Error("clip: { type: 'text', text } or { type: 'image', data }");
+  const data = type === 'text' ? Buffer.from(input.text, 'utf8') : Buffer.from(input.data, 'base64');
+  if (!data.length || data.length > CLIP_MAX) throw new Error(`the clipboard takes up to 20 MB, and something: not ${bytes(data.length)}`);
+  const file = join(dir, `clip-${randomBytes(6).toString('hex')}`);
+  writeFileSync(file, data);
+  let code;
+  try {
+    code = await new Promise((done) => execFile(join(repo, '渲染站.exe'), ['--clip-set', file, type], { windowsHide: true, timeout: 15000 }, (e) => done(e ? (typeof e.code === 'number' ? e.code : -1) : 0)));
+  } finally {
+    rmSync(file, { force: true });
+  }
+  if (code === 2) throw new Error('another program holds the clipboard open: try again');
+  if (code === 3) throw new Error('not a picture Windows can read (PNG, JPEG, BMP, GIF…)');
+  if (code) throw new Error(`could not put it on the clipboard (渲染站.exe --clip-set: ${code})`);
+  clipHave = clipDigest(type, data);
+  clipLast = { way: 'down', type, size: data.length, at: Date.now() };
+  note('station', `剪贴板：服务器写入了${CLIP_KIND[type]}（${bytes(data.length)}）`);
+  push();
+  return { type, size: data.length };
+}
+
 // ——— the window's server ———
 const fonts = {
   '/fonts/lxgw/': join(repo, 'node_modules/lxgw-wenkai-webfont'),
@@ -796,7 +909,9 @@ const ui = createServer(async (req, res) => {
   // changes only from the window or the tray: another page cannot send this header without asking
   // first, and is not answered when it asks
   if (req.method !== 'POST' || req.headers['x-station'] !== '1') return res.writeHead(403).end();
-  if ((path.startsWith('/shell/') || path.startsWith('/manage') || path === '/elevate') && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
+  if ((path.startsWith('/shell/') || path.startsWith('/manage') || path === '/elevate' || path === '/clipboard') && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
+  // what is copied here, from the tray icon: as it comes, not JSON
+  if (path === '/clip') return takeClip(req, res);
   let data;
   try {
     const text = await body(req);
@@ -883,6 +998,15 @@ const ui = createServer(async (req, res) => {
       config.shortcut = !!data.on;
       save();
       note('station', data.on ? '已在桌面和开始菜单中创建「渲染站」快捷方式' : '已删除桌面和开始菜单中的「渲染站」快捷方式');
+    } else if (path === '/clipboard') {
+      if (typeof data.on !== 'boolean') throw new Error('on must be boolean');
+      config.clipboard = data.on;
+      if (!data.on) {
+        clearTimeout(clipTimer);
+        clipOutbox = null;
+      }
+      save();
+      note('station', data.on ? '同步剪贴板：已开启，复制的文字和图片会同步到服务器' : '同步剪贴板：已关闭');
     } else if (path === '/theme') {
       if (!['plum', 'cream'].includes(data.name)) throw new Error('name must be plum or cream');
       config.theme = data.name;

@@ -38,7 +38,7 @@ export const PROTOCOL = 2;
 export const HEADER = 'x-render-station';
 /** what this worker can do beyond what protocol 2 began with, so cli.mjs can tell a station too old
  *  for a command from one that is not */
-export const FEATURES = ['pending', 'browse', 'create'];
+export const FEATURES = ['pending', 'browse', 'create', 'clip'];
 const OFF = 'the owner does not let the server manage workspaces or look through folders: allow it in the local station settings';
 const CLIP_OFF = 'the owner has not turned on 同步剪贴板 (clipboard sync) in the local station settings';
 /** what the server puts on the clipboard, a picture's bytes as base64 */

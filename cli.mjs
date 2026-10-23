@@ -7,7 +7,8 @@
 // Exit status: the job's own when it ran; 1 when it failed without running, or a request was
 // refused; 2 for a usage error; 3 when no worker is reached, or it is paused or its queue full.
 import { request } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGunzip, gzipSync } from 'node:zlib';
@@ -28,6 +29,7 @@ const COMMANDS = {
   shell: { takes: ['--workspace', '--cwd', '--timeout'] },
   workspace: { takes: ['--path', '--env', '--unset'], many: ['--env', '--unset'], flags: ['--create'], anywhere: true },
   ls: { takes: [], anywhere: true },
+  clip: { takes: ['--file'], anywhere: true },
   help: { takes: [], anywhere: true },
 };
 const HELP = {
@@ -43,6 +45,7 @@ commands:
   shell, sh        run a command in a workspace, as the owner allows
   workspace, ws    list the workspaces, or add, change or remove one
   ls               list a folder on the device, or its drives
+  clip             what was copied on the device, or put something on its clipboard
   help             this, or what one command does: rs help <command>
 
 Every command takes --json: then it prints one JSON object, its result, and nothing else.
@@ -118,6 +121,23 @@ it, for 10 minutes.
 
 examples: rs ls
           rs ls F:/`,
+  clip: `usage: rs clip [--json]
+       rs clip ls [--json]
+       rs clip set [<text…>] [--file <path>] [--json]
+
+The device's clipboard, while its owner has 同步剪贴板 (clipboard sync) on in the render station's
+settings there. What is copied on the device comes here by itself, within a second or so (or once
+the device connects again), into ~/.render-station/clipboard/. rs clip prints the newest, or for a
+picture the path of its PNG; rs clip ls lists the last 50. Both read what is here and do not need
+the device.
+
+rs clip set puts something on the device's clipboard: the text given, what is piped in, or a file.
+A PNG, JPEG, GIF, BMP or TIFF goes there as a picture, anything else as text (UTF-8); up to 20 MB.
+Text that starts with -- goes after --.
+
+examples: rs clip
+          git diff | rs clip set
+          rs clip set --file shot.png`,
   help: `usage: rs help [<command>]
 
 What the commands do, or what one does.`,
@@ -236,6 +256,45 @@ const stream = (port, path, body, extra, step) =>
     req.on('error', fail);
     req.end(body);
   });
+
+// ——— what was copied on the device: here already, the device not needed ———
+const CLIP_DIR = join(homedir(), '.render-station/clipboard');
+const CLIP_MAX = 20 * 1024 * 1024;
+const bytes = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+/** a file of the clipboard's, as listed: its path, what it is, its size, when it came */
+const clipFile = (path) => {
+  const s = statSync(path);
+  return { path, type: path.endsWith('.png') ? 'image' : 'text', size: s.size, at: s.mtimeMs };
+};
+if (what === 'clip' && words[0] !== 'set') {
+  if (opts.file) usage('clip: --file is for set');
+  if (words.length > 1 || (words.length && words[0] !== 'ls')) usage('clip: nothing, ls or set');
+  const latest = ['latest.txt', 'latest.png'].map((f) => join(CLIP_DIR, f)).filter((f) => existsSync(f)).map(clipFile).sort((a, b) => b.at - a.at)[0];
+  const none = `nothing copied on the device has come here yet (${CLIP_DIR}); it comes while 同步剪贴板 (clipboard sync) is on in the render station's settings there`;
+  if (words[0] === 'ls') {
+    const history = join(CLIP_DIR, 'history');
+    const list = existsSync(history) ? readdirSync(history).filter((f) => /\.(txt|png)$/.test(f)).map((f) => clipFile(join(history, f))).sort((a, b) => b.at - a.at) : [];
+    if (opts.json) finish({ ok: true, entries: list }, 0);
+    if (!list.length) finish({ ok: false, error: none }, 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    for (const e of list) {
+      const d = new Date(e.at);
+      const head = e.type === 'text' ? readFileSync(e.path).subarray(0, 300).toString('utf8').replace(/\uFFFD$/, '').replace(/\s+/g, ' ').trim() : '';
+      console.log(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}  ${e.type === 'image' ? 'picture' : 'text   '}  ${bytes(e.size).padStart(8)}  ${e.path}${head ? `\n    ${head.length > 72 ? `${head.slice(0, 72)}…` : head}` : ''}`);
+    }
+    process.exit(0);
+  }
+  if (!latest) finish({ ok: false, error: none }, 1);
+  if (latest.type === 'image') {
+    if (opts.json) finish({ ok: true, ...latest }, 0);
+    console.log(latest.path);
+    process.exit(0);
+  }
+  const text = readFileSync(latest.path, 'utf8');
+  if (opts.json) finish({ ok: true, ...latest, text }, 0);
+  process.stdout.write(process.stdout.isTTY && !text.endsWith('\n') ? `${text}\n` : text);
+  process.exit(0);
+}
 
 // which port the tunnel came in on: the one where the worker answers (a port left over from a
 // connection that died answers nothing)
@@ -360,6 +419,40 @@ if (what === 'workspace') {
   if (w?.error) console.log(`error: ${w.error}`);
   if (w?.missing.length) console.log(`not set up yet: ${w.missing.join(', ')}`);
   if (w) console.log(w.presets.length ? `presets: ${w.presets.map((p) => `${w.name}/${p}`).join(', ')}` : 'no presets');
+  process.exit(0);
+}
+
+// ——— onto the device's clipboard ———
+/** a picture Windows reads, by how its bytes begin (a BMP: by the size it gives, too, so text that
+ *  starts with BM is text) */
+const isPicture = (b) =>
+  (b.length > 8 && b.readUInt32BE(0) === 0x89504e47) ||
+  (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) ||
+  (b.length > 6 && /^GIF8[79]a/.test(b.subarray(0, 6).toString('latin1'))) ||
+  (b.length > 14 && b[0] === 0x42 && b[1] === 0x4d && b.readUInt32LE(2) === b.length) ||
+  (b.length > 4 && ['49492a00', '4d4d002a'].includes(b.subarray(0, 4).toString('hex')));
+if (what === 'clip') {
+  const given = words.slice(1);
+  if (opts.file && given.length) usage('clip set: the text or --file, not both');
+  if (!opts.file && !given.length && process.stdin.isTTY) usage('clip set: the text, --file <path>, or something piped in');
+  need('clip', 'clip set');
+  if (!hello.clipboard) finish({ ok: false, error: 'the owner of the device has not turned on 同步剪贴板 (clipboard sync) in the render station\'s settings there' }, 1);
+  let data;
+  try {
+    data = opts.file ? readFileSync(resolve(opts.file)) : given.length ? Buffer.from(given.join(' '), 'utf8') : readFileSync(0);
+  } catch (e) {
+    finish({ ok: false, error: `could not read ${opts.file ?? 'what was piped in'}: ${e.message}` }, 1);
+  }
+  if (!data.length) finish({ ok: false, error: 'clip set: nothing to put there' }, 1);
+  if (data.length > CLIP_MAX) finish({ ok: false, error: `clip set: up to 20 MB, not ${bytes(data.length)}` }, 1);
+  const type = isPicture(data) ? 'image' : 'text';
+  const body = JSON.stringify(type === 'image' ? { type, data: data.toString('base64') } : { type, text: data.toString('utf8') });
+  const res = await call(port, 'POST', '/clip', Buffer.from(body)).catch((e) => finish({ ok: false, error: `lost the connection to the worker: ${e.message}` }, 3));
+  if (res.status === 503) finish({ ok: false, error: 'the render station is paused' }, 3);
+  if (res.status !== 200) finish({ ok: false, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);
+  const reply = JSON.parse(res.body);
+  if (opts.json || !reply.ok) finish(reply, reply.ok ? 0 : 1);
+  console.log(`put on the device's clipboard: ${type === 'image' ? 'a picture' : 'text'}, ${bytes(reply.size ?? data.length)}`);
   process.exit(0);
 }
 

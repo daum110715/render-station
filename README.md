@@ -94,6 +94,7 @@ The server can also add, change and remove workspaces with `rs workspace`, as fa
 ### Permissions and approvals
 
 - 服务器管理工作区 (Server manages workspaces): what the server may do with `rs workspace` and `rs ls`. 关闭 (Off), it can neither change workspaces nor list folders; 需要审批 (Ask, the default), each change, and each folder listing outside the registered workspaces, must be approved in the device's window; 无需审批 (Allow), it does all of these directly.
+- 同步剪贴板 (Sync clipboard): off by default; see "Clipboard sync".
 - Shell jobs, YOLO mode and the allowlist: see "Shell permissions".
 
 ### This computer
@@ -209,6 +210,7 @@ On the server, `render-station` (short name `rs`) submits jobs and manages the d
 | `rs shell <command…>` | Run a command in a workspace, as the Shell permissions allow. |
 | `rs workspace [list\|add\|set\|remove]` | List the workspaces, or change them; `--create` makes a missing folder. |
 | `rs ls [<path>]` | List a folder on the device, or its drives. |
+| `rs clip [ls\|set]` | Read what was copied on the device, or put something on its clipboard; see "Clipboard sync". |
 
 ```sh
 rs ls F:/
@@ -250,6 +252,22 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 - A pending command, workspace change or folder listing never takes effect after a denial, an approval timeout, or the submitter disconnecting.
 - Turning off Shell permissions or pausing refuses further jobs and cancels pending requests, waiting jobs and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
 - Mode changes, pending requests, manual decisions, executed commands, working directories, results, workspace changes and folders listed outside the workspaces are written to the device's `.tools/remote/station.log`.
+
+## Clipboard sync
+
+With 同步剪贴板 (Sync clipboard) on in 设置 → 权限与审批 (Settings → Permissions and approvals), the device and the server share the clipboard:
+
+- Text and pictures copied on the device are written over SSH to `~/.render-station/clipboard/` on the server within about a second: the newest as `latest.txt` or `latest.png` (pictures always become PNG), the last 50 in `history/`. Of several copied in a row, only the last is sent; while the tunnel is down, the newest is sent once it is back.
+- The server puts text or a picture on the device's clipboard with `rs clip set`; what it puts there is not sent back.
+- On the server, `rs clip` prints the newest (for a picture, its path) and `rs clip ls` lists the history. Both read the files on the server and do not need the device.
+- What a password manager or similar program marks as not to be recorded, and anything over 20 MB, is not synced.
+- Syncing shows no notification; the feed and the log record its direction, type and size, never the content.
+
+```sh
+rs clip
+git diff | rs clip set
+rs clip set --file shot.png
+```
 
 ## Automatic updates
 

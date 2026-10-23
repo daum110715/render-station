@@ -2,9 +2,9 @@
 // the station's workspace changes use too). This is an authorization gate, not an OS sandbox.
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { realpathSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 export function isAdministrator() {
   if (process.platform !== 'win32') return process.getuid?.() === 0;
@@ -188,16 +188,29 @@ export function runProcess({ file, args = [], cwd, env = {}, timeout = 0, signal
   });
 }
 
+/** a Shell command as Windows PowerShell runs it from a script (-File: what it says of an error is
+ *  text, not the CLIXML it writes run with -EncodedCommand), saying it in UTF-8; failed as -Command
+ *  would have it, if its last step did (a program's exit code, else 1) */
+export const powershellScript = (command) =>
+  `[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\r\n$OutputEncoding = [Console]::OutputEncoding\r\n${command}\r\nif (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } else { exit 1 } }\r\n`;
+
 export async function executeShell(request, { env = {}, signal, output = () => {} } = {}) {
   const win = process.platform === 'win32';
-  const reply = await runProcess({
-    file: win ? 'powershell.exe' : '/bin/sh',
-    args: win ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(request.command, 'utf16le').toString('base64')] : ['-c', request.command],
-    cwd: request.cwd,
-    env,
-    timeout: request.timeout,
-    signal,
-    output,
-  });
-  return { ...reply, files: {} };
+  // with a byte order mark, as Windows PowerShell reads a script that is not in the ANSI code page
+  const script = win ? join(tmpdir(), `render-station-${randomUUID()}.ps1`) : null;
+  if (script) writeFileSync(script, `\ufeff${powershellScript(request.command)}`);
+  try {
+    const reply = await runProcess({
+      file: win ? 'powershell.exe' : '/bin/sh',
+      args: win ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : ['-c', request.command],
+      cwd: request.cwd,
+      env,
+      timeout: request.timeout,
+      signal,
+      output,
+    });
+    return { ...reply, files: {} };
+  } finally {
+    if (script) rmSync(script, { force: true });
+  }
 }

@@ -120,8 +120,10 @@ writeFileSync(join(build, 'busy.ico'), ico('#6a4c9e', [...TRAY, 96, 128, 256]));
 for (const [name, hex] of Object.entries({ idle: '#2a9d80', wait: '#d99a1e', bad: '#d4563a', off: '#9a8a9d' })) writeFileSync(join(build, `${name}.ico`), ico(hex, TRAY));
 for (const f of ['station.c', 'setup.c', 'common.h', 'station.rc', 'setup.rc', 'station.manifest']) copyFileSync(join(here, f), join(build, f));
 copyFileSync(join(sdk, 'include/WebView2.h'), join(build, 'sdk/WebView2.h'));
-// WebView2.h asks for EventToken.h, which mingw-w64 has in lower case
-writeFileSync(join(build, 'sdk/EventToken.h'), '#include <eventtoken.h>\n');
+// WebView2.h asks for EventToken.h, which mingw-w64 has in lower case: found as it is on Windows,
+// through this here (shim/ is not brought to the device, where it would find itself)
+mkdirSync(join(build, 'shim'));
+writeFileSync(join(build, 'shim/EventToken.h'), '#include <eventtoken.h>\n');
 copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(build, 'WebView2Loader.dll'));
 
 // on the device, if it can; a job that ran there and failed is the end of it, one that could not run
@@ -140,7 +142,7 @@ if (!process.argv.includes('--local')) {
   } else if (reply?.exitCode != null) {
     console.error('compiling on the device failed');
     process.exit(1);
-  } else console.log(`compiling here: not on the device (${(reply?.error ?? job.stderr ?? '').trim().split('\n').at(-1)})`);
+  } else console.log(`compiling here: not on the device (${(reply?.error || job.stderr || `rs run exited with ${job.status}`).trim().split('\n').at(-1)})`);
 }
 if (!onDevice) execFileSync(process.execPath, [join(here, 'compile.mjs'), build, ...(setupOnly ? ['--setup'] : [])], { stdio: 'inherit' });
 if (!setupOnly) {

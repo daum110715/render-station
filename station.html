@@ -1998,6 +1998,10 @@
                 <span class="seg" id="manage"><button type="button" data-manage="off">关闭</button><button type="button" data-manage="ask">需要审批</button><button type="button" data-manage="allow">无需审批</button></span>
               </div>
             </div>
+            <label class="row">
+              <span class="text"><b>同步剪贴板</b><small>开启后，在这台电脑上复制的文字和图片会自动同步到服务器的 ~/.render-station/clipboard/，服务器也可以写入这台电脑的剪贴板。不同步密码管理器标记为敏感的内容和超过 20 MB 的内容。不弹出通知，只在「动态」和日志中记录方向、类型和大小。</small><small id="clip-last"></small><small class="err" id="clip-error" role="alert"></small></span>
+              <input type="checkbox" id="clipboard" role="switch" />
+            </label>
           </div>
           <section class="block">
             <div class="block-head"><h3>Shell 任务</h3><span class="sub-line" id="shell-mode"></span></div>
@@ -3032,6 +3036,10 @@
         const m = S.manage;
         for (const b of document.querySelectorAll('[data-manage]')) b.setAttribute('aria-pressed', b.dataset.manage === m.mode);
         set('manage-hint', MANAGE[m.mode]);
+        const c = S.clipboard;
+        if (!flying.has('clipboard')) $('#clipboard').checked = c.on;
+        const l = c.last;
+        set('clip-last', l ? `上次同步：${ago(l.at)}，${l.way === 'up' ? '同步到服务器' : '服务器写入'}${l.type === 'image' ? '图片' : '文字'}（${bytes(l.size)}）` : c.on ? '还没有同步过内容。' : '');
         const shell = S.shell;
         set('shell-mode', { disabled: '已关闭', auto: 'auto 模式', yolo: 'YOLO 模式' }[shell.mode] ?? shell.mode);
         $('#shell-enabled').checked = shell.mode !== 'disabled';
@@ -3055,6 +3063,14 @@
           list.append(li);
         });
       }
+      const bytes = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+      $('#clipboard').addEventListener('change', async (e) => {
+        const on = e.target.checked;
+        if (on && !confirm('开启后，在这台电脑上复制的所有文字和图片都会自动发送到服务器，服务器也可以随时改写这台电脑的剪贴板。确定开启吗？')) return (e.target.checked = false);
+        flying.add('clipboard');
+        await guarded('/clipboard', { on }, $('#clip-error'));
+        flying.delete('clipboard');
+      });
       const shellPost = (path, body) => guarded(`/shell/${path}`, body, $('#shell-error'));
       const managePost = (path, body) => guarded(path, body, $('#manage-error'));
       for (const b of document.querySelectorAll('[data-manage]'))
