@@ -204,7 +204,7 @@ rs clip set --file shot.png
 ln -s "$(command -v rs)" ~/.local/bin/xclip
 ```
 
-此后，这些程序读到的是设备上最近复制的内容（与 `rs clip` 相同），写入的内容则通过 `rs clip set` 写入设备的剪贴板。这样，在设备上复制的图片可以直接粘贴到服务器上的 Claude Code 中（Windows 终端中按 Alt+V）。支持 xclip 的 `-selection`、`-target`（含 `TARGETS`）、`-out`、`-in`、`-filter` 和 `-rmlastnl` 选项，以及它们的缩写。不要在有图形界面的机器上这样做，否则会盖住真正的 xclip。
+此后，这些程序读到的是设备上最近复制的内容（与 `rs clip` 相同），写入的内容则通过 `rs clip set` 写入设备的剪贴板。这样，在设备上复制的图片可以直接粘贴到服务器上的 Claude Code 中。Claude Code 在 Linux 上用 Ctrl+V 粘贴图片，而 Windows 终端会把 Ctrl+V 留给自己粘贴文字；可以在服务器的 `~/.claude/keybindings.json` 中把 Alt+V 也绑定到粘贴图片：`{"bindings": [{"context": "Chat", "bindings": {"alt+v": "chat:imagePaste"}}]}`。支持 xclip 的 `-selection`、`-target`（含 `TARGETS`）、`-out`、`-in`、`-filter` 和 `-rmlastnl` 选项，以及它们的缩写。不要在有图形界面的机器上这样做，否则会盖住真正的 xclip。
 
 加 `--json` 时，`rs clip` 输出 `ok`、`path`、`type`（`"text"` 或 `"image"`）、以字节为单位的 `size`、以 1970 年起的毫秒数表示的 `at`，文字另有 `text`；`rs clip ls` 输出 `ok` 和 `entries`，各项字段同上（不含 `text`）；`rs clip set` 输出 `ok`、`type` 和 `size`。
 
