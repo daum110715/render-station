@@ -19,8 +19,9 @@ const tools = join(repo, '.tools/release');
 const out = join(tools, 'out');
 /** the Node.js an installed copy runs: an LTS release */
 const NODE = 'v24.22.1';
-/** the station's own files */
-const APP = ['station.mjs', 'worker.mjs', 'shell.mjs', 'workspace.mjs', 'update.mjs', 'cli.mjs', 'station.html', '渲染站.exe', 'WebView2Loader.dll', 'LICENSE', 'README.md', 'README.zh-CN.md'];
+/** the station's own files (render-station.json and exe/compile.mjs: its own folder, registered as a
+ *  workspace, compiles 渲染站.exe; exe/build.mjs) */
+const APP = ['station.mjs', 'worker.mjs', 'shell.mjs', 'workspace.mjs', 'update.mjs', 'cli.mjs', 'station.html', '渲染站.exe', 'WebView2Loader.dll', 'render-station.json', 'exe/compile.mjs', 'LICENSE', 'README.md', 'README.zh-CN.md'];
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });

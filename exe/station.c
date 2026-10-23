@@ -17,7 +17,12 @@
 // It asks Windows' User Account Control at each start to run as administrator (unless the overview
 // page's switch said not to: .tools\remote\no-elevate in the checkout), and runs as it is if the
 // owner says no; the page can have it start again as administrator later.
-// Built on Linux with mingw-w64: node exe/build.mjs
+// --try: a trial of a new build beside the station running here, as exe/build.mjs --try starts it on
+// the device: its window on that station's page, with an icon of its own to open it again, and
+// nothing else of a station's (no node, no settings kept, no User Account Control); its log and
+// WebView2's data in %LOCALAPPDATA%\render-station\try. A trial started again has the one before go
+// first; one whose window has been closed for five minutes goes by itself.
+// Built with mingw-w64, on the device or on Linux: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
 #define UNICODE
@@ -36,6 +41,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <dwmapi.h>
+#include <wincodec.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +53,9 @@
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
 #define TITLE L"渲染站"
+// a trial's names, which no station looks for
+#define TRY_CLASS L"RenderStationTry"
+#define TRY_MUTEX L"Local\\render-station-try"
 // the task in Task Scheduler that 0.5.0 made to start it as administrator, removed
 #define ELEVATE_TASK L"RenderStation"
 // where the window was, and whether maximized: it opens there again
@@ -74,10 +83,14 @@ static wchar_t exePath[MAX_PATH], exeDir[MAX_PATH], repo[MAX_PATH], nodePath[MAX
 // the checkout's 渲染站.exe: what the shortcuts and starting with Windows start
 static wchar_t launcher[MAX_PATH];
 static void again(void);
+static void leave(void);
 
 static HANDLE job, node;
 static ULONGLONG startedAt, shownAt;
 static int fails, gaveUp, quitting, wantOpen, up, off, seen;
+// a trial (--try), and its folder
+static int trying;
+static wchar_t tryDir[MAX_PATH + 32];
 static int lastAuto = -1, lastLink = -1;
 // the window, while it is open; WebView2's environment maker from its loader
 static HWND frame;
@@ -120,8 +133,14 @@ static int isFile(const wchar_t *p) {
   return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-// ——— talking to the station: HTTP/1.0 on 127.0.0.1, the reply's body in buf ———
-static int call(const char *method, const char *path, char *buf, int cap) {
+// ——— talking to the station: HTTP/1.0 on 127.0.0.1, with a body of `type` if there is one, the
+// reply's body in buf ———
+static int sendAll(SOCKET s, const char *data, int len) {
+  for (int r; len > 0; data += r, len -= r)
+    if ((r = send(s, data, len, 0)) <= 0) return -1;
+  return 0;
+}
+static int request(const char *method, const char *path, const char *type, const char *data, int len, char *buf, int cap) {
   SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (s == INVALID_SOCKET) return -1;
   // not there: said at once, not after the seconds Windows spends trying a closed port again
@@ -146,9 +165,9 @@ static int call(const char *method, const char *path, char *buf, int cap) {
   ioctlsocket(s, FIONBIO, &nb);
   DWORD ms = 3000;
   setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms);
-  char req[256];
-  int n = snprintf(req, sizeof req, "%s %s HTTP/1.0\r\nHost: 127.0.0.1:%d\r\nx-station: 1\r\nContent-Length: 0\r\n\r\n", method, path, UI_PORT);
-  if (send(s, req, n, 0) != n) {
+  char req[384];
+  int n = snprintf(req, sizeof req, "%s %s HTTP/1.0\r\nHost: 127.0.0.1:%d\r\nx-station: 1\r\n%s%s%sContent-Length: %d\r\n\r\n", method, path, UI_PORT, type ? "Content-Type: " : "", type ? type : "", type ? "\r\n" : "", len);
+  if (sendAll(s, req, n) || (len && sendAll(s, data, len))) {
     closesocket(s);
     return -1;
   }
@@ -163,9 +182,217 @@ static int call(const char *method, const char *path, char *buf, int cap) {
   memmove(buf, body, strlen(body) + 1);
   return 0;
 }
+static int call(const char *method, const char *path, char *buf, int cap) {
+  return request(method, path, NULL, NULL, 0, buf, cap);
+}
 static void post(const char *path) {
   char buf[512];
   call("POST", path, buf, sizeof buf);
+}
+
+// ——— the clipboard, in step with the server's while the settings say so (/tray): what is copied here
+// goes to the station (/clip: text, or a picture as PNG), which sends it on to the server; what the
+// server sends, the station puts on it with this program (--clip-set), marked so it does not go back.
+// What a password manager marks as not to be kept or shared is passed by ———
+#define CLIP_MAX (20 * 1024 * 1024)
+#define CLIP_MARK L"RenderStation.Clip"
+static int clipOn;
+static int clipHas(const wchar_t *name) {
+  return IsClipboardFormatAvailable(RegisterClipboardFormatW(name));
+}
+/** a format there that, as a number, says 0 (CanIncludeInClipboardHistory and its kind) */
+static int clipSaysNo(const wchar_t *name) {
+  UINT f = RegisterClipboardFormatW(name);
+  HANDLE h = IsClipboardFormatAvailable(f) ? GetClipboardData(f) : NULL;
+  DWORD *v = h ? GlobalLock(h) : NULL;
+  int no = v && GlobalSize(h) >= sizeof(DWORD) && *v == 0;
+  if (v) GlobalUnlock(h);
+  return no;
+}
+/** the clipboard opened, as soon as whoever has it open lets go */
+static int clipOpen(HWND owner) {
+  for (int i = 0; i < 20; i++) {
+    if (OpenClipboard(owner)) return 1;
+    Sleep(25);
+  }
+  return 0;
+}
+static IWICImagingFactory *wic(void) {
+  static IWICImagingFactory *f;
+  if (!f) CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f);
+  return f;
+}
+/** a picture as PNG, in global memory (its size in `size`), or NULL */
+static HGLOBAL toPng(IWICBitmapSource *src, DWORD *size) {
+  IWICImagingFactory *f = wic();
+  IStream *st = NULL;
+  IWICBitmapEncoder *enc = NULL;
+  IWICBitmapFrameEncode *frame = NULL;
+  IWICFormatConverter *conv = NULL;
+  HGLOBAL out = NULL;
+  UINT w = 0, h = 0;
+  WICPixelFormatGUID fmt = GUID_WICPixelFormat24bppBGR;
+  // the frame says which of its formats is nearest: the picture converted to that one
+  int ok = f && SUCCEEDED(CreateStreamOnHGlobal(NULL, FALSE, &st)) && SUCCEEDED(IWICImagingFactory_CreateEncoder(f, &GUID_ContainerFormatPng, NULL, &enc)) &&
+           SUCCEEDED(IWICBitmapEncoder_Initialize(enc, st, WICBitmapEncoderNoCache)) && SUCCEEDED(IWICBitmapEncoder_CreateNewFrame(enc, &frame, NULL)) &&
+           SUCCEEDED(IWICBitmapFrameEncode_Initialize(frame, NULL)) && SUCCEEDED(IWICBitmapSource_GetSize(src, &w, &h)) && SUCCEEDED(IWICBitmapFrameEncode_SetSize(frame, w, h)) &&
+           SUCCEEDED(IWICBitmapFrameEncode_SetPixelFormat(frame, &fmt)) && SUCCEEDED(IWICImagingFactory_CreateFormatConverter(f, &conv)) &&
+           SUCCEEDED(IWICFormatConverter_Initialize(conv, src, &fmt, WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom)) &&
+           SUCCEEDED(IWICBitmapFrameEncode_WriteSource(frame, (IWICBitmapSource *)conv, NULL)) && SUCCEEDED(IWICBitmapFrameEncode_Commit(frame)) && SUCCEEDED(IWICBitmapEncoder_Commit(enc));
+  STATSTG stat;
+  if (st && SUCCEEDED(GetHGlobalFromStream(st, &out)) && !(ok && SUCCEEDED(IStream_Stat(st, &stat, STATFLAG_NONAME)) && (*size = (DWORD)stat.cbSize.QuadPart))) {
+    GlobalFree(out);
+    out = NULL;
+  }
+  if (conv) IWICFormatConverter_Release(conv);
+  if (frame) IWICBitmapFrameEncode_Release(frame);
+  if (enc) IWICBitmapEncoder_Release(enc);
+  if (st) IStream_Release(st);
+  return out;
+}
+/** a picture's bytes (whatever WIC reads: PNG, JPEG, BMP, GIF…) as a DIB, 32 bits a pixel and bottom
+ *  up, what is transparent laid on white (for what takes no transparency), or NULL */
+static HGLOBAL toDib(const char *bytes, DWORD len) {
+  IWICImagingFactory *f = wic();
+  IWICStream *st = NULL;
+  IWICBitmapDecoder *dec = NULL;
+  IWICBitmapFrameDecode *frame = NULL;
+  IWICFormatConverter *conv = NULL;
+  HGLOBAL out = NULL;
+  BYTE *rows = NULL;
+  UINT w = 0, h = 0;
+  if (f && SUCCEEDED(IWICImagingFactory_CreateStream(f, &st)) && SUCCEEDED(IWICStream_InitializeFromMemory(st, (BYTE *)bytes, len)) &&
+      SUCCEEDED(IWICImagingFactory_CreateDecoderFromStream(f, (IStream *)st, NULL, WICDecodeMetadataCacheOnDemand, &dec)) && SUCCEEDED(IWICBitmapDecoder_GetFrame(dec, 0, &frame)) &&
+      SUCCEEDED(IWICImagingFactory_CreateFormatConverter(f, &conv)) &&
+      SUCCEEDED(IWICFormatConverter_Initialize(conv, (IWICBitmapSource *)frame, &GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom)) &&
+      SUCCEEDED(IWICBitmapSource_GetSize((IWICBitmapSource *)conv, &w, &h)) && w && h && (ULONGLONG)w * h * 4 <= 256ULL * 1024 * 1024) {
+    UINT stride = w * 4;
+    SIZE_T px = (SIZE_T)stride * h;
+    rows = malloc(px);
+    out = rows ? GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + px) : NULL;
+    BYTE *p = out ? GlobalLock(out) : NULL;
+    if (p && SUCCEEDED(IWICBitmapSource_CopyPixels((IWICBitmapSource *)conv, NULL, stride, (UINT)px, rows))) {
+      BITMAPINFOHEADER *bi = (BITMAPINFOHEADER *)p;
+      ZeroMemory(bi, sizeof *bi);
+      bi->biSize = sizeof *bi;
+      bi->biWidth = (LONG)w;
+      bi->biHeight = (LONG)h;
+      bi->biPlanes = 1;
+      bi->biBitCount = 32;
+      bi->biCompression = BI_RGB;
+      bi->biSizeImage = (DWORD)px;
+      // WIC's rows from the top, a DIB's from the bottom
+      for (UINT y = 0; y < h; y++) memcpy(p + sizeof *bi + (SIZE_T)(h - 1 - y) * stride, rows + (SIZE_T)y * stride, stride);
+      for (BYTE *c = p + sizeof *bi, *end = c + px; c < end; c += 4) {
+        if (c[3] == 255) continue;
+        for (int k = 0; k < 3; k++) c[k] = (BYTE)((c[k] * c[3] + 255 * (255 - c[3])) / 255);
+        c[3] = 255;
+      }
+      GlobalUnlock(out);
+    } else if (out) {
+      if (p) GlobalUnlock(out);
+      GlobalFree(out);
+      out = NULL;
+    }
+  }
+  free(rows);
+  if (conv) IWICFormatConverter_Release(conv);
+  if (frame) IWICBitmapFrameDecode_Release(frame);
+  if (dec) IWICBitmapDecoder_Release(dec);
+  if (st) IWICStream_Release(st);
+  return out;
+}
+/** copied here: the text (UTF-8), else the picture (PNG: as it is if the copier gave one, else
+ *  made from the bitmap), to the station; what the server wrote, or what is not to be kept, not */
+static void clipChanged(void) {
+  if (!clipOn || trying || quitting || !clipOpen(hwnd)) return;
+  if (clipHas(CLIP_MARK) || clipHas(L"ExcludeClipboardContentFromMonitorProcessing") || clipHas(L"Clipboard Viewer Ignore") || clipSaysNo(L"CanIncludeInClipboardHistory") ||
+      clipSaysNo(L"CanUploadToCloudClipboard")) {
+    CloseClipboard();
+    return;
+  }
+  char *data = NULL;
+  DWORD size = 0;
+  const char *type = "image/png";
+  IWICBitmap *bmp = NULL;
+  UINT png = RegisterClipboardFormatW(L"PNG");
+  HANDLE h;
+  if (IsClipboardFormatAvailable(CF_UNICODETEXT) && (h = GetClipboardData(CF_UNICODETEXT))) {
+    const wchar_t *text = GlobalLock(h);
+    if (text) {
+      int chars = (int)wcsnlen(text, GlobalSize(h) / sizeof(wchar_t));
+      int n = chars ? WideCharToMultiByte(CP_UTF8, 0, text, chars, NULL, 0, NULL, NULL) : 0;
+      if (n > 0 && n <= CLIP_MAX && (data = malloc(n))) size = (DWORD)WideCharToMultiByte(CP_UTF8, 0, text, chars, data, n, NULL, NULL);
+      GlobalUnlock(h);
+    }
+    type = "text/plain; charset=utf-8";
+  } else if (IsClipboardFormatAvailable(png) && (h = GetClipboardData(png))) {
+    const char *bytes = GlobalLock(h);
+    SIZE_T n = GlobalSize(h);
+    if (bytes && n && n <= CLIP_MAX && (data = malloc(n))) {
+      memcpy(data, bytes, n);
+      size = (DWORD)n;
+    }
+    if (bytes) GlobalUnlock(h);
+  } else if (IsClipboardFormatAvailable(CF_BITMAP) && (h = GetClipboardData(CF_BITMAP)) && wic())
+    IWICImagingFactory_CreateBitmapFromHBITMAP(wic(), (HBITMAP)h, NULL, WICBitmapIgnoreAlpha, &bmp);
+  CloseClipboard();
+  if (bmp) {
+    HGLOBAL made = toPng((IWICBitmapSource *)bmp, &size);
+    IWICBitmap_Release(bmp);
+    const char *bytes = made ? GlobalLock(made) : NULL;
+    if (bytes && size <= CLIP_MAX && (data = malloc(size))) memcpy(data, bytes, size);
+    if (bytes) GlobalUnlock(made);
+    if (made) GlobalFree(made);
+  }
+  char reply[256];
+  if (data && size) request("POST", "/clip", type, data, (int)size, reply, sizeof reply);
+  free(data);
+}
+/** --clip-set <file> text|image: the file's text (UTF-8), or picture, put on the clipboard as the
+ *  server's: 0; 2 if the clipboard would not open, 3 if the picture could not be read, 1 else */
+static int clipSet(const wchar_t *file, int image) {
+  HANDLE fh = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+  if (fh == INVALID_HANDLE_VALUE) return 1;
+  DWORD len = GetFileSize(fh, NULL), got = 0;
+  char *bytes = len <= CLIP_MAX ? malloc(len + 1) : NULL;
+  int read = bytes && ReadFile(fh, bytes, len, &got, NULL) && got == len;
+  CloseHandle(fh);
+  if (!read) {
+    free(bytes);
+    return 1;
+  }
+  CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+  HGLOBAL first = NULL, asPng = NULL;
+  if (!image) {
+    int n = len ? MultiByteToWideChar(CP_UTF8, 0, bytes, (int)len, NULL, 0) : 0;
+    first = GlobalAlloc(GMEM_MOVEABLE, ((SIZE_T)n + 1) * sizeof(wchar_t));
+    wchar_t *w = first ? GlobalLock(first) : NULL;
+    if (w) {
+      if (n) MultiByteToWideChar(CP_UTF8, 0, bytes, (int)len, w, n);
+      w[n] = 0;
+      GlobalUnlock(first);
+    }
+  } else {
+    first = toDib(bytes, len);
+    // a PNG as it is too, transparency and all, for what takes one
+    if (first && len > 8 && !memcmp(bytes, "\x89PNG", 4) && (asPng = GlobalAlloc(GMEM_MOVEABLE, len))) {
+      void *p = GlobalLock(asPng);
+      memcpy(p, bytes, len);
+      GlobalUnlock(asPng);
+    }
+  }
+  free(bytes);
+  if (!first) return image ? 3 : 1;
+  HWND owner = CreateWindowExW(0, L"STATIC", NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, inst, NULL);
+  if (!clipOpen(owner)) return 2;
+  EmptyClipboard();
+  SetClipboardData(image ? CF_DIB : CF_UNICODETEXT, first);
+  if (asPng) SetClipboardData(RegisterClipboardFormatW(L"PNG"), asPng);
+  HGLOBAL mark = GlobalAlloc(GMEM_MOVEABLE, 1);
+  if (mark) SetClipboardData(RegisterClipboardFormatW(CLIP_MARK), mark);
+  CloseClipboard();
+  return 0;
 }
 
 // ——— the tray icon ———
@@ -205,8 +432,8 @@ static int iconFor(const wchar_t *mode) {
 
 // ——— the window, and the log ———
 static void openLog(void) {
-  wchar_t log[MAX_PATH + 32];
-  FMT(log, L"\"%ls\\.tools\\remote\\station.log\"", repo);
+  wchar_t log[MAX_PATH + 96];
+  FMT(log, L"\"%ls\"", logPath);
   ShellExecuteW(NULL, L"open", L"notepad.exe", log, NULL, SW_SHOWNORMAL);
 }
 // Edge's app window, which every Windows has; failing that, the default browser
@@ -232,14 +459,14 @@ static void savePlace(void) {
   int zoomed = wp.showCmd == SW_SHOWMAXIMIZED || (wp.showCmd == SW_SHOWMINIMIZED && (wp.flags & WPF_RESTORETOMAXIMIZED));
   wp.showCmd = zoomed ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
   wp.flags = 0;
-  RegSetKeyValueW(HKEY_CURRENT_USER, PLACE_KEY, L"window", REG_BINARY, &wp, sizeof wp);
+  RegSetKeyValueW(HKEY_CURRENT_USER, PLACE_KEY, trying ? L"window-try" : L"window", REG_BINARY, &wp, sizeof wp);
 }
 // …and put back, if a screen still shows it (hidden yet: the page shows it once loaded)
 static void restorePlace(void) {
   WINDOWPLACEMENT wp;
   DWORD size = sizeof wp;
   openZoomed = 0;
-  if (RegGetValueW(HKEY_CURRENT_USER, PLACE_KEY, L"window", RRF_RT_REG_BINARY, NULL, &wp, &size) != ERROR_SUCCESS || size != sizeof wp || wp.length != sizeof wp) return;
+  if (RegGetValueW(HKEY_CURRENT_USER, PLACE_KEY, trying ? L"window-try" : L"window", RRF_RT_REG_BINARY, NULL, &wp, &size) != ERROR_SUCCESS || size != sizeof wp || wp.length != sizeof wp) return;
   if (!MonitorFromRect(&wp.rcNormalPosition, MONITOR_DEFAULTTONULL)) return;
   openZoomed = wp.showCmd == SW_SHOWMAXIMIZED;
   wp.showCmd = SW_HIDE;
@@ -282,10 +509,15 @@ static void tellZoom(int always) {
   toldZoom = z;
   ICoreWebView2_PostWebMessageAsString(wv, z ? L"window\tmax" : L"window\tnormal");
 }
-// it could not be made, or shows nothing: a browser's, as before
+// it could not be made, or shows nothing: a browser's, as before (a trial, which is to show the
+// window, says so instead)
 static void fallBack(void) {
-  say(L"窗口：改用浏览器打开");
   closeFrame();
+  if (trying) {
+    say(L"试运行：窗口无法显示");
+    return balloon(L"试运行：窗口无法显示", L"原因见试运行的日志（右键单击此图标）。", NIIF_ERROR);
+  }
+  say(L"窗口：改用浏览器打开");
   openEdge();
 }
 // what a job made, kept under .tools\remote\out: opened, or shown in its folder
@@ -311,7 +543,7 @@ static ULONG STDMETHODCALLTYPE oneRef(IUnknown *self) {
   (void)self;
   return 1;
 }
-// the page's word: drag, min, max, close, or open/show and a path
+// the page's word: drag, size and an edge, min, max, close, or open/show and a path
 static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventHandler *self, ICoreWebView2 *sender, ICoreWebView2WebMessageReceivedEventArgs *args) {
   (void)self;
   (void)sender;
@@ -338,6 +570,15 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
     ShowWindow(frame, SW_MINIMIZE);
   else if (frame && !wcscmp(s, L"max"))
     ShowWindow(frame, IsZoomed(frame) ? SW_RESTORE : SW_MAXIMIZE);
+  else if (frame && !wcsncmp(s, L"size\t", 5)) {
+    // its top edge or a top corner pressed: sized from there, as by a frame's
+    const wchar_t *edge = s + 5;
+    WPARAM hit = !wcscmp(edge, L"topleft") ? HTTOPLEFT : !wcscmp(edge, L"topright") ? HTTOPRIGHT : HTTOP;
+    POINT pt;
+    GetCursorPos(&pt);
+    ReleaseCapture();
+    PostMessageW(frame, WM_NCLBUTTONDOWN, hit, MAKELPARAM(pt.x, pt.y));
+  }
   else if (!wcscmp(s, L"ready"))
     tellZoom(1);
   else if (!wcscmp(s, L"log"))
@@ -505,7 +746,11 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       say(L"窗口：页面 12 秒内未加载完成");
       fallBack();
     }
-    if (wp == TIMER_DISPOSE && hidden) closeFrame();
+    if (wp == TIMER_DISPOSE && hidden) {
+      closeFrame();
+      // a trial no one has looked at for a while: over
+      if (trying) leave();
+    }
     return 0;
   case WM_GIVE_UP:
     // closed already: nothing to show it in instead
@@ -523,7 +768,7 @@ static int makeFrame(void) {
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
   int w = DIP(840), h = DIP(940);
   if (h > work.bottom - work.top - DIP(32)) h = work.bottom - work.top - DIP(32);
-  frame = CreateWindowExW(0, L"RenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN,
+  frame = CreateWindowExW(0, L"RenderStationWindow", trying ? L"渲染站（试运行）" : TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN,
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
   restorePlace();
@@ -555,7 +800,8 @@ static void openWindow(void) {
   if (createEnv && makeFrame()) {
     if (wenv && SUCCEEDED(ICoreWebView2Environment_CreateCoreWebView2Controller(wenv, frame, &controllerHandler))) return;
     wchar_t data[MAX_PATH + 32];
-    FMT(data, L"%ls\\.tools\\remote\\webview2", repo);
+    if (trying) FMT(data, L"%ls\\webview2", tryDir);
+    else FMT(data, L"%ls\\.tools\\remote\\webview2", repo);
     HRESULT hr = createEnv(NULL, data, NULL, &environmentHandler);
     if (SUCCEEDED(hr)) return;
     say(L"窗口：WebView2 无法启动（0x%08lx）", (unsigned long)hr);
@@ -697,6 +943,7 @@ static void leave(void);
  *  Control has asked over the window (the new one waits for this to go); the page told if not
  *  (elevate busy, cancelled, error <code>) */
 static void restartAsAdmin(void) {
+  if (trying) return toPage(L"elevate\ttry");
   if (!wcscmp(lastMode, L"busy")) return toPage(L"elevate\tbusy");
   wchar_t params[64], reply[64];
   FMT(params, L"--asked --after %lu", GetCurrentProcessId());
@@ -759,17 +1006,18 @@ static void down(void) {
   show(ICON_OFF, L"渲染站 · 正在启动");
 }
 // every two seconds: how the station is (/tray: mode, tip, the pause item, the newest job and
-// what to say of it, the two settings, a line each)
+// what to say of it, the two settings, whether it was updated, whether the clipboard goes to the
+// server, a line each)
 static void tick(void) {
   if (quitting) return;
   static char buf[8192];
   static wchar_t w[8192];
   if (call("GET", "/tray", buf, sizeof buf)) return down();
   MultiByteToWideChar(CP_UTF8, 0, buf, -1, w, 8192);
-  wchar_t *f[9] = { 0 };
+  wchar_t *f[10] = { 0 };
   int n = 0;
   f[n++] = w;
-  for (wchar_t *p = w; *p && n < 9; p++)
+  for (wchar_t *p = w; *p && n < 10; p++)
     if (*p == L'\n') {
       *p = 0;
       f[n++] = p + 1;
@@ -793,6 +1041,7 @@ static void tick(void) {
     balloon(f[4], f[5], wcscmp(f[4], L"任务已完成") ? NIIF_WARNING : NIIF_INFO);
   }
   keep(f[6][0] == L'1', f[7][0] == L'1');
+  clipOn = n > 9 && f[9][0] == L'1';
   if (n > 8 && f[8][0] == L'1') return again();
   if (wantOpen) {
     wantOpen = 0;
@@ -800,13 +1049,15 @@ static void tick(void) {
   }
 }
 
-/** this gone, and the station with all it started */
+/** this gone, and the station with all it started (a trial: it alone, the station not its own) */
 static void leave(void) {
   quitting = 1;
   KillTimer(hwnd, 1);
-  post("/quit");
-  if (node) WaitForSingleObject(node, 2000);
-  if (job) TerminateJobObject(job, 0);
+  if (!trying) {
+    post("/quit");
+    if (node) WaitForSingleObject(node, 2000);
+    if (job) TerminateJobObject(job, 0);
+  }
   closeFrame();
   Shell_NotifyIconW(NIM_DELETE, &nid);
   DestroyWindow(hwnd);
@@ -833,13 +1084,19 @@ static void quit(void) {
 
 static void menu(int x, int y) {
   HMENU m = CreatePopupMenu();
-  AppendMenuW(m, MF_STRING, CMD_OPEN, L"打开渲染站");
-  AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_TOGGLE, toggleText);
-  AppendMenuW(m, MF_STRING | (up && !off ? 0 : MF_GRAYED), CMD_RECONNECT, L"重新连接");
-  AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-  AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_BROWSER, L"在浏览器中打开");
-  AppendMenuW(m, MF_STRING, CMD_LOG, L"查看日志");
-  AppendMenuW(m, MF_STRING, CMD_QUIT, L"退出渲染站");
+  if (trying) {
+    AppendMenuW(m, MF_STRING, CMD_OPEN, L"打开试运行窗口");
+    AppendMenuW(m, MF_STRING, CMD_LOG, L"查看试运行日志");
+    AppendMenuW(m, MF_STRING, CMD_QUIT, L"结束试运行");
+  } else {
+    AppendMenuW(m, MF_STRING, CMD_OPEN, L"打开渲染站");
+    AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_TOGGLE, toggleText);
+    AppendMenuW(m, MF_STRING | (up && !off ? 0 : MF_GRAYED), CMD_RECONNECT, L"重新连接");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING | (up ? 0 : MF_GRAYED), CMD_BROWSER, L"在浏览器中打开");
+    AppendMenuW(m, MF_STRING, CMD_LOG, L"查看日志");
+    AppendMenuW(m, MF_STRING, CMD_QUIT, L"退出渲染站");
+  }
   SetMenuDefaultItem(m, CMD_OPEN, FALSE);
   SetForegroundWindow(hwnd);
   UINT align = GetSystemMetrics(SM_MENUDROPALIGNMENT) ? TPM_RIGHTALIGN : TPM_LEFTALIGN;
@@ -864,6 +1121,9 @@ static LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
   case WM_TIMER:
     tick();
+    return 0;
+  case WM_CLIPBOARDUPDATE:
+    clipChanged();
     return 0;
   case WM_ELEVATE:
     restartAsAdmin();
@@ -1032,36 +1292,9 @@ static int uninstallFinish(const wchar_t *dir, int keepData, DWORD after) {
   return ok ? 0 : 1;
 }
 
-int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
-  (void)prev;
-  (void)how;
-  inst = hi;
-  (void)args;
-  int argc = 0, quiet = 0, removing = 0, keepData = 0, asked = 0;
-  DWORD after = 0, finishAfter = 0;
-  const wchar_t *from = NULL, *finishing = NULL;
-  wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  for (int i = 1; argv && i < argc; i++) {
-    if (!wcscmp(argv[i], L"/quiet")) quiet = 1;
-    else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
-    else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
-    else if (!wcscmp(argv[i], L"--uninstall")) removing = 1;
-    // User Account Control asked already (or not to be: started again after an update)
-    else if (!wcscmp(argv[i], L"--asked")) asked = 1;
-    else if (!wcscmp(argv[i], L"--uninstall-finish") && i + 3 < argc) {
-      finishing = argv[++i];
-      keepData = argv[++i][0] == L'1';
-      finishAfter = wcstoul(argv[++i], NULL, 10);
-    }
-  }
-  wantOpen = !quiet;
-  GetModuleFileNameW(NULL, exePath, MAX_PATH);
-  lstrcpynW(exeDir, exePath, MAX_PATH);
-  wchar_t *slash = wcsrchr(exeDir, L'\\');
-  if (slash) *slash = 0;
-  if (removing) return uninstall();
-  if (finishing) return uninstallFinish(finishing, keepData, finishAfter);
-
+/** before the station starts here: the one before gone (an update's), the rights asked for, the run
+ *  moved to the copy, this alone, the checkout and node found; -1 to go on, else the exit code */
+static int startHere(int quiet, int asked, DWORD after, const wchar_t *from) {
   // the last one, going after an update: once it has
   if (after) {
     HANDLE old = OpenProcess(SYNCHRONIZE, FALSE, after);
@@ -1124,7 +1357,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   // the checkout: the folder that holds 渲染站.exe
   wchar_t launcherDir[MAX_PATH], check[MAX_PATH + 64];
   lstrcpynW(launcherDir, launcher, MAX_PATH);
-  slash = wcsrchr(launcherDir, L'\\');
+  wchar_t *slash = wcsrchr(launcherDir, L'\\');
   if (slash) *slash = 0;
   GetFullPathNameW(launcherDir, MAX_PATH, repo, NULL);
   FMT(check, L"%ls\\station.mjs", repo);
@@ -1144,6 +1377,75 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   if (!findNode()) {
     MessageBoxW(NULL, L"未找到 Node.js。请先安装 Node.js（nodejs.org，LTS 版本），再启动渲染站。", TITLE, MB_ICONERROR);
     return 1;
+  }
+  return -1;
+}
+/** before a trial starts: the one before gone, and its folder made; 0 if it cannot be */
+static int startTrial(void) {
+  HWND before = FindWindowW(TRY_CLASS, NULL);
+  if (before) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(before, &pid);
+    HANDLE old = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    PostMessageW(before, WM_COMMAND, CMD_QUIT, 0);
+    if (old) {
+      WaitForSingleObject(old, 5000);
+      CloseHandle(old);
+    }
+  }
+  if (!CreateMutexW(NULL, TRUE, TRY_MUTEX) || GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+  if (!GetEnvironmentVariableW(L"LOCALAPPDATA", tryDir, MAX_PATH)) return 0;
+  wcsncat(tryDir, L"\\render-station", MAX_PATH - wcslen(tryDir) - 1);
+  CreateDirectoryW(tryDir, NULL);
+  wcsncat(tryDir, L"\\try", MAX_PATH - wcslen(tryDir) - 1);
+  CreateDirectoryW(tryDir, NULL);
+  FMT(logPath, L"%ls\\try.log", tryDir);
+  say(L"试运行：%ls", exePath);
+  return 1;
+}
+
+int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
+  (void)prev;
+  (void)how;
+  inst = hi;
+  (void)args;
+  int argc = 0, quiet = 0, removing = 0, keepData = 0, asked = 0, clipImage = 0;
+  DWORD after = 0, finishAfter = 0;
+  const wchar_t *from = NULL, *finishing = NULL, *clipFile = NULL;
+  wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  for (int i = 1; argv && i < argc; i++) {
+    if (!wcscmp(argv[i], L"/quiet")) quiet = 1;
+    else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
+    else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
+    else if (!wcscmp(argv[i], L"--uninstall")) removing = 1;
+    else if (!wcscmp(argv[i], L"--try")) trying = 1;
+    // the station's: what the server sent, onto the clipboard
+    else if (!wcscmp(argv[i], L"--clip-set") && i + 2 < argc) {
+      clipFile = argv[++i];
+      clipImage = !wcscmp(argv[++i], L"image");
+    }
+    // User Account Control asked already (or not to be: started again after an update)
+    else if (!wcscmp(argv[i], L"--asked")) asked = 1;
+    else if (!wcscmp(argv[i], L"--uninstall-finish") && i + 3 < argc) {
+      finishing = argv[++i];
+      keepData = argv[++i][0] == L'1';
+      finishAfter = wcstoul(argv[++i], NULL, 10);
+    }
+  }
+  wantOpen = !quiet;
+  GetModuleFileNameW(NULL, exePath, MAX_PATH);
+  lstrcpynW(exeDir, exePath, MAX_PATH);
+  wchar_t *slash = wcsrchr(exeDir, L'\\');
+  if (slash) *slash = 0;
+  if (clipFile) return clipSet(clipFile, clipImage);
+  if (removing) return uninstall();
+  if (finishing) return uninstallFinish(finishing, keepData, finishAfter);
+
+  if (trying) {
+    if (!startTrial()) return 0;
+  } else {
+    int code = startHere(quiet, asked, after, from);
+    if (code >= 0) return code;
   }
 
   WSADATA wsa;
@@ -1168,7 +1470,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   fc.lpfnWndProc = frameProc;
   fc.hInstance = inst;
   fc.hCursor = LoadCursorW(NULL, IDC_ARROW);
-  fc.hbrBackground = CreateSolidBrush(dark ? RGB(0x17, 0x12, 0x16) : RGB(0xf8, 0xf6, 0xf5));
+  fc.hbrBackground = CreateSolidBrush(dark ? RGB(0x12, 0x10, 0x19) : RGB(0xf3, 0xf2, 0xf7));
   fc.hIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
   fc.hIconSm = icons[ICON_BUSY];
   fc.lpszClassName = L"RenderStationWindow";
@@ -1177,7 +1479,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   WNDCLASSW wc = { 0 };
   wc.lpfnWndProc = proc;
   wc.hInstance = inst;
-  wc.lpszClassName = TRAY_CLASS;
+  wc.lpszClassName = trying ? TRY_CLASS : TRAY_CLASS;
   RegisterClassW(&wc);
   hwnd = CreateWindowExW(0, wc.lpszClassName, TITLE, WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
   taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
@@ -1186,9 +1488,19 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   ChangeWindowMessageFilterEx(hwnd, WM_COMMAND, MSGFLT_ALLOW, NULL);
   ChangeWindowMessageFilterEx(hwnd, WM_TRAY, MSGFLT_ALLOW, NULL);
   ChangeWindowMessageFilterEx(hwnd, taskbarCreated, MSGFLT_ALLOW, NULL);
-  addIcon();
-  SetTimer(hwnd, 1, 2000, NULL);
-  tick();
+  ChangeWindowMessageFilterEx(hwnd, WM_CLIPBOARDUPDATE, MSGFLT_ALLOW, NULL);
+  if (trying) {
+    // its window at once, on the station running here; an icon to open it again, and to end it
+    nid.hIcon = icons[ICON_BUSY];
+    lstrcpynW(nid.szTip, L"渲染站 · 试运行", 128);
+    addIcon();
+    openWindow();
+  } else {
+    addIcon();
+    AddClipboardFormatListener(hwnd);
+    SetTimer(hwnd, 1, 2000, NULL);
+    tick();
+  }
 
   MSG msg;
   while (GetMessageW(&msg, NULL, 0, 0) > 0) {

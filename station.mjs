@@ -487,6 +487,8 @@ const view = () => ({
   update,
   version,
   autoUpdate: config.autoUpdate !== false,
+  // the window's look: 'plum' or 'cream'
+  theme: config.theme === 'cream' ? 'cream' : 'plum',
   paths: { log: LOG },
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
@@ -881,6 +883,10 @@ const ui = createServer(async (req, res) => {
       config.shortcut = !!data.on;
       save();
       note('station', data.on ? '已在桌面和开始菜单中创建「渲染站」快捷方式' : '已删除桌面和开始菜单中的「渲染站」快捷方式');
+    } else if (path === '/theme') {
+      if (!['plum', 'cream'].includes(data.name)) throw new Error('name must be plum or cream');
+      config.theme = data.name;
+      save();
     } else if (path === '/update') checkUpdate();
     else if (path === '/autoupdate') {
       config.autoUpdate = !!data.on;

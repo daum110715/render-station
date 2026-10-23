@@ -1,0 +1,22 @@
+{
+  "name": "render-station",
+  "env": [
+    {
+      "key": "MINGW",
+      "label": "mingw-w64 的 bin 文件夹",
+      "placeholder": "C:\\w64devkit\\bin",
+      "hint": "编译渲染站.exe 时使用，其中须有 gcc.exe 和 windres.exe",
+      "required": true
+    }
+  ],
+  "presets": {
+    "exe": {
+      "description": "编译渲染站.exe 和安装程序，供发布前在这台电脑上试运行",
+      "command": ["node", "{workspace}/exe/compile.mjs", "{job}", "{args}"],
+      "args": ["--setup"],
+      "upload": ["*.c", "*.h", "*.rc", "*.manifest", "*.ico", "sdk/*.h", "WebView2Loader.dll"],
+      "collect": "{job}/out",
+      "timeout": 600
+    }
+  }
+}

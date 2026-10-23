@@ -14,7 +14,8 @@
 // and last { event: 'done', reply }.
 // It also takes the server's changes to the workspaces, and lets it look through this machine's
 // folders, as far as the owner lets it (`manage`): answered the same way, if the server takes lines
-// of JSON ({ event: 'pending' }, then { event: 'done', reply }), else with the reply alone.
+// of JSON ({ event: 'pending' }, then { event: 'done', reply }), else with the reply alone. And what
+// the server puts on this machine's clipboard, while the owner has it in step with the server's.
 // usage: node worker.mjs [--port 7700]
 import { createServer } from 'node:http';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -39,6 +40,9 @@ export const HEADER = 'x-render-station';
  *  for a command from one that is not */
 export const FEATURES = ['pending', 'browse', 'create'];
 const OFF = 'the owner does not let the server manage workspaces or look through folders: allow it in the local station settings';
+const CLIP_OFF = 'the owner has not turned on 同步剪贴板 (clipboard sync) in the local station settings';
+/** what the server puts on the clipboard, a picture's bytes as base64 */
+const CLIP_SENT = 32 * 1024 * 1024;
 // a job's request, compressed and not
 const SENT = 64 * 1024 * 1024;
 const OPENED = 256 * 1024 * 1024;
@@ -64,13 +68,14 @@ const offer = (list) =>
  *  how many jobs may run at once; `shell`: the gate for Shell jobs, if they are taken; `manage`: the
  *  station's handling of the server's changes to the workspaces and looks into folders ({ mode(),
  *  change(request, signal, waiting), browse(request, signal, waiting) }, `waiting()` once one waits
- *  for the owner's approval), if it takes them; `keep`: a folder to keep here what each job made, the
- *  latest 30 jobs' worth;
+ *  for the owner's approval), if it takes them; `clip`: the station's clipboard ({ on(), set(input) }:
+ *  input { type: 'text', text } or { type: 'image', data }), if it takes what the server puts on it;
+ *  `keep`: a folder to keep here what each job made, the latest 30 jobs' worth;
  *  `jobs`: where each job's folder is made; `on(event)`: {type: 'queued', id, kind, …},
  *  {type: 'start', id, kind, …}, {type: 'log', id, text}, {type: 'end', id, kind, ok, code, ms,
  *  files, tail, paths}. The server it returns schedules again with `schedule()` (the limit changed,
  *  or the station paused) */
-export function serve({ port = WORKER, workspaces = () => [], on = () => {}, keep = null, shell = null, manage = null, accepting = () => true, limit = () => 2, jobs = JOBS } = {}) {
+export function serve({ port = WORKER, workspaces = () => [], on = () => {}, keep = null, shell = null, manage = null, clip = null, accepting = () => true, limit = () => 2, jobs = JOBS } = {}) {
   let next = 1;
   /** the jobs running, by id: their workspace's lane (null for a Shell command) and what they are */
   const running = new Map();
@@ -247,13 +252,29 @@ export function serve({ port = WORKER, workspaces = () => [], on = () => {}, kee
           queued: queue.length,
           shell: shell ? shell.state().mode : 'disabled',
           manage: manage ? manage.mode() : 'off',
+          clipboard: clip ? clip.on() : false,
           workspaces: offer(workspaces()),
         }),
       );
-    if (req.method !== 'POST' || !['/job', '/workspace', '/browse'].includes(req.url)) return res.writeHead(404).end();
+    if (req.method !== 'POST' || !['/job', '/workspace', '/browse', '/clip'].includes(req.url)) return res.writeHead(404).end();
     if (!accepting()) return res.writeHead(503).end('station paused');
     const controller = new AbortController();
     res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+
+    // onto the clipboard here, as far as the owner has it in step with the server's
+    if (req.url === '/clip') {
+      const body = await read(req, CLIP_SENT, () => controller.abort());
+      if (!body) return;
+      let reply;
+      try {
+        if (!clip || !clip.on()) throw new Error(CLIP_OFF);
+        reply = { ok: true, ...(await clip.set(JSON.parse(body))) };
+      } catch (e) {
+        reply = { ok: false, error: e?.message ?? String(e) };
+      }
+      if (!res.destroyed) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+      return;
+    }
 
     // a change to the workspaces, or a look into a folder: answered once it is done, or refused
     if (req.url !== '/job') {

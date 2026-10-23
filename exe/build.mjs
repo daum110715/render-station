@@ -1,12 +1,17 @@
-// Builds 渲染站.exe from station.c with mingw-w64, here on Linux: draws the icons (a
-// dot in each state's colour with a play mark, as the window's) into .ico files, then compiles the
-// resources and the program against the WebView2 SDK (NuGet's Microsoft.Web.WebView2, unpacked in
-// .tools/webview2/), and puts the SDK's WebView2Loader.dll beside it. In .tools/exe-build/ on the
-// way. Run after changing station.c, common.h, the resources or the icons, and commit the exe and
-// the dll. It also builds the installer's program (setup.c) into .tools/exe-build/setup.exe, which
-// release/build.mjs appends a release to; --setup builds that alone.
-// usage: node exe/build.mjs [--setup]
-import { execFileSync } from 'node:child_process';
+// Builds 渲染站.exe from station.c with mingw-w64: draws the icons (a dot in each state's colour
+// with a play mark, as the window's) into .ico files, and puts them in .tools/exe-build/ with the
+// sources, the resources and what it takes of the WebView2 SDK (NuGet's Microsoft.Web.WebView2,
+// unpacked in .tools/webview2/). Then compile.mjs compiles them: on the device, as the preset
+// render-station/exe of its render station (the workspace of the station's own folder, with MINGW
+// set), when it is reached and set up so; else here, with the cross compilers. The exe goes to the
+// repository's root with the SDK's WebView2Loader.dll; commit both after changing station.c,
+// common.h, the resources or the icons. It also builds the installer's program (setup.c) into
+// .tools/exe-build/setup.exe, which release/build.mjs appends a release to; --setup builds that alone.
+// --local: here, whatever the device. --try: then, compiled on the device, starts it there as a
+// trial (渲染站.exe --try: a window of its own on the station running there), once its owner allows
+// the Shell command that does.
+// usage: node exe/build.mjs [--setup] [--local] [--try]
+import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,25 +111,59 @@ function ico(hex, sizes) {
   return Buffer.concat([head, ...images]);
 }
 
+const setupOnly = process.argv.includes('--setup');
 rmSync(build, { recursive: true, force: true });
-mkdirSync(build, { recursive: true });
+mkdirSync(join(build, 'sdk'), { recursive: true });
 const TRAY = [16, 20, 24, 32, 40, 48, 64];
 // the program's own icon is the busy one, the accent: big enough for Explorer's large views too
 writeFileSync(join(build, 'busy.ico'), ico('#6a4c9e', [...TRAY, 96, 128, 256]));
 for (const [name, hex] of Object.entries({ idle: '#2a9d80', wait: '#d99a1e', bad: '#d4563a', off: '#9a8a9d' })) writeFileSync(join(build, `${name}.ico`), ico(hex, TRAY));
-for (const f of ['station.rc', 'station.manifest']) copyFileSync(join(here, f), join(build, f));
+for (const f of ['station.c', 'setup.c', 'common.h', 'station.rc', 'setup.rc', 'station.manifest']) copyFileSync(join(here, f), join(build, f));
+copyFileSync(join(sdk, 'include/WebView2.h'), join(build, 'sdk/WebView2.h'));
 // WebView2.h asks for EventToken.h, which mingw-w64 has in lower case
-writeFileSync(join(build, 'EventToken.h'), '#include <eventtoken.h>\n');
+writeFileSync(join(build, 'sdk/EventToken.h'), '#include <eventtoken.h>\n');
+copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(build, 'WebView2Loader.dll'));
 
-const run = (cmd, args) => execFileSync(cmd, args, { cwd: build, stdio: 'inherit' });
-if (!process.argv.includes('--setup')) {
-  run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'station.rc', '-O', 'coff', '-o', 'station.res.o']);
-  // the SDK as a system header: its IIDs, defined in the header, are not ours to be warned about
-  run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-isystem', build, '-isystem', join(sdk, 'include'), '-o', out, join(here, 'station.c'), 'station.res.o', '-lws2_32', '-lole32', '-luuid', '-lshell32', '-ladvapi32', '-ldwmapi', '-lcomctl32']);
-  copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(here, '..', 'WebView2Loader.dll'));
+// on the device, if it can; a job that ran there and failed is the end of it, one that could not run
+// there is compiled here instead
+let onDevice = false;
+if (!process.argv.includes('--local')) {
+  const job = spawnSync(process.execPath, [join(repo, 'cli.mjs'), 'run', '--json', '--src', build, '--out', join(build, 'out'), 'render-station/exe', ...(setupOnly ? ['--setup'] : [])], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  let reply = null;
+  try {
+    reply = JSON.parse(job.stdout);
+  } catch {}
+  if (reply?.log?.trim()) console.log(reply.log.trim());
+  if (reply?.ok) {
+    onDevice = true;
+    console.log(`compiled on the device in ${reply.seconds} s`);
+  } else if (reply?.exitCode != null) {
+    console.error('compiling on the device failed');
+    process.exit(1);
+  } else console.log(`compiling here: not on the device (${(reply?.error ?? job.stderr ?? '').trim().split('\n').at(-1)})`);
+}
+if (!onDevice) execFileSync(process.execPath, [join(here, 'compile.mjs'), build, ...(setupOnly ? ['--setup'] : [])], { stdio: 'inherit' });
+if (!setupOnly) {
+  copyFileSync(join(build, 'out/渲染站.exe'), out);
+  copyFileSync(join(sdk, 'x64/WebView2Loader.dll'), join(repo, 'WebView2Loader.dll'));
   console.log(out);
 }
-copyFileSync(join(here, 'setup.rc'), join(build, 'setup.rc'));
-run('x86_64-w64-mingw32-windres', ['-c', '65001', '-i', 'setup.rc', '-O', 'coff', '-o', 'setup.res.o']);
-run('x86_64-w64-mingw32-gcc', ['-O2', '-s', '-Wall', '-municode', '-mwindows', '-static-libgcc', '-o', join(build, 'setup.exe'), join(here, 'setup.c'), 'setup.res.o', '-lshell32', '-ladvapi32', '-lcomctl32']);
+copyFileSync(join(build, 'out/setup.exe'), join(build, 'setup.exe'));
 console.log(join(build, 'setup.exe'));
+
+// the trial: the newest 渲染站.exe the device compiled (kept there with what each job made, beside the
+// loader), started with --try, as its owner allows
+if (process.argv.includes('--try')) {
+  if (!onDevice || setupOnly) {
+    console.error('--try: only for 渲染站.exe as the device compiled it');
+    process.exit(1);
+  }
+  const start = [
+    "$kept = Get-ChildItem .tools/remote/out -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'WebView2Loader.dll') } | Sort-Object Name | Select-Object -Last 1",
+    "$exe = Get-ChildItem $kept.FullName -Filter *.exe | Where-Object Name -ne 'setup.exe' | Select-Object -First 1",
+    "Start-Process $exe.FullName -ArgumentList '--try'",
+    'Write-Output $exe.FullName',
+  ].join('; ');
+  const trial = spawnSync(process.execPath, [join(repo, 'cli.mjs'), 'shell', '--workspace', 'render-station', start], { stdio: 'inherit' });
+  process.exit(trial.status ?? 1);
+}

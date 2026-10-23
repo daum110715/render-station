@@ -273,6 +273,7 @@ rs run video/transcode --crf 23
 - 以普通权限启动时，托盘程序通过「用户账户控制」（`runas`）申请管理员权限，由获准后启动的副本继续运行；存在 `.tools\remote\no-elevate`（即已关闭「以管理员身份运行」）时不申请。选择「否」时以普通权限继续运行。更新后的重启沿用原有权限，不再询问。以管理员身份运行时，仍接受普通权限进程发来的消息：再次启动时打开窗口、安装程序要求退出，以及资源管理器的消息。
 - 窗口的位置、大小和是否最大化保存在注册表的 `HKCU\Software\render-station` 中，卸载时删除。
 - `渲染站.exe --uninstall` 卸载安装程序安装的副本，Windows 的「已安装的应用」调用的就是它。
+- `渲染站.exe --try` 是试运行：在已运行的渲染站旁边打开新编译版本的窗口，连接同一个页面，并带一个单独的托盘图标，用于再次打开窗口或结束试运行。试运行不启动后台进程，不修改开机自启和快捷方式，不申请管理员权限；日志和 WebView2 数据位于 `%LOCALAPPDATA%\render-station\try\`。再次启动试运行时，上一个试运行先退出；窗口关闭 5 分钟后，试运行自动结束。
 
 ## 不使用托盘程序运行
 
@@ -294,7 +295,10 @@ ssh -N -R 7700:127.0.0.1:7700 -p <端口> <用户名>@<服务器>
 ## 开发
 
 - 测试：`node --test`。
-- 编译 `渲染站.exe`：`node exe/build.mjs`，在 Linux 上交叉编译，输出到仓库根目录，同时编译安装程序的主体 `.tools/exe-build/setup.exe`。需要 mingw-w64（`x86_64-w64-mingw32-gcc`），以及解压到 `.tools/webview2/` 的 WebView2 SDK（NuGet 包 `Microsoft.Web.WebView2`）。
+- 编译 `渲染站.exe`：`node exe/build.mjs`。脚本先在 `.tools/exe-build/` 中备齐源码、资源、图标和 WebView2 SDK 的头文件与 `WebView2Loader.dll`（SDK 即 NuGet 包 `Microsoft.Web.WebView2`，解压到 `.tools/webview2/`），再由 `exe/compile.mjs` 编译。编译结果输出到仓库根目录，同时编译安装程序的主体 `.tools/exe-build/setup.exe`。
+  - 设备在线且已设置好时，通过预设任务 `render-station/exe` 在设备上编译；否则在本机用 mingw-w64（`x86_64-w64-mingw32-gcc`）交叉编译。加 `--local` 时总在本机编译。
+  - 设备上的设置：把渲染站自身的安装文件夹登记为工作区 `render-station`（文件夹中的 `render-station.json` 提供该预设），并把它的 `MINGW` 设为 mingw-w64 的 `bin` 文件夹，例如 [w64devkit](https://github.com/skeeto/w64devkit) 的 `w64devkit\bin`。预设只编译带上的源码，不运行它们。
+  - `node exe/build.mjs --try`：在设备上编译后，通过 Shell 任务在设备上以 `--try` 启动新编译的 `渲染站.exe`，须在设备上批准。
 - 修改 `exe/` 中的文件后，须重新编译，并将 `渲染站.exe` 与源码一并提交。
 
 ### 发布
@@ -319,7 +323,8 @@ ssh -N -R 7700:127.0.0.1:7700 -p <端口> <用户名>@<服务器>
 | `station.html` | 渲染站的窗口页面。 |
 | `渲染站.exe` | 托盘程序的编译产物。 |
 | `WebView2Loader.dll` | 托盘程序窗口所需的 WebView2 加载器。 |
-| `exe/` | 托盘程序的源码（`station.c`、`station.rc`、`station.manifest`）、安装程序的源码（`setup.c`、`setup.rc`）、两者共用的 `common.h`，以及编译脚本 `build.mjs`。 |
+| `exe/` | 托盘程序的源码（`station.c`、`station.rc`、`station.manifest`）、安装程序的源码（`setup.c`、`setup.rc`）、两者共用的 `common.h`，以及编译脚本：`build.mjs` 备齐文件并选择在哪里编译，`compile.mjs` 调用 mingw-w64 编译。 |
+| `render-station.json` | 渲染站自身的工作区文件：安装文件夹登记为工作区后，提供在设备上编译 `渲染站.exe` 的预设任务 `exe`。 |
 | `release/` | 发布脚本：`build.mjs` 打包并签名，`publish.mjs` 上传到更新服务器。 |
 | `*.test.mjs` | 测试。 |
 | `release.json` | 仅存在于安装副本中：当前版本的签名清单。 |

@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>渲染站</title>
+    <script>
+      // the look chosen last, before anything is drawn (the station's settings say which, once it answers)
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem('station-theme') === 'cream' ? 'cream' : 'plum';
+      } catch {}
+    </script>
     <link rel="icon" id="favicon" href="data:," />
     <!-- 渲染站's window (station.mjs serves it, at http://127.0.0.1:7799, in 渲染站.exe's own window or
          any browser): how the worker and the tunnel to the server are doing and this machine with
@@ -17,50 +23,103 @@
         src: url('/fonts/outfit/files/outfit-latin-wght-normal.woff2') format('woff2-variations');
         unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
       }
+      /* two looks, chosen in 设置 → 本机: 梅紫, warm paper and plum ink as qiqi.help has them, the
+         states in the tray icon's colours, light or dark as the system is; and 奶白, daum.pw's
+         (pw/chat.html): the cream page with its amber wash, the wordmark's face for what matters,
+         flat layers of its long shadow under what is pressed, light only */
       :root {
-        --ground: #f3f2f7;
-        --rail: #eae8f1;
-        --surface: #ffffff;
-        --sunk: #eceaf2;
-        --ink: #1e1a28;
-        --ink-2: #554e66;
-        --ink-3: #847e95;
-        --line: #dcd8e5;
-        --line-2: #eae7f0;
-        --violet: #5b3fa0;
+        --page: #f9f6f3;
+        --ground: #f9f6f3;
+        --rail: #f1e9ef;
+        --surface: #fffdfc;
+        --sunk: #f3ecf1;
+        --ink: #2b2430;
+        --ink-2: #6f5872;
+        --ink-3: #8c808f;
+        --line: #e6d9e7;
+        --line-2: #eee5ee;
+        --violet: #6a4c9e;
         --on-violet: #ffffff;
-        --ok: #1d8f74;
-        --wait: #c27e0e;
-        --bad: #c4452c;
-        --off: #8f889d;
+        --primary: var(--violet);
+        --ok: #2a9d80;
+        --wait: #d99a1e;
+        --bad: #d4563a;
+        --off: #9a8a9d;
+        --busy: var(--violet);
         --hand: 'LXGW WenKai', 'KaiTi', serif;
+        --hand-w: 400;
+        --hand-w2: 400;
         --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
         --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
         --out: cubic-bezier(0.22, 1, 0.36, 1);
         --r-panel: 12px;
         --r-ctl: 8px;
         --rail-w: 208px;
+        /* what lies under what is pressed: nothing here, the long shadow in 奶白 */
+        --layers: none;
+        --layers-2: none;
+        --border-w: 1px;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
-        :root {
-          --ground: #121019;
-          --rail: #0f0d15;
-          --surface: #1a1722;
-          --sunk: #24202e;
-          --ink: #ece9f3;
-          --ink-2: #b0a9c1;
-          --ink-3: #817b92;
-          --line: #2c2837;
-          --line-2: #24212e;
-          --violet: #b39cf2;
-          --on-violet: #1a1424;
-          --ok: #3fbf9c;
-          --wait: #eeb04a;
-          --bad: #ef6b4e;
-          --off: #6e6880;
+        :root:not([data-theme='cream']) {
+          --page: #171216;
+          --ground: #171216;
+          --rail: #120e11;
+          --surface: #211a20;
+          --sunk: #1f181e;
+          --ink: #efe8ee;
+          --ink-2: #b9a6ba;
+          --ink-3: #9a8a9d;
+          --line: #3a2d3c;
+          --line-2: #2a2129;
+          --violet: #c9aef0;
+          --on-violet: #1d1524;
+          --ok: #33b596;
+          --wait: #f1b74a;
+          --bad: #ec6a46;
+          --off: #7d6f80;
           color-scheme: dark;
         }
+      }
+      :root[data-theme='cream'] {
+        --cream: #fcfaf6;
+        --amber: #f59e0b;
+        --orange: #fb923c;
+        --face-from: color-mix(in srgb, var(--amber) 55%, white);
+        --face: linear-gradient(90deg, color-mix(in srgb, var(--amber) 55%, white), color-mix(in srgb, var(--orange) 55%, white));
+        --mid: color-mix(in srgb, var(--amber) 50%, var(--orange));
+        --shade-1: color-mix(in srgb, var(--mid) 36%, var(--cream));
+        --shade-2: color-mix(in srgb, var(--mid) 22%, var(--cream));
+        --shade-3: color-mix(in srgb, var(--mid) 12%, var(--cream));
+        --page: linear-gradient(135deg, rgb(245 158 11 / 0.05), rgb(251 146 60 / 0.05)) fixed, var(--cream);
+        --ground: var(--cream);
+        --rail: transparent;
+        --surface: var(--cream);
+        --sunk: color-mix(in srgb, var(--mid) 9%, var(--cream));
+        --ink: #44403c;
+        --ink-2: #78716c;
+        --ink-3: #9a928b;
+        --line: var(--shade-2);
+        --line-2: var(--shade-3);
+        --violet: var(--amber);
+        --on-violet: #44403c;
+        --primary: var(--face);
+        --ok: #2f9a72;
+        --wait: #e0a21a;
+        --bad: #dc5a3c;
+        --off: #a8a29e;
+        --busy: #f08a32;
+        --hand: var(--ui);
+        --hand-w: 700;
+        --hand-w2: 500;
+        --ui: 'Q Outfit', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+        --r-panel: 16px;
+        --r-ctl: 12px;
+        --layers: 3px 4px 0 var(--shade-2);
+        --layers-2: 3px 4px 0 var(--shade-1), 6px 8px 0 var(--shade-2);
+        --border-w: 1.5px;
+        color-scheme: light;
       }
       * {
         box-sizing: border-box;
@@ -68,7 +127,7 @@
       html,
       body {
         height: 100%;
-        background: var(--ground);
+        background: var(--page);
       }
       body {
         margin: 0;
@@ -82,7 +141,7 @@
         --state: var(--ok);
       }
       body[data-mode='busy'] {
-        --state: var(--violet);
+        --state: var(--busy);
       }
       body[data-mode='connecting'],
       body[data-mode='retry'] {
@@ -105,9 +164,10 @@
       /* ——— controls ——— */
       button {
         padding: 6px 14px;
-        border: 1px solid var(--line);
+        border: var(--border-w) solid var(--line);
         border-radius: var(--r-ctl);
         background: var(--surface);
+        box-shadow: var(--layers);
         color: var(--ink);
         font: 13.5px/1.4 var(--ui);
         white-space: nowrap;
@@ -115,7 +175,9 @@
         transition:
           border-color 0.2s,
           color 0.2s,
-          background-color 0.2s;
+          background-color 0.2s,
+          box-shadow 0.2s,
+          transform 0.2s;
       }
       button:hover {
         border-color: color-mix(in srgb, var(--violet) 55%, var(--line));
@@ -129,15 +191,46 @@
         transform: none;
       }
       button.primary {
-        background: var(--violet);
-        border-color: var(--violet);
+        background: var(--primary) border-box;
+        border-color: transparent;
+        box-shadow: var(--layers-2);
         color: var(--on-violet);
+      }
+      /* pressed: its layers slide back under it */
+      [data-theme='cream'] button:not(.link, .tb, .tile, .lb-nav, .lb-close):active {
+        transform: translate(3px, 4px);
+        box-shadow: none;
+      }
+      [data-theme='cream'] button:hover {
+        color: var(--amber);
+      }
+      [data-theme='cream'] button.primary:hover {
+        color: var(--ink);
+      }
+      .link,
+      .tb,
+      .nav button,
+      .seg button,
+      .chips button,
+      .tile,
+      .wsc-head,
+      .lightbox button {
+        box-shadow: none;
       }
       button.link {
         padding: 2px 4px;
         border: 0;
         background: none;
         color: var(--violet);
+      }
+      [data-theme='cream'] button.link {
+        color: var(--ink-2);
+        text-decoration: underline;
+        text-decoration-color: var(--shade-1);
+        text-underline-offset: 3px;
+      }
+      [data-theme='cream'] button.link:hover {
+        color: var(--amber);
       }
       button.link:hover {
         text-decoration: underline;
@@ -149,18 +242,33 @@
         outline: 2px solid var(--violet);
         outline-offset: 2px;
       }
+      [data-theme='cream'] :focus-visible {
+        outline: 3px solid var(--face-from);
+        outline-offset: 3px;
+      }
       input[type='text'],
       textarea {
         width: 100%;
         padding: 7px 11px;
-        border: 1px solid var(--line);
+        border: var(--border-w) solid var(--line);
         border-radius: var(--r-ctl);
-        background: var(--ground);
+        background: var(--surface);
         color: var(--ink);
+        caret-color: var(--violet);
         font: 13.5px/1.5 var(--ui);
         transition:
           border-color 0.2s,
           box-shadow 0.2s;
+      }
+      [data-theme='cream'] input[type='text'],
+      [data-theme='cream'] textarea {
+        border-color: var(--shade-1);
+        box-shadow: var(--layers);
+      }
+      [data-theme='cream'] input[type='text']:focus,
+      [data-theme='cream'] textarea:focus {
+        border-color: var(--shade-1);
+        box-shadow: 0 0 0 3px var(--face-from), var(--layers-2);
       }
       textarea {
         min-height: 3.8em;
@@ -202,7 +310,17 @@
         transition: transform 0.35s var(--out);
       }
       input[type='checkbox']:checked {
-        background: var(--violet);
+        background: var(--primary);
+      }
+      [data-theme='cream'] input[type='checkbox'] {
+        background: var(--shade-2);
+      }
+      [data-theme='cream'] input[type='checkbox']:checked {
+        background: var(--face);
+      }
+      [data-theme='cream'] input[type='checkbox']::before {
+        background: var(--cream);
+        box-shadow: 1px 1.5px 0 var(--shade-1);
       }
       input[type='checkbox']:checked::before {
         transform: translateX(16px);
@@ -217,9 +335,10 @@
         flex: none;
         align-items: center;
         padding: 2px;
-        border: 1px solid var(--line);
+        border: var(--border-w) solid var(--line);
         border-radius: 999px;
-        background: var(--ground);
+        background: var(--surface);
+        box-shadow: var(--layers);
       }
       .seg button {
         padding: 3px 13px;
@@ -229,7 +348,7 @@
         color: var(--ink-2);
       }
       .seg button[aria-pressed='true'] {
-        background: var(--violet);
+        background: var(--primary);
         color: var(--on-violet);
       }
       .seg b {
@@ -296,7 +415,7 @@
         padding: 22px 12px 16px;
         overflow-y: auto;
         background: var(--rail);
-        border-right: 1px solid var(--line);
+        border-right: var(--border-w) solid var(--line);
         user-select: none;
         scrollbar-width: none;
       }
@@ -323,7 +442,17 @@
       }
       .brand b {
         display: block;
-        font: 400 22px/1.15 var(--hand);
+        font: var(--hand-w) 22px/1.15 var(--hand);
+      }
+      [data-theme='cream'] .brand b {
+        font-weight: 800;
+        font-size: 19px;
+        letter-spacing: -0.01em;
+        background: var(--face);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(1px 1px 0 var(--shade-2));
       }
       .brand small {
         display: block;
@@ -346,13 +475,20 @@
         border: 0;
         border-radius: 9px;
         background: none;
-        font: 400 16px/1 var(--hand);
+        font: var(--hand-w) 16px/1 var(--hand);
         color: var(--ink-2);
         text-align: left;
+        transition: color 0.3s;
       }
-      .nav button:hover,
-      .nav button[aria-current='page'] {
+      [data-theme='cream'] .nav button {
+        font-size: 14.5px;
+        font-weight: 500;
+      }
+      .nav button:hover {
         color: var(--ink);
+      }
+      .nav > button[aria-current='page'] {
+        color: var(--on-violet);
       }
       .nav button:active {
         transform: none;
@@ -367,13 +503,41 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .nav [aria-current='page'] svg {
-        color: var(--violet);
+      [data-theme='cream'] .nav > button[aria-current='page'] svg {
+        color: var(--amber);
       }
       .nav .count {
         margin-left: auto;
         font: 12px var(--ui);
         color: var(--ink-3);
+      }
+      .nav > button[aria-current='page'] .count {
+        color: inherit;
+        opacity: 0.75;
+      }
+      /* 渲染站.exe's window has no frame above: its top edge and corners, to size it by */
+      .grip i {
+        position: fixed;
+        z-index: 40;
+        top: 0;
+      }
+      .grip [data-edge='top'] {
+        left: 10px;
+        right: 10px;
+        height: 5px;
+        cursor: ns-resize;
+      }
+      .grip [data-edge='topleft'] {
+        left: 0;
+        width: 10px;
+        height: 10px;
+        cursor: nwse-resize;
+      }
+      .grip [data-edge='topright'] {
+        right: 0;
+        width: 10px;
+        height: 10px;
+        cursor: nesw-resize;
       }
       .badge {
         flex: none;
@@ -390,10 +554,16 @@
         right: 0;
         top: 0;
         height: 40px;
-        border: 1px solid var(--line);
+        border: var(--border-w) solid transparent;
         border-radius: 9px;
-        background: var(--surface);
+        background: var(--violet);
         transition: transform 0.45s var(--out);
+      }
+      [data-theme='cream'] .slider {
+        border-color: var(--shade-1);
+        border-radius: var(--r-ctl);
+        background: var(--cream);
+        box-shadow: var(--layers-2);
       }
       /* the settings' pages, under 设置 while one is shown */
       .sub {
@@ -425,8 +595,12 @@
         color: var(--ink);
       }
       .nav .sub button[aria-current='page'] {
-        background: color-mix(in srgb, var(--violet) 10%, transparent);
+        background: color-mix(in srgb, var(--violet) 12%, transparent);
         color: var(--violet);
+      }
+      [data-theme='cream'] .nav .sub button[aria-current='page'] {
+        background: var(--shade-3);
+        color: var(--ink);
       }
       .rail-foot {
         display: grid;
@@ -509,7 +683,7 @@
       }
       .page-head h2 {
         margin: 0;
-        font: 400 26px/1.25 var(--hand);
+        font: var(--hand-w) 26px/1.25 var(--hand);
       }
       .page-head .sub-line {
         font-size: 12.5px;
@@ -534,16 +708,21 @@
       }
       .block-head h3 {
         margin: 0;
-        font: 400 18px/1.3 var(--hand);
+        font: var(--hand-w) 18px/1.3 var(--hand);
       }
       .block-head .sub-line {
         font-size: 12.5px;
         color: var(--ink-3);
       }
-      .panel {
-        background: var(--surface);
-        border: 1px solid var(--line);
-        border-radius: var(--r-panel);
+      /* a group of rows: ruled above and below, nothing boxed */
+      .rows,
+      .list,
+      .rules {
+        border-top: var(--border-w) solid var(--line);
+        border-bottom: var(--border-w) solid var(--line);
+      }
+      .list:empty {
+        display: none;
       }
       .hint {
         margin-top: 12px;
@@ -555,10 +734,9 @@
         color: var(--bad);
       }
       .empty {
-        padding: 30px 20px;
+        padding: 22px 0;
         font-size: 13px;
         color: var(--ink-3);
-        text-align: center;
       }
 
       /* ——— 总览: the state, in words as large as the page has, and the frames as they are made ——— */
@@ -571,13 +749,13 @@
       }
       .state-word {
         margin: 0;
-        font: 400 46px/1.15 var(--hand);
+        font: var(--hand-w) 46px/1.15 var(--hand);
         color: var(--state);
         transition: color 0.5s;
       }
       .state-what {
         margin: 4px 0 0;
-        font: 400 19px/1.45 var(--hand);
+        font: var(--hand-w2) 19px/1.45 var(--hand);
         overflow-wrap: anywhere;
       }
       .state-detail {
@@ -668,9 +846,9 @@
         gap: 10px 16px;
         margin-top: 22px;
         padding: 12px 16px;
-        border: 1px solid color-mix(in srgb, var(--wait) 40%, var(--line));
-        border-radius: var(--r-panel);
-        background: color-mix(in srgb, var(--wait) 9%, var(--surface));
+        border-left: 3px solid var(--wait);
+        border-radius: 4px var(--r-ctl) var(--r-ctl) 4px;
+        background: color-mix(in srgb, var(--wait) 11%, transparent);
       }
       .notice p {
         flex: 1 1 260px;
@@ -698,6 +876,25 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      [data-theme='cream'] .state-word {
+        background: var(--face);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(1.5px 1.5px 0 var(--shade-1)) drop-shadow(1.5px 1.5px 0 var(--shade-2)) drop-shadow(1.5px 1.5px 0 var(--shade-3));
+      }
+      [data-theme='cream'] body:is([data-mode='auth'], [data-mode='gone']) .state-word {
+        background: none;
+        color: var(--bad);
+      }
+      [data-theme='cream'] body:is([data-mode='off'], [data-mode='unset']) .state-word {
+        background: none;
+        color: var(--ink-2);
+      }
+      /* 梅紫: the overview's top tinted with the state, for as long as it lasts */
+      :root:not([data-theme='cream']) body[data-page='home'] .main {
+        background: linear-gradient(to bottom, color-mix(in srgb, var(--state) 10%, transparent), transparent 380px) local no-repeat;
+      }
       .figure b {
         display: block;
         font: 500 22px/1.35 var(--ui);
@@ -713,7 +910,8 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px 20px;
-        padding: 13px 18px;
+        padding: 14px 0;
+        border-top: var(--border-w) solid var(--line);
         border-bottom: 1px solid var(--line-2);
       }
       .machine-row label {
@@ -727,16 +925,13 @@
       .charts {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 4px 28px;
       }
       .chart {
         position: relative;
         min-width: 0;
-        padding: 13px 16px 0;
+        padding-top: 12px;
         overflow: hidden;
-        border-left: 1px solid var(--line-2);
-      }
-      .chart:first-child {
-        border-left: 0;
       }
       .chart span {
         display: block;
@@ -750,8 +945,8 @@
       }
       .chart small {
         position: absolute;
-        right: 16px;
-        top: 14px;
+        right: 0;
+        top: 13px;
         max-width: 58%;
         font-size: 11px;
         color: var(--ink-3);
@@ -761,9 +956,10 @@
       }
       .chart svg {
         display: block;
-        width: calc(100% + 32px);
+        width: 100%;
         height: 56px;
-        margin: 4px -16px 0;
+        margin-top: 4px;
+        overflow: visible;
       }
       .chart .line {
         fill: none;
@@ -783,6 +979,12 @@
       .c-gpu {
         --tone: var(--wait);
       }
+      [data-theme='cream'] .c-cpu {
+        --tone: var(--busy);
+      }
+      [data-theme='cream'] .c-gpu {
+        --tone: var(--ink-2);
+      }
       /* the jobs */
       ol,
       ul {
@@ -798,15 +1000,14 @@
         grid-template-columns: 3.2em minmax(0, 1fr) auto auto auto;
         align-items: center;
         gap: 14px;
-        padding: 12px 18px;
+        margin: 0 -12px;
+        padding: 12px;
+        border-radius: var(--r-ctl);
         cursor: pointer;
         transition: background-color 0.2s;
       }
       .job:hover {
-        background: color-mix(in srgb, var(--sunk) 55%, transparent);
-      }
-      .list > li:first-child .job {
-        border-radius: var(--r-panel) var(--r-panel) 0 0;
+        background: var(--sunk);
       }
       .job:focus-visible {
         outline-offset: -2px;
@@ -818,7 +1019,7 @@
       }
       .job .what {
         min-width: 0;
-        font: 15px/1.45 var(--hand);
+        font: var(--hand-w2) 15px/1.45 var(--hand);
         overflow-wrap: anywhere;
       }
       .job.live {
@@ -870,7 +1071,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin: 0 18px 10px;
+        margin: 2px 0 10px;
       }
       .acts button {
         padding: 2px 12px;
@@ -879,7 +1080,7 @@
       }
       pre.out {
         max-height: 240px;
-        margin: 0 18px 14px;
+        margin: 0 0 14px;
         padding: 10px 12px;
         overflow: auto;
         border-radius: var(--r-ctl);
@@ -908,7 +1109,7 @@
         margin-bottom: 10px;
       }
       .group-head b {
-        font: 400 17px/1.3 var(--hand);
+        font: var(--hand-w) 17px/1.3 var(--hand);
       }
       .group-head span {
         font-size: 12px;
@@ -919,13 +1120,17 @@
         grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
         gap: 10px;
       }
+      [data-theme='cream'] .tile {
+        border-color: var(--shade-1);
+        box-shadow: var(--layers);
+      }
       .tile {
         position: relative;
         display: block;
         aspect-ratio: 16 / 9;
         padding: 0;
         overflow: hidden;
-        border: 1px solid var(--line);
+        border: var(--border-w) solid var(--line);
         border-radius: 10px;
         background: var(--sunk);
         transition: border-color 0.25s;
@@ -1131,6 +1336,8 @@
         min-height: 300px;
         overflow: auto;
         padding: 14px 18px;
+        border-radius: var(--r-panel);
+        background: var(--sunk);
         font-size: 13px;
         line-height: 1.65;
         scrollbar-width: thin;
@@ -1203,7 +1410,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px 20px;
-        padding: 14px 18px;
+        padding: 15px 0;
       }
       label.row {
         cursor: pointer;
@@ -1236,7 +1443,7 @@
       .fields {
         display: grid;
         gap: 14px;
-        padding: 16px 18px;
+        padding: 6px 0 16px;
       }
       .field {
         display: grid;
@@ -1278,8 +1485,11 @@
         display: none;
       }
       /* a workspace: its name, path and how it is, opened to its settings */
-      .wsc + .wsc {
-        margin-top: 10px;
+      .wsc {
+        border-bottom: 1px solid var(--line-2);
+      }
+      #ws-list {
+        border-top: var(--border-w) solid var(--line);
       }
       .wsc-head {
         display: grid;
@@ -1287,9 +1497,9 @@
         align-items: center;
         gap: 14px;
         width: 100%;
-        padding: 13px 18px;
+        padding: 14px 0;
         border: 0;
-        border-radius: var(--r-panel);
+        border-radius: 0;
         background: none;
         text-align: left;
       }
@@ -1298,7 +1508,7 @@
       }
       .wsc-head b {
         display: block;
-        font: 400 18px/1.3 var(--hand);
+        font: var(--hand-w) 18px/1.3 var(--hand);
       }
       .wsc-head small {
         display: block;
@@ -1320,7 +1530,9 @@
         transform: rotate(90deg);
       }
       .wsc-body {
-        border-top: 1px solid var(--line-2);
+        padding-left: 14px;
+        border-left: 2px solid var(--line);
+        margin-bottom: 14px;
       }
       .wsc .switch-field {
         display: flex;
@@ -1358,23 +1570,13 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 10px 18px 14px;
+        padding: 0 0 4px;
       }
       .add-panel {
-        margin-top: 10px;
-        border-style: dashed;
-        background: transparent;
+        margin-top: 16px;
       }
       .add-panel > button {
-        width: 100%;
-        padding: 13px 18px;
-        border: 0;
-        background: none;
-        color: var(--violet);
-        text-align: left;
-      }
-      .add-panel .fields {
-        border-top: 1px dashed var(--line);
+        margin-bottom: 4px;
       }
       .add-panel .acts {
         margin: 0;
@@ -1384,7 +1586,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 14px;
-        padding: 11px 18px;
+        padding: 11px 0;
       }
       .rules li + li {
         border-top: 1px solid var(--line-2);
@@ -1415,12 +1617,20 @@
       dialog.review::backdrop {
         background: rgb(16 12 22 / 0.48);
       }
+      [data-theme='cream'] dialog.review {
+        border: 1.5px solid var(--shade-1);
+        border-radius: 18px;
+        box-shadow: 6px 8px 0 var(--shade-2), 12px 16px 0 var(--shade-3);
+      }
+      [data-theme='cream'] dialog.review::backdrop {
+        background: rgb(68 64 60 / 0.22);
+      }
       .review header {
         padding: 20px 22px 0;
       }
       .review h3 {
         margin: 0;
-        font: 400 21px/1.3 var(--hand);
+        font: var(--hand-w) 21px/1.3 var(--hand);
       }
       .review .from {
         font-size: 12.5px;
@@ -1587,6 +1797,7 @@
     </style>
   </head>
   <body data-mode="connecting">
+    <div class="grip" id="grip" hidden><i data-edge="top"></i><i data-edge="topleft"></i><i data-edge="topright"></i></div>
     <div class="titlebar" id="titlebar" hidden>
       <div class="drag" id="drag"></div>
       <button type="button" class="tb" id="tb-min" aria-label="最小化"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>
@@ -1740,7 +1951,7 @@
           <p class="hint">修改后自动保存，并重新连接。<span class="status" id="ssh-status" role="status"></span></p>
           <section class="block">
             <div class="block-head"><h3>隧道</h3></div>
-            <div class="panel">
+            <div class="rows">
               <div class="row">
                 <div class="text"><b id="tun-state"></b><small id="tun-detail"></small></div>
                 <div class="ctl"><button type="button" id="tun-reconnect">重新连接</button><button type="button" id="tun-toggle">暂停接收任务</button></div>
@@ -1780,7 +1991,7 @@
           <div class="tabs-narrow"></div>
           <div class="page-head"><h2>权限与审批</h2></div>
           <p class="lede">服务器的哪些请求可以直接执行，哪些须在本机批准。等待审批的请求会在窗口中弹出，托盘图标也会弹出通知。</p>
-          <div class="panel">
+          <div class="rows">
             <div class="row">
               <div class="text"><b>服务器管理工作区</b><small id="manage-hint"></small><small class="err" id="manage-error" role="alert"></small></div>
               <div class="ctl">
@@ -1790,7 +2001,7 @@
           </div>
           <section class="block">
             <div class="block-head"><h3>Shell 任务</h3><span class="sub-line" id="shell-mode"></span></div>
-            <div class="panel rows">
+            <div class="rows">
               <label class="row">
                 <span class="text"><b>允许接收 Shell 任务</b><small>开启后为 auto 模式：工作目录限定在工作区内；完整命令和工作目录都与白名单中的某条一致时自动执行，其余请求须在本机批准。</small></span>
                 <input type="checkbox" id="shell-enabled" role="switch" />
@@ -1814,7 +2025,13 @@
           <div class="tabs-narrow"></div>
           <div class="page-head"><h2>本机</h2></div>
           <p class="lede">这台电脑上的渲染站怎么运行。「以管理员身份运行」在「总览」页的「本机」中设置。</p>
-          <div class="panel rows">
+          <div class="rows">
+            <div class="row">
+              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色，随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
+              <div class="ctl">
+                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="cream">奶白</button></span>
+              </div>
+            </div>
             <div class="row">
               <div class="text"><b>同时运行的任务数</b><small>超出的任务排队等候。同一工作区的预设任务默认一次只运行一个，工作区可在 render-station.json 中用 parallel 放宽。</small></div>
               <div class="ctl">
@@ -1837,7 +2054,7 @@
           <div class="tabs-narrow"></div>
           <div class="page-head"><h2>更新与关于</h2></div>
           <p class="lede">渲染站让服务器上的 agent 把高负载任务交给这台电脑运行。</p>
-          <div class="panel rows">
+          <div class="rows">
             <label class="row">
               <span class="text"><b>自动更新</b><small id="u-hint">有新版本时自动下载并安装</small></span>
               <input type="checkbox" id="autoupdate" role="switch" />
@@ -2041,6 +2258,7 @@
           else b.removeAttribute('aria-current');
         }
         $('#sub').classList.toggle('open', inSettings);
+        document.body.dataset.page = name;
         placeSlider();
         // once the list under 设置 has opened or closed
         setTimeout(placeSlider, 360);
@@ -2854,6 +3072,7 @@
 
       // ——— 设置 · 本机, and 更新与关于 ———
       function renderMachine() {
+        for (const b of document.querySelectorAll('[data-theme-name]')) b.setAttribute('aria-pressed', b.dataset.themeName === (S.theme === 'cream' ? 'cream' : 'plum'));
         set('par-n', String(S.parallel));
         $('#par-dec').disabled = S.parallel <= 1;
         $('#par-inc').disabled = S.parallel >= 16;
@@ -2877,6 +3096,7 @@
         set('log-path', S.paths?.log ?? '');
         $('#log-open').hidden = !host;
       }
+      for (const b of document.querySelectorAll('[data-theme-name]')) b.addEventListener('click', () => post('/theme', { name: b.dataset.themeName }));
       $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
       $('#par-inc').addEventListener('click', () => post('/parallel', { n: S.parallel + 1 }));
       // applied at once; not set back by the state while the change is on its way
@@ -2956,9 +3176,19 @@
         shellPost('decide', { id: S.shell.pending?.id, action: 'deny' });
       });
 
+      /** the look the settings name, kept for the next time the page is drawn */
+      function applyTheme() {
+        const theme = S.theme === 'cream' ? 'cream' : 'plum';
+        if (document.documentElement.dataset.theme === theme) return;
+        document.documentElement.dataset.theme = theme;
+        try {
+          localStorage.setItem('station-theme', theme);
+        } catch {}
+      }
       function render(s) {
         if (s) S = s;
         if (!S) return;
+        applyTheme();
         // the page changed on disk (an update): this one again, as it is now
         if (page0 == null) page0 = S.page;
         else if (S.page && S.page !== page0) return location.reload();
@@ -2996,6 +3226,12 @@
           area.addEventListener('mousedown', (e) => {
             if (e.button === 0 && !e.target.closest('button, input, a, label')) host.postMessage('drag');
           });
+        // its top edge and corners: sized by, as by a frame's
+        $('#grip').hidden = false;
+        for (const edge of document.querySelectorAll('[data-edge]'))
+          edge.addEventListener('mousedown', (e) => {
+            if (e.button === 0) host.postMessage(`size\t${edge.dataset.edge}`);
+          });
         $('#tb-min').addEventListener('click', () => host.postMessage('min'));
         $('#tb-max').addEventListener('click', () => host.postMessage('max'));
         $('#tb-close').addEventListener('click', () => host.postMessage('close'));
@@ -3005,12 +3241,14 @@
           if (what === 'window') {
             // maximized: the button restores, and shows it
             $('#tb-max').setAttribute('aria-label', how === 'max' ? '向下还原' : '最大化');
+            $('#grip').hidden = how === 'max';
             $('#tb-max-icon').setAttribute('d', how === 'max' ? 'M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z' : 'M0.5 0.5h9v9h-9z');
           } else if (what === 'elevate') {
             // why it did not start again as administrator
             const text = {
               cancelled: '已取消：在「用户账户控制」窗口中选择「是」，渲染站才能以管理员身份重新启动。',
               busy: '渲染站会重新启动。请在没有任务运行时操作。',
+              try: '这是试运行的窗口，不能以管理员身份重新启动。',
               error: `无法以管理员身份重新启动（错误代码 ${code}）。`,
             }[how];
             set('elevate-error', text ?? '');

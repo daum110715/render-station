@@ -273,6 +273,7 @@ When enabled, the station checks one minute after starting and every 30 minutes 
 - Started without administrator rights, it asks for them through User Account Control (`runas`) and leaves the rest to the copy so started, unless `.tools\remote\no-elevate` exists (以管理员身份运行 turned off); if the answer is no, it goes on with normal rights. A restart after an update keeps the rights it had without asking again. Run as administrator, it still takes the messages of processes without those rights: a second start opening the window, the installer asking it to quit, and Explorer's.
 - The window's position, size and maximized state are kept in the registry under `HKCU\Software\render-station`; uninstalling removes them.
 - `渲染站.exe --uninstall` uninstalls a copy the installer installed; Windows' Installed apps runs it.
+- `渲染站.exe --try` is a trial: beside the running station, a new build's window on the same page, with a tray icon of its own to open the window again or end the trial. It starts no background process, changes neither autostart nor the shortcuts, and asks for no administrator rights; its log and WebView2 data are in `%LOCALAPPDATA%\render-station\try\`. Starting a trial again has the previous one quit first; a trial ends by itself 5 minutes after its window is closed.
 
 ## Running without the tray program
 
@@ -294,8 +295,10 @@ Run this way, there is no approval interface, so only presets run, and the serve
 ## Development
 
 - Tests: `node --test`.
-- Build `渲染站.exe`: `node exe/build.mjs`. It cross-compiles on Linux into the repository root and needs mingw-w64 (`x86_64-w64-mingw32-gcc`) and the WebView2 SDK (the NuGet package `Microsoft.Web.WebView2`) unpacked in `.tools/webview2/`.
-- It also builds the installer's program, `.tools/exe-build/setup.exe`.
+- Build `渲染站.exe`: `node exe/build.mjs`. It gathers the sources, the resources, the icons and the WebView2 SDK's header and `WebView2Loader.dll` (the SDK is the NuGet package `Microsoft.Web.WebView2`, unpacked in `.tools/webview2/`) in `.tools/exe-build/`, and `exe/compile.mjs` compiles them into the repository root. It also builds the installer's program, `.tools/exe-build/setup.exe`.
+  - When the device is reached and set up for it, it compiles there, with the preset `render-station/exe`; otherwise here, with mingw-w64 (`x86_64-w64-mingw32-gcc`). `--local` always compiles here.
+  - Setting up the device: register the station's own installed folder as the workspace `render-station` (its `render-station.json` offers the preset) and set its `MINGW` to mingw-w64's `bin` folder, such as [w64devkit](https://github.com/skeeto/w64devkit)'s `w64devkit\bin`. The preset compiles what it is brought and runs none of it.
+  - `node exe/build.mjs --try`: compiled on the device, the new `渲染站.exe` is started there with `--try` by a Shell job, which the owner approves on the device.
 - After changing anything in `exe/`, rebuild and commit `渲染站.exe` together with the sources.
 
 ### Releasing
@@ -320,7 +323,8 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 | `station.html` | The station's window. |
 | `渲染站.exe` | The built tray program. |
 | `WebView2Loader.dll` | The WebView2 loader the tray program's window needs. |
-| `exe/` | The tray program's sources (`station.c`, `station.rc`, `station.manifest`), the installer's (`setup.c`, `setup.rc`), `common.h` shared by both, and the build script `build.mjs`. |
+| `exe/` | The tray program's sources (`station.c`, `station.rc`, `station.manifest`), the installer's (`setup.c`, `setup.rc`), `common.h` shared by both, and the build scripts: `build.mjs` gathers the files and chooses where to compile, `compile.mjs` runs mingw-w64. |
+| `render-station.json` | The station's own workspace file: with its installed folder registered as a workspace, it offers the preset `exe`, which compiles `渲染站.exe` on the device. |
 | `release/` | Release scripts: `build.mjs` packs and signs, `publish.mjs` uploads to the update server. |
 | `*.test.mjs` | Tests. |
 | `release.json` | Only in an installed copy: the signed manifest of its version. |
