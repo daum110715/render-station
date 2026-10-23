@@ -14,6 +14,10 @@
 // when the station has updated it, the copy starts the checkout's again (--after) and goes. In a
 // copy the installer put in place (release.json beside it) it runs the Node.js that came with it
 // (node\node.exe), and --uninstall removes that copy and all the station told Windows.
+// 以管理员身份运行 (the settings' switch, by the page's word): a task in Task Scheduler that starts it
+// with the highest rights, made once with Windows' User Account Control asking, and the file
+// .tools\remote\elevate in the checkout to say so; started without those rights, it starts that task
+// instead, so nothing asks again.
 // Built on Linux with mingw-w64: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
@@ -43,10 +47,14 @@
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
 #define TITLE L"渲染站"
+// the task in Task Scheduler that starts it as administrator
+#define ELEVATE_TASK L"RenderStation"
 enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_BROWSER, CMD_LOG, CMD_QUIT };
 // the window's timers, and its word to itself to give up on WebView2
 enum { TIMER_RETRY = 2, TIMER_WATCH };
 #define WM_GIVE_UP (WM_APP + 2)
+// the page's word to run as administrator, or not (wParam 1 or 0)
+#define WM_ELEVATE (WM_APP + 3)
 // the icons, as station.rc numbers them less one
 enum { ICON_BUSY, ICON_IDLE, ICON_WAIT, ICON_BAD, ICON_OFF, ICONS };
 
@@ -62,6 +70,7 @@ static wchar_t exePath[MAX_PATH], exeDir[MAX_PATH], repo[MAX_PATH], nodePath[MAX
 // the checkout's 渲染站.exe: what the shortcuts and starting with Windows start
 static wchar_t launcher[MAX_PATH];
 static void again(void);
+static void setElevated(int on);
 
 static HANDLE job, node;
 static ULONGLONG startedAt, shownAt;
@@ -278,6 +287,9 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
     reveal(s + 5, 1);
   else if (!wcscmp(s, L"browser"))
     ShellExecuteW(NULL, L"open", L"http://127.0.0.1:7799/", NULL, NULL, SW_SHOWNORMAL);
+  else if (!wcsncmp(s, L"elevate\t", 8))
+    // once this has returned: it may wait for User Account Control, and close the window
+    PostMessageW(hwnd, WM_ELEVATE, s[8] == L'1', 0);
   CoTaskMemFree(s);
   return S_OK;
 }
@@ -525,6 +537,159 @@ static void keep(int autostart, int shortcut) {
   }
 }
 
+// ——— as administrator: the task that starts it so, and the mark that says to use it ———
+static int elevated(void) {
+  HANDLE t;
+  TOKEN_ELEVATION e = { 0 };
+  DWORD n = 0;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &t)) return 0;
+  GetTokenInformation(t, TokenElevation, &e, sizeof e, &n);
+  CloseHandle(t);
+  return e.TokenIsElevated != 0;
+}
+static int elevateMarked(const wchar_t *dir) {
+  wchar_t mark[MAX_PATH + 48];
+  FMT(mark, L"%ls\\.tools\\remote\\elevate", dir);
+  return isFile(mark);
+}
+static void schtasksPath(wchar_t *file) {
+  wchar_t sys[MAX_PATH];
+  GetSystemDirectoryW(sys, MAX_PATH);
+  _snwprintf(file, MAX_PATH + 31, L"%ls\\schtasks.exe", sys);
+  file[MAX_PATH + 31] = 0;
+}
+/** schtasks with these arguments, with no window: its exit code, or -1 */
+static int schtasks(const wchar_t *args) {
+  wchar_t file[MAX_PATH + 32], cmd[MAX_PATH * 3];
+  schtasksPath(file);
+  FMT(cmd, L"\"%ls\" %ls", file, args);
+  STARTUPINFOW si = { sizeof si };
+  PROCESS_INFORMATION pi;
+  if (!CreateProcessW(file, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return -1;
+  CloseHandle(pi.hThread);
+  WaitForSingleObject(pi.hProcess, 15000);
+  DWORD code = (DWORD)-1;
+  GetExitCodeProcess(pi.hProcess, &code);
+  CloseHandle(pi.hProcess);
+  return (int)code;
+}
+/** the same as administrator: at once if this is one, else once User Account Control has asked
+ *  (over the window); 1223 if the owner said no */
+static int schtasksAdmin(const wchar_t *args) {
+  if (elevated()) return schtasks(args);
+  wchar_t file[MAX_PATH + 32];
+  schtasksPath(file);
+  SHELLEXECUTEINFOW se = { sizeof se };
+  se.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+  se.hwnd = frame ? frame : hwnd;
+  se.lpVerb = L"runas";
+  se.lpFile = file;
+  se.lpParameters = args;
+  se.nShow = SW_HIDE;
+  if (!ShellExecuteExW(&se)) return GetLastError() == ERROR_CANCELLED ? 1223 : -1;
+  DWORD code = (DWORD)-1;
+  if (se.hProcess) {
+    WaitForSingleObject(se.hProcess, 15000);
+    GetExitCodeProcess(se.hProcess, &code);
+    CloseHandle(se.hProcess);
+  }
+  return (int)code;
+}
+/** text as XML has it */
+static void xmlText(wchar_t *out, int cap, const wchar_t *s) {
+  int n = 0;
+  for (; *s && n < cap - 7; s++) {
+    const wchar_t *as = *s == L'&' ? L"&amp;" : *s == L'<' ? L"&lt;" : *s == L'>' ? L"&gt;" : *s == L'"' ? L"&quot;" : NULL;
+    if (as)
+      for (; *as; as++) out[n++] = *as;
+    else
+      out[n++] = *s;
+  }
+  out[n] = 0;
+}
+/** the task, as Task Scheduler takes it (UTF-16): this account, the highest rights it has, no time
+ *  limit, a normal priority (a task's is lower), 渲染站.exe of the checkout quiet */
+static int writeTask(const wchar_t *path) {
+  wchar_t domain[128] = L"", name[128] = L"", user[260], who[600], command[MAX_PATH * 2], dir[MAX_PATH * 2];
+  GetEnvironmentVariableW(L"USERDOMAIN", domain, 128);
+  GetEnvironmentVariableW(L"USERNAME", name, 128);
+  FMT(user, L"%ls%ls%ls", domain, domain[0] ? L"\\" : L"", name);
+  xmlText(who, 600, user);
+  xmlText(command, MAX_PATH * 2, launcher);
+  xmlText(dir, MAX_PATH * 2, repo);
+  static wchar_t xml[8192];
+  FMT(xml,
+      L"\xfeff<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n"
+      L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
+      L"  <RegistrationInfo><Description>以管理员身份启动渲染站。由渲染站设置中的「以管理员身份运行」创建，关闭该设置时删除。</Description></RegistrationInfo>\r\n"
+      L"  <Principals><Principal id=\"Author\"><UserId>%ls</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n"
+      L"  <Settings><MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"
+      L"<AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>4</Priority></Settings>\r\n"
+      L"  <Actions Context=\"Author\"><Exec><Command>%ls</Command><Arguments>/quiet --task</Arguments><WorkingDirectory>%ls</WorkingDirectory></Exec></Actions>\r\n"
+      L"</Task>\r\n",
+      who, command, dir);
+  HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (f == INVALID_HANDLE_VALUE) return 0;
+  DWORD size = (DWORD)(wcslen(xml) * sizeof(wchar_t)), wrote = 0;
+  int ok = WriteFile(f, xml, size, &wrote, NULL) && wrote == size;
+  CloseHandle(f);
+  return ok;
+}
+static void toPage(const wchar_t *text) {
+  if (wv) ICoreWebView2_PostWebMessageAsString(wv, text);
+}
+/** the switch turned on: the task made, the mark left, and this started again through the task;
+ *  turned off: both gone (it runs as it is until it is next started). The page is told how it went
+ *  (elevate on, off, cancelled, busy, error <code>) */
+static void setElevated(int on) {
+  wchar_t mark[MAX_PATH + 48], args[MAX_PATH + 96], reply[64];
+  FMT(mark, L"%ls\\.tools\\remote\\elevate", repo);
+  int code;
+  if (on) {
+    if (!wcscmp(lastMode, L"busy")) return toPage(L"elevate\tbusy");
+    wchar_t xml[MAX_PATH + 48];
+    FMT(xml, L"%ls\\.tools\\remote\\elevate.xml", repo);
+    if (!writeTask(xml)) return toPage(L"elevate\terror\t-1");
+    FMT(args, L"/create /tn %ls /xml \"%ls\" /f", ELEVATE_TASK, xml);
+    code = schtasksAdmin(args);
+    DeleteFileW(xml);
+    if (!code) {
+      HANDLE f = CreateFileW(mark, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+      if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+      say(L"已开启以管理员身份运行：已在任务计划程序中创建任务 %ls", ELEVATE_TASK);
+      if (!elevated()) return again();
+      return toPage(L"elevate\ton");
+    }
+  } else {
+    FMT(args, L"/delete /tn %ls /f", ELEVATE_TASK);
+    code = schtasks(args);
+    if (code) code = schtasksAdmin(args);
+    // the task not there any more is as good as removed; only the owner's no keeps the mark
+    if (code != 1223) {
+      DeleteFileW(mark);
+      say(L"已关闭以管理员身份运行%ls", code ? L"（未能删除任务计划程序中的任务）" : L"：已删除任务计划程序中的任务");
+      return toPage(L"elevate\toff");
+    }
+  }
+  if (code == 1223) return toPage(L"elevate\tcancelled");
+  FMT(reply, L"elevate\terror\t%d", code);
+  toPage(reply);
+}
+/** a station started through the task: its window opened once its tray icon is there (its word
+ *  taken: it lets this, without its rights, say so) */
+static void openWhenUp(void) {
+  for (int i = 0; i < 150; i++) {
+    HWND other = FindWindowW(TRAY_CLASS, NULL);
+    if (other) {
+      DWORD pid = 0;
+      GetWindowThreadProcessId(other, &pid);
+      AllowSetForegroundWindow(pid);
+      if (PostMessageW(other, WM_COMMAND, CMD_OPEN, 0)) return;
+    }
+    Sleep(100);
+  }
+}
+
 // ——— station.mjs, kept running ———
 static void startStation(void) {
   // what the last one left behind (its ssh, a render) goes with it
@@ -685,6 +850,9 @@ static LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
   case WM_TIMER:
     tick();
     return 0;
+  case WM_ELEVATE:
+    setElevated((int)wp);
+    return 0;
   case WM_COMMAND:
     switch (LOWORD(wp)) {
     case CMD_OPEN:
@@ -781,6 +949,12 @@ static int uninstall(void) {
   link(CSIDL_DESKTOPDIRECTORY, 0);
   link(CSIDL_PROGRAMS, 0);
   RegDeleteTreeW(HKEY_CURRENT_USER, UNINSTALL_KEY);
+  // the task that started it as administrator (removing it may need User Account Control too)
+  if (elevateMarked(exeDir)) {
+    wchar_t args[64];
+    FMT(args, L"/delete /tn %ls /f", ELEVATE_TASK);
+    if (schtasks(args)) schtasksAdmin(args);
+  }
   wchar_t home[MAX_PATH + 32];
   if (GetEnvironmentVariableW(L"LOCALAPPDATA", home, MAX_PATH)) {
     wcsncat(home, L"\\render-station", MAX_PATH - wcslen(home) - 1);
@@ -847,7 +1021,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   (void)how;
   inst = hi;
   (void)args;
-  int argc = 0, quiet = 0, removing = 0, keepData = 0;
+  int argc = 0, quiet = 0, removing = 0, keepData = 0, fromTask = 0;
   DWORD after = 0, finishAfter = 0;
   const wchar_t *from = NULL, *finishing = NULL;
   wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -856,6 +1030,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
     else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
     else if (!wcscmp(argv[i], L"--uninstall")) removing = 1;
+    // started by the task: as it is, even if the task gave it no more rights (an account that is
+    // not an administrator's), rather than start the task again
+    else if (!wcscmp(argv[i], L"--task")) fromTask = 1;
     else if (!wcscmp(argv[i], L"--uninstall-finish") && i + 3 < argc) {
       finishing = argv[++i];
       keepData = argv[++i][0] == L'1';
@@ -887,7 +1064,19 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   int isCopy = home[0] && !_wcsicmp(exeDir, home);
   lstrcpynW(launcher, isCopy && from ? from : exePath, MAX_PATH);
   HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, TRAY_MUTEX);
-  if (!isCopy && home[0] && !running) {
+  // one running as administrator lets this see it is there, but no more
+  int there = running || GetLastError() == ERROR_ACCESS_DENIED;
+  // to run as administrator: through the task, which asks nothing (and its window opened, unless
+  // this was to be quiet); if the task will not start, as before
+  if (!isCopy && !there && !fromTask && elevateMarked(exeDir) && !elevated()) {
+    wchar_t args[64];
+    FMT(args, L"/run /tn %ls", ELEVATE_TASK);
+    if (schtasks(args) == 0) {
+      if (!quiet) openWhenUp();
+      return 0;
+    }
+  }
+  if (!isCopy && home[0] && !there) {
     wchar_t dll[MAX_PATH + 32], dllCopy[MAX_PATH + 32];
     CreateDirectoryW(home, NULL);
     FMT(copy, L"%ls\\渲染站.exe", home);
@@ -908,8 +1097,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     // could not: from here, as before
   }
   if (running) CloseHandle(running);
-  CreateMutexW(NULL, TRUE, TRAY_MUTEX);
-  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+  if (!CreateMutexW(NULL, TRUE, TRAY_MUTEX) || GetLastError() == ERROR_ALREADY_EXISTS) {
     // the one running opens its window, and may bring it to the front
     HWND other = FindWindowW(TRAY_CLASS, NULL);
     if (other && !quiet) {
@@ -973,6 +1161,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   RegisterClassW(&wc);
   hwnd = CreateWindowExW(0, wc.lpszClassName, TITLE, WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
   taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+  // as administrator, the words of those without its rights still taken: a second start's 打开渲染站,
+  // the installer's 退出, Explorer's
+  ChangeWindowMessageFilterEx(hwnd, WM_COMMAND, MSGFLT_ALLOW, NULL);
+  ChangeWindowMessageFilterEx(hwnd, WM_TRAY, MSGFLT_ALLOW, NULL);
+  ChangeWindowMessageFilterEx(hwnd, taskbarCreated, MSGFLT_ALLOW, NULL);
   addIcon();
   SetTimer(hwnd, 1, 2000, NULL);
   tick();

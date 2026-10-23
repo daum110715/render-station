@@ -13,7 +13,8 @@
 // the tray menu's 退出渲染站, as both stations number it
 #define TRAY_QUIT 6
 
-/** whether a station runs, this one or the old */
+/** whether a station runs, this one or the old (one running as administrator lets this see it is
+ *  there, but no more) */
 static inline int stationRunning(void) {
   const wchar_t *names[] = { TRAY_MUTEX, OLD_TRAY_MUTEX };
   for (int i = 0; i < 2; i++) {
@@ -22,6 +23,7 @@ static inline int stationRunning(void) {
       CloseHandle(m);
       return 1;
     }
+    if (GetLastError() == ERROR_ACCESS_DENIED) return 1;
   }
   return 0;
 }

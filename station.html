@@ -1171,7 +1171,8 @@
       div.switch {
         cursor: default;
       }
-      #manage-error {
+      #manage-error,
+      #elevate-error {
         font-size: 12.5px;
         color: var(--bad);
       }
@@ -1538,6 +1539,7 @@
               <div id="here">
                 <label class="switch"><span>登录 Windows 后自动启动<small>登录后在后台自动运行；可在任务管理器的「启动应用」中查看</small></span><input type="checkbox" id="autostart" role="switch" /></label>
                 <label class="switch" id="shortcut-row"><span>在桌面和开始菜单中创建「渲染站」快捷方式<small>双击快捷方式即可打开此窗口，不显示终端窗口</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
+                <label class="switch"><span>以管理员身份运行<small id="elevate-hint"></small><small id="elevate-error" role="alert"></small></span><input type="checkbox" id="elevate" role="switch" /></label>
               </div>
             </div>
           </form>
@@ -1688,7 +1690,7 @@
         $('#shell-enabled').checked = shell.mode !== 'disabled';
         $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
         $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto 模式' : '开启 YOLO';
-        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '如需开启 YOLO：请先退出渲染站，再右键选择「以管理员身份运行」（其他系统须以 root 运行）。';
+        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '如需开启 YOLO：请先在「本机」中开启「以管理员身份运行」，或退出渲染站后右键选择「以管理员身份运行」（其他系统须以 root 运行）。';
         const key = JSON.stringify(shell.rules);
         if (key !== shellRulesKey) {
           shellRulesKey = key;
@@ -1919,6 +1921,7 @@
         $('[name=target]').classList.toggle('missing', !S.config.ssh.target);
         $('#here').hidden = S.platform !== 'win32';
         $('#shortcut-row').hidden = !S.canShortcut;
+        renderElevate();
         for (const [id, on] of [
           ['autostart', S.autostart],
           ['shortcut', S.shortcut],
@@ -2508,6 +2511,57 @@
           await post(`/${id}`, { on: e.target.checked });
           flying.delete(id);
         });
+      // ——— as administrator: made so by 渲染站.exe, which asks Windows' User Account Control, so only
+      // in its window ———
+      let elevating = false;
+      function renderElevate() {
+        const e = S.elevate;
+        if (!elevating) $('#elevate').checked = e.on;
+        $('#elevate').disabled = !host || elevating;
+        set(
+          'elevate-hint',
+          !host
+            ? '只能在渲染站自己的窗口中更改，浏览器中无法更改。'
+            : e.on && e.admin
+              ? '渲染站正以管理员身份运行。预设任务和 Shell 命令都具有管理员权限。'
+              : e.on
+                ? '已开启，但渲染站当前未以管理员身份运行。请退出渲染站后重新打开；如仍未生效，请关闭后重新开启此项。'
+                : e.admin
+                  ? '已关闭。渲染站当前仍以管理员身份运行，退出后重新打开即恢复为普通权限。'
+                  : '开启后，渲染站及其运行的预设任务和 Shell 命令都具有管理员权限。开启时须在「用户账户控制」窗口中确认一次，此后启动不再询问。',
+        );
+      }
+      $('#elevate').addEventListener('change', (event) => {
+        const on = event.target.checked;
+        set('elevate-error', '');
+        if (on && (S.running.length || S.queued.length)) {
+          event.target.checked = false;
+          return set('elevate-error', '开启后渲染站将重新启动。请在没有任务运行或排队时开启。');
+        }
+        if (on && !confirm('开启后，渲染站将以管理员身份重新启动，此后运行的预设任务和 Shell 命令都具有管理员权限，能够修改系统设置和任意文件。接下来 Windows 将弹出「用户账户控制」窗口，请选择「是」。确定开启吗？')) {
+          event.target.checked = false;
+          return;
+        }
+        elevating = true;
+        renderElevate();
+        host.postMessage(`elevate\t${on ? 1 : 0}`);
+      });
+      // how it went, from 渲染站.exe (turned on, it starts the station again as administrator instead)
+      host?.addEventListener('message', (event) => {
+        const [what, how, code] = String(event.data).split('\t');
+        if (what !== 'elevate') return;
+        elevating = false;
+        const said = {
+          on: '',
+          off: '',
+          cancelled: '已取消：在「用户账户控制」窗口中选择「是」后才能开启或关闭。',
+          busy: '开启后渲染站将重新启动。请在没有任务运行时开启。',
+          error: `无法在任务计划程序中${$('#elevate').checked ? '创建' : '删除'}任务（错误代码 ${code}）。`,
+        }[how];
+        set('elevate-error', said ?? '');
+        if (how !== 'on' && how !== 'off') $('#elevate').checked = S.elevate.on;
+        renderElevate();
+      });
       $('#u-check').addEventListener('click', () => post('/update'));
       $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
       $('#reconnect').addEventListener('click', () => post('/reconnect'));

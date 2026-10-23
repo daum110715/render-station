@@ -96,6 +96,8 @@ The server can also add, change and remove workspaces with `rs workspace`, as fa
 - 同时运行的任务数 (Jobs at once): see "How it works".
 - 服务器管理工作区 (Server manages workspaces): what the server may do with `rs workspace` and `rs ls`. 关闭 (Off), it can neither change workspaces nor list folders; 需要审批 (Ask, the default), each change, and each folder listing outside the registered workspaces, must be approved in the device's window; 无需审批 (Allow), it does all of these directly.
 
+- 以管理员身份运行 (Run as administrator): off by default, and changed only in the station's own window. Turning it on needs no jobs running or waiting: Windows asks once through User Account Control, the station creates a task named `RenderStation` in Task Scheduler that starts `渲染站.exe` with the highest rights, and restarts through it. From then on, starting with Windows and the shortcuts go through that task, and Windows no longer asks. While it is on, presets and Shell commands run with administrator rights. Turning it off removes the task; the station keeps its rights until it is next started.
+
 These switches are on by default; turning one off undoes its effect:
 
 - 自动更新 (Automatic updates): see "Automatic updates".
@@ -230,7 +232,7 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 ### YOLO mode
 
-- To enable it: quit the running station; on Windows, right-click it and choose Run as administrator (elsewhere, run it as root); then turn on YOLO in the Settings page and confirm.
+- To enable it: run the station as administrator, either by turning on 以管理员身份运行 (see "This computer") or by quitting it and, on Windows, right-clicking it and choosing Run as administrator (elsewhere, run it as root); then turn on YOLO in the Settings page and confirm.
 - The station checks that its process has administrator rights; then any command and any working directory are allowed. With no workspace registered, working directories are relative to the user's home folder.
 - The mode is kept in memory only. Pausing, reconnecting or restarting returns to auto mode.
 
@@ -241,6 +243,7 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 - This is an authorization mechanism, not an operating-system sandbox. An approved command can read and write files with all the rights of the station's account; the directory check constrains only the initial working directory.
 - The allowlist records command text and does not pin the content of scripts the command uses. If a script changes, the same command still runs automatically.
 - Presets do not go through the Shell allowlist; for the trust they carry, see "Workspaces".
+- With 以管理员身份运行 on, the station and everything it runs have administrator rights, so a preset or an approved command can change system settings and any file. Only the device's window can turn it on, and Windows asks through User Account Control.
 - A pending command, workspace change or folder listing never takes effect after a denial, an approval timeout, or the submitter disconnecting.
 - Turning off Shell permissions or pausing refuses further jobs and cancels pending requests, waiting jobs and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
 - Mode changes, pending requests, manual decisions, executed commands, working directories, results, workspace changes and folders listed outside the workspaces are written to the device's `.tools/remote/station.log`.
@@ -264,7 +267,8 @@ When enabled, the station checks one minute after starting and every 30 minutes 
 - When started, it copies itself and `WebView2Loader.dll` to `%LOCALAPPDATA%\render-station\` and runs from there, so the installed (or repository) exe is never locked and updates can replace it.
 - Starts `station.mjs` in the background and restarts it whenever it exits, with the installed folder's `node\node.exe` if there is one, else the system's Node.js.
 - Puts the station, ssh and the jobs' processes in one job object, so they all end when it quits.
-- `渲染站.exe --uninstall` uninstalls a copy the installer installed; Windows' Installed apps runs it.
+- When `.tools\remote\elevate` exists (以管理员身份运行 is on), a start without administrator rights runs the Task Scheduler task `RenderStation` instead and opens the window of the station it starts. The task runs `渲染站.exe /quiet --task`, without a time limit and at normal priority.
+- `渲染站.exe --uninstall` uninstalls a copy the installer installed, together with the `RenderStation` task; Windows' Installed apps runs it.
 
 ## Running without the tray program
 
@@ -316,7 +320,7 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 | `release/` | Release scripts: `build.mjs` packs and signs, `publish.mjs` uploads to the update server. |
 | `*.test.mjs` | Tests. |
 | `release.json` | Only in an installed copy: the signed manifest of its version. |
-| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/jobs/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
+| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/elevate`, `remote/jobs/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
 
 ## License
 

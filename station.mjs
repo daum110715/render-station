@@ -141,6 +141,10 @@ function checkWorkspaces(list) {
   return out;
 }
 const shellToken = randomBytes(32).toString('hex');
+/** whether this runs as administrator, and whether the tray icon is to start it so (its file, made
+ *  and removed by 渲染站.exe as the settings' switch asks: exe/station.c) */
+const admin = isAdministrator();
+const ELEVATE = join(dir, 'elevate');
 /** the request awaiting approval the tray icon told of last, and those told of while any wait
  *  (askChanged) */
 let asking = null;
@@ -149,7 +153,7 @@ const shellGate = createShellGate({
   workspaces,
   policy: () => config.shell,
   save,
-  admin: isAdministrator(),
+  admin,
   changed: () => (askChanged(), push()),
   audit: (text) => note('shell', text),
 });
@@ -471,6 +475,7 @@ const view = () => ({
     missing: missingEnv(w),
   })),
   shell: shellGate.state(),
+  elevate: { on: win && existsSync(ELEVATE), admin },
   missing: lacking(),
   // what the tray icon is to keep: both, unless switched off
   autostart: config.autostart !== false,
@@ -897,7 +902,7 @@ ui.on('error', (e) => {
   throw e;
 });
 ui.listen(UI, '127.0.0.1', () => {
-  note('station', `渲染站已启动，窗口地址：http://127.0.0.1:${UI}`);
+  note('station', `渲染站已启动${admin ? '（以管理员身份运行）' : ''}，窗口地址：http://127.0.0.1:${UI}`);
   if (installed) clearOld(STAGE);
   // the one job folder of versions before jobs ran side by side
   rmSync(join(dir, 'job'), { recursive: true, force: true });
