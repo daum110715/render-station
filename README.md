@@ -20,7 +20,7 @@ The name comes from its first use: rendering a promotional video for qiqi.help. 
 ## How it works
 
 1. On the device, the station starts the worker and opens a reverse tunnel to the server: `ssh -N -R 77xx:127.0.0.1:7700 -p <port> <user>@<server>`. The server-side port starts at 7700. If a port is still held by a dead connection, the station tries the next one, up to 7709.
-2. On the server, `cli.mjs` probes these ports and submits the job to the worker that answers.
+2. On the server, the command-line tool `rs` (`cli.mjs`) probes these ports and submits the job to the worker that answers.
 3. There are two kinds of job:
    - **Preset jobs.** The caller brings the files the preset allows (for example a script and its input). The device runs the preset's command in a job folder of its own, `.tools/remote/jobs/<number>/`, and, on success, sends back the files in the preset's output folder.
    - **Shell jobs.** A command runs in a workspace, subject to local authorization on the device (see "Shell permissions").
@@ -30,7 +30,7 @@ The worker can run several jobs at once:
 
 - How many run at once is set on the device under 设置 → 本机 → 同时运行的任务数 (Settings → This computer → Jobs at once): 2 by default, 1–16.
 - A workspace's presets run one at a time by default, since they may use the same files; the workspace file can allow more with `parallel`. Shell jobs count only toward the total.
-- Jobs beyond the limit wait in the order they came; `cli.mjs` waits with them and says how many are ahead. A waiting job is cancelled if its submitter disconnects. At most 16 jobs can wait; beyond that, new jobs are refused.
+- Jobs beyond the limit wait in the order they came; `rs` waits with them and says how many are ahead. A waiting job is cancelled if its submitter disconnects. At most 16 jobs can wait; beyond that, new jobs are refused.
 
 ## Requirements
 
@@ -58,7 +58,7 @@ A checkout of this repository also runs as it is: clone it, run `npm install` in
 
 ### Server
 
-Cloning this repository is enough: `cli.mjs` has no package dependencies.
+Clone this repository and run `npm link` in it. This installs the commands `render-station` and `rs` (see "Command line"); without it, run `node cli.mjs` from the checkout instead.
 
 ### Migrating from the old location
 
@@ -87,14 +87,14 @@ Each workspace's presets are listed below it. The station rereads a workspace fi
 
 When a workspace is added, in the Settings page or by the server, and its folder still holds an old station's `.tools\remote\config.json`, the settings there that the workspace file's `env` declares and that are not yet filled in are imported.
 
-The server can also add, change and remove workspaces with `cli.mjs workspace`, as far as 服务器管理工作区 (Server manages workspaces) under "This computer" allows (see "Managing workspaces").
+The server can also add, change and remove workspaces with `rs workspace`, as far as 服务器管理工作区 (Server manages workspaces) under "This computer" allows (see "Command line").
 
 **Registering a workspace trusts its presets.** Presets run without approval. If a preset lets the caller upload a script and runs it, the caller can run any code on the device with the rights of the account the station runs under.
 
 ### This computer
 
 - 同时运行的任务数 (Jobs at once): see "How it works".
-- 服务器管理工作区 (Server manages workspaces): 关闭 (Off), the server cannot change workspaces; 需要审批 (Ask, the default), each change must be approved in the device's window; 无需审批 (Allow), the server changes them directly.
+- 服务器管理工作区 (Server manages workspaces): what the server may do with `rs workspace` and `rs ls`. 关闭 (Off), it can neither change workspaces nor list folders; 需要审批 (Ask, the default), each change, and each folder listing outside the registered workspaces, must be approved in the device's window; 无需审批 (Allow), it does all of these directly.
 
 These switches are on by default; turning one off undoes its effect:
 
@@ -153,7 +153,7 @@ The top-level `parallel` (1–16, default 1) sets how many of the workspace's pr
 | `cwd` | The working directory; defaults to `{workspace}`. |
 | `env` | Additional environment variables. |
 | `timeout` | Time limit in seconds, 1–86400; no limit when omitted. |
-| `description` | Shown in the Settings page and in `cli.mjs status`. |
+| `description` | Shown in the Settings page and by `rs status` and `rs presets`. |
 
 `command`, `cwd`, `env` and `collect` may use two placeholders: `{job}`, the job folder (`.tools/remote/jobs/<number>/` on the device, one per job, removed when it ends), and `{workspace}`, the workspace's path.
 
@@ -192,93 +192,30 @@ After the device wakes from sleep, loses the network, or the worker exits, the s
 
 While the tunnel is open, anyone who can log in to the server can run the device's presets. Pause the station (in the window or the tray menu) when it is not needed; pausing closes the tunnel.
 
-## Submitting jobs
+## Command line
 
-Run these on the server. `cli.mjs` finds the tunnel's port on its own; set `RENDER_STATION_PORT` to use only that port. For `run` and `shell`, options must come before the target (the preset or the command).
+On the server, `render-station` (short name `rs`) submits jobs and manages the device's workspaces. Install it with `npm link` in the checkout (see "Installation"). The full manual, with every option, the JSON output and the exit codes, is [docs/cli.md](docs/cli.md); `rs help <command>` shows the same in brief.
 
-```sh
-node cli.mjs status [--json]
-node cli.mjs run [--json] [--src <dir>] [--out <dir>] <workspace>/<preset> [args…]
-node cli.mjs shell [--json] [--workspace <name>] [--cwd <dir>] [--timeout <s>] <command…>
-node cli.mjs workspace add [--json] <name> <path> [--env NAME=value …]
-node cli.mjs workspace set [--json] <name> [--path <path>] [--env NAME=value …] [--unset NAME …]
-node cli.mjs workspace remove [--json] <name>
-```
-
-### Device status
-
-`status` shows whether the device is online, the jobs running and waiting, the Shell mode, whether the server may manage workspaces, and each workspace's presets and missing settings.
-
-### Preset jobs
-
-```sh
-cd /path/to/project
-node /path/to/render-station/cli.mjs run video/transcode --crf 23
-```
-
-- Everything after `<workspace>/<preset>` is passed to the preset as arguments.
-- `--src`: the folder the preset's `upload` globs are matched in; defaults to the current folder. Uploads may total at most 48 MB.
-- `--out`: where returned files are saved; defaults to `.tools/results/<time>/` in this repository. Returned files may total at most 128 MB.
-
-### Shell jobs
-
-```sh
-node cli.mjs shell 'node --version'
-node cli.mjs shell --workspace video --cwd input --timeout 600 'dir'
-```
-
-- `--workspace`: the workspace; defaults to the first one registered on the device.
-- `--cwd`: the working directory within the workspace; defaults to its root.
-- `--timeout`: time limit in seconds; default 600, maximum 7200.
-
-On Windows the command runs in a non-interactive PowerShell that loads no profile; elsewhere, in `/bin/sh`. It gets the workspace's environment variables. Shell jobs bring no files and can use only files already on the device. A command not on the allowlist waits for manual approval on the device, for up to 5 minutes.
-
-While the command runs, its output appears live on the Activity page. When it ends, the last 256 KiB of output and the exit code go back to the server. Commands are shown in the approval dialog and written to the log, so never put keys or passwords in them.
-
-### Managing workspaces
-
-```sh
-node cli.mjs workspace add video D:/projects/video --env FFMPEG=C:/ffmpeg/bin/ffmpeg.exe
-node cli.mjs workspace set video --env FFMPEG=D:/tools/ffmpeg.exe --unset OLD_SETTING
-node cli.mjs workspace remove video
-```
-
-- `<path>` is a full path on the device, such as `D:/projects/video`; quote it when it uses backslashes. `add` and `set --path` need the folder to exist.
-- `--env` and `--unset` may be repeated. In `set`, `--env NAME=` (an empty value) clears the setting, as `--unset NAME` does.
-- When a workspace is added, an old station's settings are imported (see "Workspaces").
-- While the device's 服务器管理工作区 is 需要审批 (Ask, the default), the change waits up to 5 minutes for approval in the device's window; while it is 关闭 (Off), the command is refused.
-- With `--json`, the output has `ok`, `action`, `workspace` (its `name`, `path`, `missing` and `presets` after the change; `null` after a removal), `imported` (the settings imported) and, on failure, `error`.
-
-Settings are shown in the approval dialog and written to the log, so never pass keys or passwords with `--env`.
-
-### JSON output
-
-With `--json`, `cli.mjs` prints one JSON object to standard output:
-
-| Field | Description |
+| Command | Purpose |
 |---|---|
-| `ok` | Whether the job succeeded. |
-| `exitCode` | The command's exit code; `null` if the command did not run. |
-| `kind` | `"preset"` or `"shell"`. |
-| `workspace`, `preset`, `args` | The preset job's workspace, preset and arguments. |
-| `command` | The Shell job's command. |
-| `seconds` | Elapsed time. |
-| `outDir`, `files` | The folder of the returned files and each file's path. |
-| `log` | The command's output (the last 256 KiB). |
-| `error` | Why the job failed; `null` on success. |
+| `rs status` | Whether the device is reached, the jobs running and waiting, and the workspaces. |
+| `rs presets [<workspace>]` | The presets and the arguments they take. |
+| `rs run <workspace>/<preset> [args…]` | Run a preset, bringing the files it takes from the current folder (`--src`), and save what it makes (`--out`). |
+| `rs shell <command…>` | Run a command in a workspace, as the Shell permissions allow. |
+| `rs workspace [list\|add\|set\|remove]` | List the workspaces, or change them; `--create` makes a missing folder. |
+| `rs ls [<path>]` | List a folder on the device, or its drives. |
 
-`status --json` prints the device's details: `online`, `platform`, `accepting`, `limit` (jobs at once), `running` (the jobs running), `queued` (how many wait), `shell` (the Shell mode), `manage` (`"off"`, `"ask"` or `"allow"`) and `workspaces` (each with `name`, `path`, `missing`, `parallel`, `presets`, and `error` if its file is invalid).
+```sh
+rs ls F:/
+rs ws add video F:/projects/video
+rs presets video
+rs run video/transcode --crf 23
+```
 
-### Exit status
-
-| Exit status | Meaning |
-|---|---|
-| The command's own | The command ran; 0 on success. |
-| 1 | The job failed before running, for example an argument the preset does not accept, or a denied approval; or a workspace change was refused. |
-| 2 | `cli.mjs` was used incorrectly. |
-| 3 | No worker answered, or it is paused, or its queue is full. |
-
-A command's own exit status can coincide with 1, 2 or 3; use `exitCode` in the `--json` output when the difference matters.
+- Every command takes `--json` and then prints one JSON object.
+- When the device already runs as many jobs as it allows, a job waits its turn; interrupting the command cancels it.
+- `rs workspace` changes and `rs ls` outside the registered workspaces depend on the device's 服务器管理工作区 (Server manages workspaces); by default each request waits up to 5 minutes for approval in the device's window. An approved folder stays open to `rs ls`, with everything under it, for 10 minutes.
+- Commands and settings passed to the device are shown in approval dialogs and written to its log; never put keys or passwords in them.
 
 ## Shell permissions
 
@@ -300,13 +237,13 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 ### Security boundaries
 
 - The job protocol has no way to change the allowlist or switch the Shell mode. These happen only in the device's Settings page; the server cannot turn on YOLO mode.
-- Whether the server may register, change or remove workspaces is up to 服务器管理工作区 on the device, which only the device can change. By default each change must be approved there. Set to 无需审批 (Allow), anyone who can log in to the server can register any folder and run its presets, which amounts to running any code.
+- Whether the server may register, change or remove workspaces, make folders for them, and list folders outside them is up to 服务器管理工作区 on the device, which only the device can change. By default each request must be approved there. Set to 无需审批 (Allow), anyone who can log in to the server can list any folder, register any folder and run its presets, which amounts to running any code. Listing shows names, sizes and times, never file contents.
 - This is an authorization mechanism, not an operating-system sandbox. An approved command can read and write files with all the rights of the station's account; the directory check constrains only the initial working directory.
 - The allowlist records command text and does not pin the content of scripts the command uses. If a script changes, the same command still runs automatically.
 - Presets do not go through the Shell allowlist; for the trust they carry, see "Workspaces".
-- A pending command or workspace change never takes effect after a denial, an approval timeout, or the submitter disconnecting.
+- A pending command, workspace change or folder listing never takes effect after a denial, an approval timeout, or the submitter disconnecting.
 - Turning off Shell permissions or pausing refuses further jobs and cancels pending requests, waiting jobs and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
-- Mode changes, pending requests, manual decisions, executed commands, working directories, results and workspace changes are written to the device's `.tools/remote/station.log`.
+- Mode changes, pending requests, manual decisions, executed commands, working directories, results, workspace changes and folders listed outside the workspaces are written to the device's `.tools/remote/station.log`.
 
 ## Automatic updates
 
@@ -338,7 +275,7 @@ node worker.mjs
 ssh -N -R 7700:127.0.0.1:7700 -p <port> <user>@<server>
 ```
 
-Run this way, there is no approval interface, so only presets run and the server cannot manage workspaces. How many jobs run at once is `parallel` in `config.json`, 2 by default.
+Run this way, there is no approval interface, so only presets run, and the server can neither manage workspaces nor list folders. How many jobs run at once is `parallel` in `config.json`, 2 by default.
 
 ## Known limitations
 
@@ -365,10 +302,11 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 
 | Path | Description |
 |---|---|
-| `cli.mjs` | The command-line tool for submitting jobs from the server. |
+| `cli.mjs` | The command-line tool on the server, installed as `render-station` and `rs`. |
+| `docs/` | The command-line manual (`cli.md`, `cli.zh-CN.md`). |
 | `update.mjs` | Updates of an installed copy: checking a release's signature, and fetching, checking and replacing files. |
-| `worker.mjs` | The worker: receives jobs, queues and runs them and returns the results; passes on the server's workspace changes. |
-| `workspace.mjs` | Reading and checking workspace files, globs, presets' commands and output, checking workspace changes, and importing old settings. |
+| `worker.mjs` | The worker: receives jobs, queues and runs them and returns the results; passes on the server's workspace changes and folder listings. |
+| `workspace.mjs` | Reading and checking workspace files, globs, presets' commands and output, checking workspace changes, importing old settings, and listing folders. |
 | `shell.mjs` | Approval, allowlist and execution of Shell jobs, and the approval queue. |
 | `station.mjs` | The station's background process: manages the worker, the tunnel and the settings, and serves the window at `127.0.0.1:7799`. |
 | `station.html` | The station's window. |

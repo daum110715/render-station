@@ -117,13 +117,15 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
       audit(`Shell 审批结果（${{ once: '仅本次允许', remember: '允许并加入白名单', deny: '拒绝' }[action]}）：${JSON.stringify(pending)}`);
       approvals.decide(id, action);
     },
-    async authorize(input, signal) {
+    /** a Shell job's request, allowed (`waiting()` once it waits for the owner's decision) */
+    async authorize(input, signal, waiting = () => {}) {
       if (!policy().enabled) throw new Error('Shell is disabled; enable it in the local station settings');
       if (signal?.aborted) throw new Error('request disconnected');
       const root = rootOf(input.workspace);
       const request = { ...shellRequest(input, root.path, yolo), workspace: root.name };
       let approval = yolo ? 'yolo' : (policy().rules ?? []).some((r) => matchesRule(r, request)) ? 'allowlist' : null;
       if (!approval) {
+        waiting();
         audit(`Shell 请求等待审批：${JSON.stringify(request)}`);
         const action = await approvals.ask(request, signal);
         if (!action || action === 'deny') throw new Error('Shell approval denied, expired or cancelled');

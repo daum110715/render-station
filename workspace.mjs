@@ -15,7 +15,7 @@
 // but not those `exclude` names (a glob with no '/' in it names a file in any folder). Registering a
 // workspace trusts its presets: what a job brings and runs has the account's rights.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export const FILE = 'render-station.json';
 /** what a workspace and a preset may be called */
@@ -146,17 +146,39 @@ export function adopt(entry, fallback = {}) {
 
 /** a path, as two of the same folder compare equal */
 export const samePath = (p, platform = process.platform) => (platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
-/** a folder of this machine's, as the server names it: in full, and there */
-function folder(path) {
-  if (typeof path !== 'string' || !path.trim() || !isAbsolute(path.trim())) throw new Error(`path: a full path on this machine${process.platform === 'win32' ? ', such as D:/projects/site' : ''}`);
-  const p = resolve(path.trim());
-  if (!existsSync(p) || !statSync(p).isDirectory()) throw new Error(`folder not found on this machine: ${p}`);
-  return p;
+/** whether `path` is `root` or lies under it */
+export function within(path, root) {
+  const rel = relative(root, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+/** a path on this machine as the server names it, in full (a drive alone, 'F:', is its root) */
+export function fullPath(path) {
+  const p = typeof path === 'string' ? path.trim().replace(/^([A-Za-z]:)$/, '$1/') : '';
+  if (!p || !isAbsolute(p)) throw new Error(`path: a full path on this machine${process.platform === 'win32' ? ', such as D:/projects/site' : ''}`);
+  return resolve(p);
+}
+/** a folder of this machine's, as the server names it: there, or with `create`, one that can be made
+ *  (on a drive that is there, with no file in its way); whether it is to be made */
+function folder(path, create = false) {
+  const p = fullPath(path);
+  if (existsSync(p)) {
+    if (!statSync(p).isDirectory()) throw new Error(`not a folder: ${p}`);
+    return { path: p, create: false };
+  }
+  if (!create) throw new Error(`folder not found on this machine: ${p} (to have it made, add --create)`);
+  let up = p;
+  while (!existsSync(up)) {
+    if (dirname(up) === up) throw new Error(`no such drive on this machine: ${up}`);
+    up = dirname(up);
+  }
+  if (!statSync(up).isDirectory()) throw new Error(`not a folder: ${up}`);
+  return { path: p, create: true };
 }
 /** a change the server asks of the workspaces (cli.mjs workspace: { action: 'add' | 'set' | 'remove',
- *  name, path, env, unset }), made to `list`, the settings' (left as it is): the list it leaves; the
- *  lines that say what it changes, for the owner; the keys a workspace added took from a station
- *  from before workspaces (adopt, with `fallback`); and the presets of the workspace's folder */
+ *  name, path, create, env, unset }), made to `list`, the settings' (left as it is): the list it
+ *  leaves; the lines that say what it changes, for the owner; the keys a workspace added took from a
+ *  station from before workspaces (adopt, with `fallback`); the presets of the workspace's folder; and
+ *  the folder to be made for it, if any (made by the caller, once the change is allowed) */
 export function changeWorkspaces(list, input, fallback = {}) {
   const { action, name } = input ?? {};
   if (!['add', 'set', 'remove'].includes(action)) throw new Error('action: add, set or remove');
@@ -165,17 +187,21 @@ export function changeWorkspaces(list, input, fallback = {}) {
   if (typeof env !== 'object' || Array.isArray(env) || Object.entries(env).some(([k, v]) => !KEY.test(k) || typeof v !== 'string' || v.length > 4096)) throw new Error('env: { NAME: text }');
   const unset = input.unset ?? [];
   if (!Array.isArray(unset) || unset.some((k) => typeof k !== 'string' || !KEY.test(k))) throw new Error('unset: a list of names');
+  if (input.create != null && typeof input.create !== 'boolean') throw new Error('create: true or false');
   const after = list.map((w) => ({ ...w, env: { ...w.env } }));
   const at = resolveWorkspaces(list).findIndex((w) => w.name === name);
   const lines = [];
   let imported = [];
   let entry = null;
+  let create = null;
+  const made = (f) => (f.create ? ((create = f.path), '（新建文件夹）') : '');
   if (action === 'add') {
     if (at >= 0) throw new Error(`a workspace "${name}" is already registered`);
-    entry = { name, path: folder(input.path), env: Object.fromEntries(Object.entries(env).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()])) };
+    const f = folder(input.path, input.create);
+    entry = { name, path: f.path, env: Object.fromEntries(Object.entries(env).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()])) };
     imported = adopt(entry, fallback);
     after.push(entry);
-    lines.push(`路径：${entry.path}`, ...Object.entries(entry.env).map(([k, v]) => `${k}：${v}${imported.includes(k) ? '（从旧版渲染站的设置中导入）' : ''}`));
+    lines.push(`路径：${entry.path}${made(f)}`, ...Object.entries(entry.env).map(([k, v]) => `${k}：${v}${imported.includes(k) ? '（从旧版渲染站的设置中导入）' : ''}`));
   } else if (at < 0) throw new Error(`no workspace "${name}" on this machine`);
   else if (action === 'remove') {
     lines.push(`路径：${after[at].path}`);
@@ -183,9 +209,9 @@ export function changeWorkspaces(list, input, fallback = {}) {
   } else {
     entry = after[at];
     if (input.path != null) {
-      const path = folder(input.path);
-      if (samePath(path) !== samePath(entry.path)) lines.push(`路径：${entry.path} → ${path}`);
-      entry.path = path;
+      const f = folder(input.path, input.create);
+      if (samePath(f.path) !== samePath(entry.path)) lines.push(`路径：${entry.path} → ${f.path}${made(f)}`);
+      entry.path = f.path;
     }
     for (const [k, v] of Object.entries(env)) {
       const was = entry.env[k];
@@ -205,7 +231,41 @@ export function changeWorkspaces(list, input, fallback = {}) {
   const names = resolveWorkspaces(after).map((w) => w.name);
   const twice = names.find((n, i) => names.indexOf(n) !== i);
   if (twice) throw new Error(`two workspaces would be named "${twice}"`);
-  return { list: after, lines, imported, presets: entry ? Object.keys(readSpec(entry.path).presets) : [] };
+  return { list: after, lines, imported, presets: entry ? Object.keys(readSpec(entry.path).presets) : [], create };
+}
+
+/** the drives of this machine (Windows), else its root */
+export const drives = (platform = process.platform) => (platform === 'win32' ? [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((l) => `${l}:\\`).filter((d) => existsSync(d)) : ['/']);
+/** what a folder of this machine's holds, for the server to look through (cli.mjs ls): each entry's
+ *  name, whether it is a folder, its size and when it last changed, but nothing of what is in it;
+ *  folders first, the first `max` of them, and how many more. `path` null: the drives */
+export function listFolder(path, max = 1000) {
+  if (path == null) return { path: null, entries: drives().map((name) => ({ name, type: 'folder', size: null, modified: null })), more: 0 };
+  const p = fullPath(path);
+  let found;
+  try {
+    found = readdirSync(p, { withFileTypes: true });
+  } catch (e) {
+    throw new Error({ ENOENT: `folder not found on this machine: ${p}`, ENOTDIR: `not a folder: ${p}`, EACCES: `not allowed to look into: ${p}`, EPERM: `not allowed to look into: ${p}` }[e.code] ?? e.message);
+  }
+  const stat = (name) => {
+    try {
+      return statSync(join(p, name));
+    } catch {
+      return null;
+    }
+  };
+  // a link (a junction, on Windows) is what it leads to
+  const entries = found.map((e) => ({ name: e.name, type: (e.isSymbolicLink() ? stat(e.name)?.isDirectory() : e.isDirectory()) ? 'folder' : 'file' }));
+  entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' }) : a.type === 'folder' ? -1 : 1));
+  return {
+    path: p,
+    entries: entries.slice(0, max).map((e) => {
+      const s = stat(e.name);
+      return { ...e, size: e.type === 'file' && s ? s.size : null, modified: s ? Math.round(s.mtimeMs) : null };
+    }),
+    more: Math.max(0, entries.length - max),
+  };
 }
 
 /** the settings a workspace's file asks for on this platform that it has not been given */

@@ -1,26 +1,11 @@
 #!/usr/bin/env node
 // On the server: hands jobs to the worker on the machine that does the heavy work (worker.mjs, kept
 // up there by the render station, with the reverse SSH tunnel it opens to here; it comes in on a
-// port from 7700 to 7709, or the one RENDER_STATION_PORT names).
-// usage: node cli.mjs status [--json]
-//        node cli.mjs run [--json] [--src <dir>] [--out <dir>] <workspace>/<preset> [args…]
-//        node cli.mjs shell [--json] [--workspace <name>] [--cwd <dir>] [--timeout <s>] <command…>
-//        node cli.mjs workspace add [--json] <name> <path> [--env NAME=value …]
-//        node cli.mjs workspace set [--json] <name> [--path <path>] [--env NAME=value …] [--unset NAME …]
-//        node cli.mjs workspace remove [--json] <name>
-// run: the preset's files to bring are taken from --src (default: the current folder), as its upload
-// globs name them; what comes back lands in --out (default: .tools/results/<time>/ here). Everything
-// after <workspace>/<preset> is the preset's arguments.
-// shell: the command runs in the workspace (default: the first registered); one the owner has not
-// allowed waits up to 5 minutes for their approval there.
-// A job the device cannot start yet, as many already run there, waits its turn; the command waits
-// with it, and says how many are ahead.
-// workspace: changes the workspaces registered on the device, as far as its owner lets the server;
-// unless they allow it outright, each change waits up to 5 minutes for their approval there. <path>:
-// a folder on the device, in full (D:/projects/site, or quoted: "D:\projects\site").
-// --json: one JSON object on stdout, the end of it all ({ ok, exitCode, …, error }).
-// Exit status: the job's own when it ran; 1 when it failed without running, or a workspace change
-// was refused; 2 for a usage error; 3 when no worker is reached, or it is paused or its queue full.
+// port from 7700 to 7709, or the one RENDER_STATION_PORT names). Installed as `render-station` and
+// `rs` (npm link); `rs help` says what each command does, docs/cli.md says it at length.
+// --json: one JSON object on stdout, the end of it all ({ ok, …, error }).
+// Exit status: the job's own when it ran; 1 when it failed without running, or a request was
+// refused; 2 for a usage error; 3 when no worker is reached, or it is paused or its queue full.
 import { request } from 'node:http';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -30,34 +15,141 @@ import { HEADER, PORTS, PROTOCOL } from './worker.mjs';
 import { gather, safeRel } from './workspace.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const USAGE = `usage: node cli.mjs status [--json]
-       node cli.mjs run [--json] [--src <dir>] [--out <dir>] <workspace>/<preset> [args…]
-       node cli.mjs shell [--json] [--workspace <name>] [--cwd <dir>] [--timeout <s>] <command…>
-       node cli.mjs workspace add [--json] <name> <path> [--env NAME=value …]
-       node cli.mjs workspace set [--json] <name> [--path <path>] [--env NAME=value …] [--unset NAME …]
-       node cli.mjs workspace remove [--json] <name>`;
 
-const [what, ...rest] = process.argv.slice(2);
-// the options before the first word that is not one: the target, or the command (a workspace
-// change's may come after its words too)
+// ——— the commands, and what `rs help` says of them ———
+const ALIAS = { st: 'status', sh: 'shell', ws: 'workspace' };
+/** each command's options that take a value (`many`: given more than once), those that do not, and
+ *  whether its options may come after its words (else they end where the words start: what follows
+ *  is a job's arguments, or a command) */
+const COMMANDS = {
+  status: { takes: [], anywhere: true },
+  presets: { takes: [], anywhere: true },
+  run: { takes: ['--src', '--out'] },
+  shell: { takes: ['--workspace', '--cwd', '--timeout'] },
+  workspace: { takes: ['--path', '--env', '--unset'], many: ['--env', '--unset'], flags: ['--create'], anywhere: true },
+  ls: { takes: [], anywhere: true },
+  help: { takes: [], anywhere: true },
+};
+const HELP = {
+  '': `render-station (also: rs) hands heavy jobs from this server to the render station on another
+machine, and looks after the workspaces there.
+
+usage: rs <command> [options]
+
+commands:
+  status, st       whether the device is reached, what runs there, and its workspaces
+  presets          the presets of the workspaces, and the arguments they take
+  run              run a preset of a workspace, and fetch what it makes
+  shell, sh        run a command in a workspace, as the owner allows
+  workspace, ws    list the workspaces, or add, change or remove one
+  ls               list a folder on the device, or its drives
+  help             this, or what one command does: rs help <command>
+
+Every command takes --json: then it prints one JSON object, its result, and nothing else.
+Exit status: 0 when done; when a job ran and failed, the job's own; 1 when it failed without
+running, or a request was refused; 2 for a usage error; 3 when the device is not reached, is paused,
+or has too many jobs waiting.
+The device is reached through the tunnel on ports 7700-7709 here, or the port RENDER_STATION_PORT
+names. The manual: docs/cli.md in the render-station repository.`,
+  status: `usage: rs status [--json]
+
+Whether the render station on the device is reached; how many jobs run and wait there and how many
+may run at once; whether it takes Shell commands and requests to manage workspaces; and each
+workspace, with its presets and the settings it still lacks.`,
+  presets: `usage: rs presets [<workspace>] [--json]
+
+The presets of every workspace, or of one: what each does, the arguments it takes (each argument
+must match one of the patterns listed), the files a job brings from here, and its time limit.
+
+example: rs presets site`,
+  run: `usage: rs run [--src <dir>] [--out <dir>] [--json] <workspace>/<preset> [args…]
+
+Runs a preset of a workspace on the device and waits for it to end. Everything after
+<workspace>/<preset> is passed to the preset as its arguments; options come before it.
+
+  --src <dir>   where the files the preset brings are taken from (default: the current folder)
+  --out <dir>   where what the job makes is written (default: .tools/results/<time>/ in the
+                render-station folder)
+
+When the device is busy, the job waits its turn and the command says how many jobs are ahead.
+Interrupting the command cancels the job, waiting or running.
+
+example: rs run --src ~/site site/build 1080p`,
+  shell: `usage: rs shell [--workspace <name>] [--cwd <dir>] [--timeout <s>] [--json] <command…>
+
+Runs a command on the device (in PowerShell on Windows) and prints its output and exit code. The
+owner must have turned Shell on there; a command not on their allowlist waits up to 5 minutes for
+their approval. Options come before the command.
+
+  --workspace <name>  the workspace to run in (default: the first registered)
+  --cwd <dir>         a folder in the workspace to run in, relative to its root
+  --timeout <s>       the time limit, in seconds
+
+example: rs sh --workspace site git status`,
+  workspace: `usage: rs workspace [list] [--json]
+       rs workspace add <name> <path> [--create] [--env NAME=value …] [--json]
+       rs workspace set <name> [--path <path> [--create]] [--env NAME=value …] [--unset NAME …] [--json]
+       rs workspace remove <name> [--json]
+
+Lists the workspaces registered on the device, or changes them as far as the owner lets the server
+(the render station's setting 服务器管理工作区): a change waits up to 5 minutes for their approval
+on the device, or is made at once, as they chose.
+
+  <path>           a full path on the device: F:/projects/site, or quoted, 'F:\\projects\\site'
+  --create         make the folder if it is not there yet
+  --env NAME=value a setting of the workspace (its render-station.json names them); given more
+                   than once for more than one
+  --unset NAME     clear a setting
+
+When a workspace is added, settings an old render station kept in that folder
+(.tools/remote/config.json) are taken over.
+
+examples: rs ws
+          rs ws add site F:/projects/site
+          rs ws set site --env FFMPEG=C:/ffmpeg/bin/ffmpeg.exe`,
+  ls: `usage: rs ls [<path>] [--json]
+
+Lists a folder on the device: the name, size and last change of each file and folder in it, but
+nothing of what the files hold. Without a path, the drives.
+
+Folders in a registered workspace are listed at once. Others are listed as the owner lets the
+server: when each request needs their approval, a folder approved stays open, with everything under
+it, for 10 minutes.
+
+examples: rs ls
+          rs ls F:/`,
+  help: `usage: rs help [<command>]
+
+What the commands do, or what one does.`,
+};
+
+const argv = process.argv.slice(2);
+const what = ALIAS[argv[0]] ?? argv[0];
+if (what == null || what === '-h' || what === '--help') {
+  console.log(HELP['']);
+  process.exit(0);
+}
+const cmd = COMMANDS[what];
+const rest = argv.slice(1);
 const opts = {};
-const TAKES = { status: [], run: ['--src', '--out'], shell: ['--workspace', '--cwd', '--timeout'], workspace: ['--path', '--env', '--unset'] }[what];
-const MANY = ['--env', '--unset'];
 const words = [];
 let i = 0;
-for (; TAKES && i < rest.length; i++) {
+for (; cmd && i < rest.length; i++) {
   const a = rest[i];
   if (a === '--') {
     i++;
     break;
   }
   if (a === '--json') opts.json = true;
-  else if (TAKES.includes(a) && rest[i + 1] != null) {
+  else if (a === '-h' || a === '--help') opts.help = true;
+  else if (cmd.flags?.includes(a)) opts[a.slice(2)] = true;
+  else if (cmd.takes.includes(a)) {
+    if (rest[i + 1] == null) usage(`${a}: a value`);
     const v = rest[++i];
-    if (MANY.includes(a)) (opts[a.slice(2)] ??= []).push(v);
+    if (cmd.many?.includes(a)) (opts[a.slice(2)] ??= []).push(v);
     else opts[a.slice(2)] = v;
   } else if (a.startsWith('--')) usage(`unknown option: ${a}`);
-  else if (what === 'workspace') words.push(a);
+  else if (cmd.anywhere) words.push(a);
   else break;
 }
 words.push(...rest.slice(i));
@@ -69,14 +161,24 @@ function finish(result, status) {
   process.exit(status);
 }
 function usage(why) {
-  if (process.argv.includes('--json')) finish({ ok: false, exitCode: null, error: `${why}\n${USAGE}` }, 2);
-  console.error(`${why}\n${USAGE}`);
+  // the command's usage lines, or the list of commands
+  const brief = COMMANDS[what] ? HELP[what].split('\n\n')[0] : HELP[''].split('\n\n').slice(1, 3).join('\n\n');
+  const text = `${why}\n\n${brief}\n\n(rs help${COMMANDS[what] ? ` ${what}` : ''}: more)`;
+  if (process.argv.includes('--json')) finish({ ok: false, error: text }, 2);
+  console.error(text);
   process.exit(2);
 }
-if (!TAKES) usage(what ? `unknown command: ${what}` : 'no command');
+if (!cmd) usage(`unknown command: ${argv[0]}`);
+if (opts.help || what === 'help') {
+  const of = what === 'help' ? (ALIAS[words[0]] ?? words[0] ?? '') : what;
+  if (!(of in HELP)) usage(`no such command: ${words[0]}`);
+  console.log(HELP[of]);
+  process.exit(0);
+}
 /** what is said on the way, unless only JSON is */
 const tell = (text) => opts.json || console.error(text);
 
+// ——— the worker ———
 const headers = { [HEADER]: String(PROTOCOL) };
 /** a request to the worker on `port`: the reply's status and body */
 const call = (port, method, path, body, timeout = 0) =>
@@ -90,22 +192,32 @@ const call = (port, method, path, body, timeout = 0) =>
     req.on('error', fail);
     req.end(body);
   });
-/** a job handed to the worker on `port`: each step it is told of as it comes (`step(event)`), and
- *  at the end the reply's status and the job's reply (or, refused, the body) */
-const submit = (port, body, step) =>
+/** a request to the worker on `port` answered as it goes, a line of JSON each step (gzipped, for a
+ *  job): each step told as it comes (`step(event)`), and at the end the reply's status and the last
+ *  step's reply (or, refused, the body). A station from before it answered so sends the reply alone */
+const stream = (port, path, body, extra, step) =>
   new Promise((done, fail) => {
-    const req = request({ host: '127.0.0.1', port, path: '/job', method: 'POST', headers: { ...headers, 'content-type': 'application/json', 'content-encoding': 'gzip' } }, (res) => {
-      if (res.statusCode !== 200) {
+    const req = request({ host: '127.0.0.1', port, path, method: 'POST', headers: { ...headers, 'content-type': 'application/json', accept: 'application/x-ndjson', ...extra } }, (res) => {
+      const input = res.headers['content-encoding'] === 'gzip' ? res.pipe(createGunzip()) : res;
+      if (res.statusCode !== 200 || !(res.headers['content-type'] ?? '').includes('ndjson')) {
         const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => done({ status: res.statusCode, body: Buffer.concat(chunks) }));
+        input.on('data', (c) => chunks.push(c));
+        input.on('end', () => {
+          const all = Buffer.concat(chunks);
+          if (res.statusCode !== 200) return done({ status: res.statusCode, body: all });
+          try {
+            done({ status: 200, reply: JSON.parse(all) });
+          } catch (e) {
+            fail(e);
+          }
+        });
+        input.on('error', fail);
         return;
       }
-      // a line of JSON each step; the last, with all that came back, may be large
+      // the last line, with all that came back, may be large
       let part = [];
       let reply = null;
-      const lines = res.pipe(createGunzip());
-      lines.on('data', (c) => {
+      input.on('data', (c) => {
         let start = 0;
         for (let nl = c.indexOf(10); nl >= 0; nl = c.indexOf(10, start)) {
           part.push(c.subarray(start, nl));
@@ -117,8 +229,8 @@ const submit = (port, body, step) =>
         }
         if (start < c.length) part.push(c.subarray(start));
       });
-      lines.on('end', () => (reply ? done({ status: 200, reply }) : fail(new Error('the worker stopped answering before the job ended'))));
-      lines.on('error', fail);
+      input.on('end', () => (reply ? done({ status: 200, reply }) : fail(new Error('the worker stopped answering before the end'))));
+      input.on('error', fail);
       res.on('error', fail);
     });
     req.on('error', fail);
@@ -142,48 +254,108 @@ for (const p of process.env.RENDER_STATION_PORT ? [Number(process.env.RENDER_STA
   }
 }
 const OFFLINE = 'no worker reachable: the render station on the device is not running, is paused, or has not connected yet';
-const MANAGE = { off: 'not allowed', ask: 'each change needs the owner\'s approval', allow: 'allowed' };
+const MISMATCH = () => `protocol mismatch: the worker uses version ${hello.protocol}, this command version ${PROTOCOL}; update the one that is older`;
+const MANAGE = { off: 'not allowed', ask: 'each needs the owner\'s approval', allow: 'allowed' };
 if (what === 'status') {
   if (!hello) finish({ online: false, error: OFFLINE }, 3);
-  if (hello.protocol !== PROTOCOL) finish({ online: true, port, ...hello, error: `protocol mismatch: the worker uses version ${hello.protocol}, this cli.mjs version ${PROTOCOL}; update one of them` }, 1);
+  if (hello.protocol !== PROTOCOL) finish({ online: true, port, ...hello, error: MISMATCH() }, 1);
   if (opts.json) finish({ online: true, port, ...hello }, 0);
   const load = `${hello.running.length} of ${hello.limit} running${hello.queued ? `, ${hello.queued} queued` : ''}`;
-  console.log(`worker on port ${port}: ${hello.platform}; ${load}${hello.accepting ? '' : '; paused'}; Shell ${hello.shell}; workspace changes ${MANAGE[hello.manage] ?? hello.manage}`);
+  console.log(`worker on port ${port}: ${hello.platform}; ${load}${hello.accepting ? '' : '; paused'}; Shell ${hello.shell}; workspace changes and folder lookups: ${MANAGE[hello.manage] ?? hello.manage}`);
   for (const j of hello.running) console.log(`  #${j.id} ${j.kind === 'shell' ? `shell: ${j.command}` : `${j.workspace}/${j.preset} ${j.args.join(' ')}`.trim()}`);
+  printWorkspaces();
+  process.exit(0);
+}
+if (hello && hello.protocol !== PROTOCOL) finish({ ok: false, error: MISMATCH() }, 1);
+if (!hello) finish({ ok: false, error: OFFLINE }, 3);
+/** refused, if the station on the device is older than what is asked of it */
+const need = (feature, what) => (hello.features ?? []).includes(feature) || finish({ ok: false, error: `the render station on the device is too old for ${what}: it updates itself, or check for updates in its settings` }, 1);
+
+function printWorkspaces() {
   for (const w of hello.workspaces) {
     console.log(`\n${w.name}  (${w.path})${w.parallel > 1 ? `  up to ${w.parallel} jobs at once` : ''}${w.error ? `\n  error: ${w.error}` : ''}${w.missing.length ? `\n  not set up yet: ${w.missing.join(', ')}` : ''}`);
     for (const [name, p] of Object.entries(w.presets)) console.log(`  ${w.name}/${name}${p.description ? `  ${p.description}` : ''}`);
   }
   if (!hello.workspaces.length) console.log('no workspaces registered');
+}
+
+// ——— what is there ———
+if (what === 'presets') {
+  if (words.length > 1) usage('presets: one workspace at most');
+  const list = words[0] ? hello.workspaces.filter((w) => w.name === words[0]) : hello.workspaces;
+  if (words[0] && !list.length) finish({ ok: false, error: `no workspace "${words[0]}" there (it has: ${hello.workspaces.map((x) => x.name).join(', ') || 'none'})` }, 1);
+  const presets = list.flatMap((w) => Object.entries(w.presets).map(([name, p]) => ({ workspace: w.name, name, ...p })));
+  if (opts.json) finish({ ok: true, presets }, 0);
+  for (const p of presets) {
+    console.log(`${p.workspace}/${p.name}${p.description ? `  ${p.description}` : ''}`);
+    console.log(`  arguments: ${p.args.length ? p.args.join('  |  ') : 'none'}`);
+    if (p.upload.length) console.log(`  brings:    ${p.upload.join(', ')}`);
+    if (p.timeout) console.log(`  limit:     ${p.timeout} s`);
+  }
+  if (!presets.length) console.log(hello.workspaces.length ? 'no presets' : 'no workspaces registered');
   process.exit(0);
 }
-if (hello && hello.protocol !== PROTOCOL) finish({ ok: false, exitCode: null, error: `protocol mismatch: the worker uses version ${hello.protocol}, this cli.mjs version ${PROTOCOL}; update one of them` }, 1);
-if (!hello) finish({ ok: false, exitCode: null, error: OFFLINE }, 3);
+if (what === 'workspace' && (!words.length || words[0] === 'list')) {
+  if (words.length > 1 || opts.path || opts.env || opts.unset || opts.create) usage('workspace list: nothing more');
+  if (opts.json) finish({ ok: true, workspaces: hello.workspaces }, 0);
+  printWorkspaces();
+  process.exit(0);
+}
+
+/** a request about the workspaces or the device's folders: its reply, once the owner allows it */
+async function manage(path, body, about) {
+  if (hello.manage === 'off') finish({ ok: false, error: 'the owner of the device does not let the server manage workspaces or look through folders (the render station\'s settings there)' }, 1);
+  const step = (e) => e.event === 'pending' && tell('waiting for the owner\'s approval on the device (up to 5 minutes)');
+  const res = await stream(port, path, Buffer.from(JSON.stringify(body)), {}, step).catch((e) => finish({ ok: false, ...about, error: `lost the connection to the worker: ${e.message}` }, 3));
+  if (res.status === 503) finish({ ok: false, ...about, error: 'the render station is paused' }, 3);
+  if (res.status !== 200) finish({ ok: false, ...about, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);
+  return res.reply;
+}
+
+// ——— a folder on the device ———
+if (what === 'ls') {
+  if (words.length > 1) usage('ls: one path at most (quote one with spaces in it)');
+  need('browse', 'ls');
+  const reply = await manage('/browse', { path: words[0] ?? null }, { path: words[0] ?? null });
+  if (opts.json || !reply.ok) finish(reply, reply.ok ? 0 : 1);
+  const pad = (n) => String(n).padStart(2, '0');
+  const when = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const size = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`);
+  if (reply.path == null) console.log(reply.entries.map((e) => e.name).join('\n'));
+  else {
+    console.log(reply.path);
+    for (const e of reply.entries) console.log(`  ${e.modified == null ? ' '.repeat(16) : when(e.modified)}  ${(e.size == null ? '' : size(e.size)).padStart(9)}  ${e.name}${e.type === 'folder' ? '/' : ''}`);
+    if (!reply.entries.length) console.log('  (empty)');
+    if (reply.more) console.log(`  … and ${reply.more} more`);
+  }
+  process.exit(0);
+}
 
 // ——— a change to the workspaces ———
 if (what === 'workspace') {
   const [action, name, path] = words;
   const takes = { add: 3, set: 2, remove: 2 }[action];
-  if (!takes) usage('workspace: add, set or remove');
+  if (!takes) usage('workspace: list, add, set or remove');
   if (words.length !== takes) usage(`workspace ${action}: ${action === 'add' ? 'a name and a path' : 'a name'}`);
   if (action !== 'set' && (opts.path || opts.unset)) usage(`workspace ${action}: --path and --unset are for set`);
-  if (action === 'remove' && opts.env) usage('workspace remove: no --env');
+  if (action === 'remove' && (opts.env || opts.create)) usage('workspace remove: no --env or --create');
+  if (action === 'set' && opts.create && !opts.path) usage('workspace set: --create goes with --path');
+  if (opts.create) need('create', '--create');
   const env = {};
   for (const pair of opts.env ?? []) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(pair);
     if (!m) usage(`--env: NAME=value, not ${pair}`);
     env[m[1]] = m[2];
   }
-  const change = { action, name, ...(path ? { path } : {}), ...(opts.path ? { path: opts.path } : {}), ...(opts.env ? { env } : {}), ...(opts.unset ? { unset: opts.unset } : {}) };
-  if (hello.manage === 'off') finish({ ok: false, action, error: 'the owner of the device does not let the server manage workspaces (in the render station\'s settings there)' }, 1);
-  if (hello.manage === 'ask') tell('Change submitted; it waits for the owner\'s approval on the device (up to 5 minutes).');
-  const res = await call(port, 'POST', '/workspace', Buffer.from(JSON.stringify(change))).catch((e) => finish({ ok: false, action, error: `lost the connection to the worker: ${e.message}` }, 3));
-  if (res.status === 503) finish({ ok: false, action, error: 'the render station is paused' }, 3);
-  if (res.status !== 200) finish({ ok: false, action, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);
-  const reply = JSON.parse(res.body);
+  const change = { action, name, ...(path ? { path } : {}), ...(opts.path ? { path: opts.path } : {}), ...(opts.create ? { create: true } : {}), ...(opts.env ? { env } : {}), ...(opts.unset ? { unset: opts.unset } : {}) };
+  const reply = await manage('/workspace', change, { action });
   if (opts.json || !reply.ok) finish(reply, reply.ok ? 0 : 1);
   const w = reply.workspace;
   console.log(`${{ add: 'added', set: 'changed', remove: 'removed' }[action]} workspace ${name}${w ? ` (${w.path})` : ''}`);
+  if (reply.created) console.log(`made the folder ${reply.created}`);
   if (reply.imported?.length) console.log(`taken from the settings of the render station from before workspaces: ${reply.imported.join(', ')}`);
   if (w?.error) console.log(`error: ${w.error}`);
   if (w?.missing.length) console.log(`not set up yet: ${w.missing.join(', ')}`);
@@ -221,18 +393,18 @@ if (what === 'run') {
   const timeout = opts.timeout == null ? undefined : Number(opts.timeout);
   payload = { type: 'shell', command, ...(opts.workspace ? { workspace: opts.workspace } : {}), ...(opts.cwd ? { cwd: opts.cwd } : {}), ...(timeout != null ? { timeout } : {}) };
   meta = { kind: 'shell', command, workspace: opts.workspace ?? null };
-  tell('Shell submitted; a command not on the allowlist there waits for the owner\'s approval (up to 5 minutes).');
 }
 
 const t0 = Date.now();
 let waited = false;
 const step = (e) => {
-  if (e.event === 'queued') {
+  if (e.event === 'pending') tell('waiting for the owner\'s approval on the device (up to 5 minutes)');
+  else if (e.event === 'queued') {
     waited = true;
     tell(e.ahead ? `queued on the device: ${e.ahead} ${e.ahead > 1 ? 'jobs' : 'job'} ahead` : 'queued on the device: next to start');
   } else if (e.event === 'started' && waited) tell('started');
 };
-const res = await submit(port, gzipSync(JSON.stringify(payload)), step).catch((e) => finish({ ok: false, exitCode: null, ...meta, error: `lost the connection to the worker: ${e.message}` }, 3));
+const res = await stream(port, '/job', gzipSync(JSON.stringify(payload)), { 'content-encoding': 'gzip' }, step).catch((e) => finish({ ok: false, exitCode: null, ...meta, error: `lost the connection to the worker: ${e.message}` }, 3));
 if (res.status === 429) finish({ ok: false, exitCode: null, ...meta, error: 'too many jobs are already waiting on the device; try again later' }, 3);
 if (res.status === 503) finish({ ok: false, exitCode: null, ...meta, error: 'the render station is paused' }, 3);
 if (res.status !== 200) finish({ ok: false, exitCode: null, ...meta, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);

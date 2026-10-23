@@ -10,8 +10,11 @@
 // Jobs beyond what may run at once wait their turn, in the order they came: `limit()` in all, and of
 // one workspace's presets as many as its file's `parallel` says (one unless it says more). The
 // server is answered as it goes, a line of JSON for each step (the whole gzipped): { event: 'queued',
-// ahead }, { event: 'started' }, and last { event: 'done', reply }.
-// It also takes the server's changes to the workspaces, as far as the owner lets it (`manage`).
+// ahead }, { event: 'pending' } (a Shell command waits for the owner's approval), { event: 'started' },
+// and last { event: 'done', reply }.
+// It also takes the server's changes to the workspaces, and lets it look through this machine's
+// folders, as far as the owner lets it (`manage`): answered the same way, if the server takes lines
+// of JSON ({ event: 'pending' }, then { event: 'done', reply }), else with the reply alone.
 // usage: node worker.mjs [--port 7700]
 import { createServer } from 'node:http';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -32,6 +35,10 @@ export const PORTS = Array.from({ length: 10 }, (_, i) => 7700 + i);
 /** what the worker and cli.mjs say to each other, and the header every request carries */
 export const PROTOCOL = 2;
 export const HEADER = 'x-render-station';
+/** what this worker can do beyond what protocol 2 began with, so cli.mjs can tell a station too old
+ *  for a command from one that is not */
+export const FEATURES = ['pending', 'browse', 'create'];
+const OFF = 'the owner does not let the server manage workspaces or look through folders: allow it in the local station settings';
 // a job's request, compressed and not
 const SENT = 64 * 1024 * 1024;
 const OPENED = 256 * 1024 * 1024;
@@ -55,8 +62,10 @@ const offer = (list) =>
 
 /** the worker on `port`; `workspaces()`: the registered ones, resolved (workspace.mjs); `limit()`:
  *  how many jobs may run at once; `shell`: the gate for Shell jobs, if they are taken; `manage`: the
- *  station's handling of the server's changes to the workspaces ({ mode(), change(request, signal) }),
- *  if it takes them; `keep`: a folder to keep here what each job made, the latest 30 jobs' worth;
+ *  station's handling of the server's changes to the workspaces and looks into folders ({ mode(),
+ *  change(request, signal, waiting), browse(request, signal, waiting) }, `waiting()` once one waits
+ *  for the owner's approval), if it takes them; `keep`: a folder to keep here what each job made, the
+ *  latest 30 jobs' worth;
  *  `jobs`: where each job's folder is made; `on(event)`: {type: 'queued', id, kind, …},
  *  {type: 'start', id, kind, …}, {type: 'log', id, text}, {type: 'end', id, kind, ok, code, ms,
  *  files, tail, paths}. The server it returns schedules again with `schedule()` (the limit changed,
@@ -140,7 +149,7 @@ export function serve({ port = WORKER, workspaces = () => [], on = () => {}, kee
       kind = payload.type;
       if (kind === 'shell') {
         if (!shell) throw new Error('Shell requires the local station approval service');
-        const request = await shell.authorize(payload, signal);
+        const request = await shell.authorize(payload, signal, () => tell({ event: 'pending' }));
         await turn(id, null, 0, { kind, workspace: request.workspace, command: request.command }, signal, tell);
         if (!accepting()) throw new Error('station paused');
         on({ type: 'start', id, kind, workspace: request.workspace, command: request.command, cwd: request.cwd, approval: request.approval });
@@ -230,6 +239,7 @@ export function serve({ port = WORKER, workspaces = () => [], on = () => {}, kee
         JSON.stringify({
           service: 'render-station',
           protocol: PROTOCOL,
+          features: FEATURES,
           platform: process.platform,
           accepting: accepting(),
           limit: limit(),
@@ -240,23 +250,29 @@ export function serve({ port = WORKER, workspaces = () => [], on = () => {}, kee
           workspaces: offer(workspaces()),
         }),
       );
-    if (req.method !== 'POST' || !['/job', '/workspace'].includes(req.url)) return res.writeHead(404).end();
+    if (req.method !== 'POST' || !['/job', '/workspace', '/browse'].includes(req.url)) return res.writeHead(404).end();
     if (!accepting()) return res.writeHead(503).end('station paused');
     const controller = new AbortController();
     res.on('close', () => { if (!res.writableEnded) controller.abort(); });
 
-    // a change to the workspaces: answered once it is made, or refused
-    if (req.url === '/workspace') {
+    // a change to the workspaces, or a look into a folder: answered once it is done, or refused
+    if (req.url !== '/job') {
       const body = await read(req, 1024 * 1024, () => controller.abort());
       if (!body) return;
+      const lines = (req.headers.accept ?? '').includes('application/x-ndjson');
+      if (lines) res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      const waiting = () => lines && !res.destroyed && res.write(`${JSON.stringify({ event: 'pending' })}\n`);
       let reply;
       try {
-        if (!manage || manage.mode() === 'off') throw new Error('the owner does not let the server manage workspaces: allow it in the local station settings');
-        reply = { ok: true, ...(await manage.change(JSON.parse(body), controller.signal)) };
+        if (!manage || manage.mode() === 'off') throw new Error(OFF);
+        const input = JSON.parse(body);
+        reply = { ok: true, ...(await (req.url === '/workspace' ? manage.change : manage.browse)(input, controller.signal, waiting)) };
       } catch (e) {
         reply = { ok: false, error: e?.message ?? String(e) };
       }
-      if (!res.destroyed) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+      if (res.destroyed) return;
+      if (lines) res.end(`${JSON.stringify({ event: 'done', reply })}\n`);
+      else res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
       return;
     }
 

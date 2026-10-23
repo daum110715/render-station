@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { HEADER, PROTOCOL, serve } from './worker.mjs';
-import { FILE, changeWorkspaces, commandOf, gather, globRe, resolveWorkspaces, safeRel } from './workspace.mjs';
+import { FILE, changeWorkspaces, commandOf, gather, globRe, listFolder, resolveWorkspaces, safeRel, within } from './workspace.mjs';
 
 const repo = resolve(import.meta.dirname);
 const scratch = join(repo, '.tools/.scratch');
@@ -229,6 +229,38 @@ test('a change to the workspaces is checked, and a workspace added takes an old 
     assert.throws(() => changeWorkspaces(set.list, { action: 'set', name: 'mine', env: { DEMO_NEED: 'new' } }), /nothing to change/);
     assert.deepEqual(changeWorkspaces(set.list, { action: 'remove', name: 'mine' }).list, []);
     assert.throws(() => changeWorkspaces([], { action: 'remove', name: 'mine' }), /no workspace "mine"/);
+    // a folder to be made: said so, and left to the caller
+    const fresh = join(f.base, 'new/deeper');
+    const made = changeWorkspaces([], { action: 'add', name: 'fresh', path: fresh, create: true });
+    assert.equal(made.create, resolve(fresh));
+    assert.match(made.lines[0], /新建文件夹/);
+    assert.equal(existsSync(fresh), false);
+    assert.equal(changeWorkspaces([], { action: 'add', name: 'x', path: f.workspace, create: true }).create, null);
+    assert.equal(changeWorkspaces(set.list, { action: 'set', name: 'mine', path: fresh, create: true }).create, resolve(fresh));
+    writeFileSync(join(f.base, 'afile'), '');
+    assert.throws(() => changeWorkspaces([], { action: 'add', name: 'x', path: join(f.base, 'afile/sub'), create: true }), /not a folder/);
+  } finally { f.close(); }
+});
+
+test('a folder is listed by names, sizes and times, folders first', () => {
+  const f = fixture();
+  try {
+    const dir = join(f.base, 'look');
+    mkdirSync(join(dir, 'b-folder'), { recursive: true });
+    writeFileSync(join(dir, 'a.txt'), 'hello');
+    writeFileSync(join(dir, 'file10'), '');
+    writeFileSync(join(dir, 'file9'), '');
+    const list = listFolder(dir);
+    assert.equal(list.path, resolve(dir));
+    assert.deepEqual(list.entries.map((e) => [e.name, e.type, e.size]), [['b-folder', 'folder', null], ['a.txt', 'file', 5], ['file9', 'file', 0], ['file10', 'file', 0]]);
+    assert.ok(list.entries.every((e) => typeof e.modified === 'number'));
+    assert.equal(listFolder(dir, 2).more, 2);
+    assert.throws(() => listFolder(join(dir, 'gone')), /folder not found/);
+    assert.throws(() => listFolder(join(dir, 'a.txt')), /not a folder/);
+    assert.throws(() => listFolder('relative'), /full path/);
+    if (process.platform !== 'win32') assert.deepEqual(listFolder(null).entries.map((e) => e.name), ['/']);
+    assert.ok(within(join(dir, 'b-folder'), dir) && within(dir, dir));
+    assert.ok(!within(f.base, dir) && !within(`${dir}-other`, dir));
   } finally { f.close(); }
 });
 
@@ -248,9 +280,37 @@ test('cli.mjs workspace hands a change over, as far as the station lets it', asy
     assert.deepEqual(asked[0], { action: 'add', name: 'mine', path: 'D:/sites/mine', env: { A: '1', B: 'x=y' } });
     const bad = await cli(['workspace', 'remove', '--json', 'mine', '--path', 'x']);
     assert.equal(bad.code, 2);
+    const created = await cli(['ws', 'add', 'two', 'D:/sites/two', '--create', '--json']);
+    assert.equal(created.code, 0);
+    assert.equal(asked[1].create, true);
     manage.mode = () => 'off';
     const off = await cli(['workspace', 'remove', '--json', 'mine']);
     assert.equal(off.code, 1);
     assert.match(off.json.error, /does not let the server manage/);
+  } finally { f.close(); }
+});
+
+test('cli.mjs ls says when it waits for approval; presets, ws and help say what is there', async () => {
+  const manage = { mode: () => 'ask', browse: async (input, signal, waiting) => (waiting(), { path: input.path, entries: [{ name: 'site', type: 'folder', size: null, modified: 0 }], more: 0 }) };
+  const f = fixture({ manage });
+  try {
+    await f.ready;
+    const cli = (args) =>
+      new Promise((done) =>
+        execFile(process.execPath, [join(repo, 'cli.mjs'), ...args], { env: { ...process.env, RENDER_STATION_PORT: String(f.server.address().port) } }, (e, stdout, stderr) => done({ code: e?.code ?? 0, stdout, stderr })),
+      );
+    const said = await cli(['ls', 'F:/']);
+    assert.equal(said.code, 0);
+    assert.match(said.stderr, /waiting for the owner's approval/);
+    assert.match(said.stdout, /site\//);
+    const json = JSON.parse((await cli(['ls', '--json', 'F:/'])).stdout);
+    assert.deepEqual(json.entries.map((e) => e.name), ['site']);
+    const presets = JSON.parse((await cli(['presets', 'demo', '--json'])).stdout);
+    assert.deepEqual(presets.presets.map((p) => p.name), ['make', 'nap']);
+    assert.equal((await cli(['presets', 'nothing'])).code, 1);
+    assert.deepEqual(JSON.parse((await cli(['ws', '--json'])).stdout).workspaces.map((w) => w.name), ['demo']);
+    assert.match((await cli(['help', 'ls'])).stdout, /^usage: rs ls/);
+    assert.match((await cli(['sh', '--help'])).stdout, /^usage: rs shell/);
+    assert.equal((await cli(['nothing'])).code, 2);
   } finally { f.close(); }
 });

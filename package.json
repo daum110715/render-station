@@ -1,11 +1,12 @@
 {
   "name": "render-station",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "description": "Lets agents on a server hand heavy jobs to a Windows machine over a reverse SSH tunnel",
   "bin": {
-    "render-station": "cli.mjs"
+    "render-station": "cli.mjs",
+    "rs": "cli.mjs"
   },
   "scripts": {
     "test": "node --test"

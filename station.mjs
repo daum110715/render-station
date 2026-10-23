@@ -10,13 +10,13 @@
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cpus, freemem, totalmem } from 'node:os';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
 import { createApprovals, createShellGate, isAdministrator } from './shell.mjs';
-import { NAME, adopt, changeWorkspaces, missingEnv, resolveWorkspaces, samePath } from './workspace.mjs';
+import { NAME, adopt, changeWorkspaces, fullPath, listFolder, missingEnv, resolveWorkspaces, samePath, within } from './workspace.mjs';
 import { RELEASE, SERVER, applyRelease, clearOld, fetchRelease, newer, openRelease } from './update.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -150,17 +150,21 @@ const shellGate = createShellGate({
   audit: (text) => note('shell', text),
 });
 
-// ——— the server's changes to the workspaces (worker.mjs's /workspace, from cli.mjs workspace):
-// made as config.manage lets them, each shown to the owner first unless it is 'allow' ———
+// ——— the server's changes to the workspaces and looks into this machine's folders (worker.mjs's
+// /workspace and /browse, from cli.mjs workspace and ls): as config.manage lets them, each shown to
+// the owner first unless it is 'allow' ———
 const wsApprovals = createApprovals({ changed: () => (push(), idle()) });
+const OFF = 'the owner does not let the server manage workspaces or look through folders: allow it in the local station settings';
 /** a change the server asks, against the settings as they are (workspace.mjs) */
 const planChange = (input) => changeWorkspaces(config.workspaces, input, config.env);
 const CHANGE = { add: '添加工作区', set: '修改工作区', remove: '移除工作区' };
-/** a change the server asks, made once the owner allows it: what the workspace is now */
-async function serverChange(input, signal) {
+/** a change the server asks, made once the owner allows it (`waiting()` meanwhile): what the
+ *  workspace is now */
+async function serverChange(input, signal, waiting = () => {}) {
   const plan = planChange(input);
   const what = `${CHANGE[input.action]} ${input.name}`;
   if (manageMode() === 'ask') {
+    waiting();
     note('station', `服务器请求${what}，等待本机审批`);
     const action = await wsApprovals.ask({ action: input.action, name: input.name, lines: plan.lines, presets: plan.presets }, signal);
     if (action !== 'allow') {
@@ -168,10 +172,17 @@ async function serverChange(input, signal) {
       throw new Error(action === 'deny' ? 'the owner denied the change' : 'the change was not approved within 5 minutes, or was cancelled');
     }
   }
-  if (manageMode() === 'off') throw new Error('the owner does not let the server manage workspaces: allow it in the local station settings');
+  if (manageMode() === 'off') throw new Error(OFF);
   // the settings may have changed meanwhile: made only if the change is still the one shown
   const now = planChange(input);
   if (JSON.stringify(now.lines) !== JSON.stringify(plan.lines)) throw new Error('the workspaces changed while the change awaited approval: send it again');
+  if (now.create) {
+    try {
+      mkdirSync(now.create, { recursive: true });
+    } catch (e) {
+      throw new Error(`could not make the folder ${now.create}: ${e.message}`);
+    }
+  }
   config.workspaces = now.list;
   save();
   note('station', `${manageMode() === 'allow' ? '已按服务器的请求' : '已批准服务器的请求，'}${what}${now.lines.length ? `：${now.lines.join('；')}` : ''}`);
@@ -181,7 +192,45 @@ async function serverChange(input, signal) {
     action: input.action,
     workspace: w ? { name: w.name, path: w.path, ...(w.spec.error ? { error: w.spec.error } : {}), missing: missingEnv(w), presets: Object.keys(w.spec.presets) } : null,
     imported: now.imported,
+    created: now.create,
   };
+}
+/** a folder's own path, links followed (as it is, if it is not there) */
+const real = (p) => {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return p;
+  }
+};
+/** the folders the owner let the server look into, each with all under it, until when (path null:
+ *  the drives, those alone) */
+let opened = [];
+const OPEN_FOR = 10 * 60 * 1000;
+/** a folder the server asks to look into (`{ path }`, none: the drives), listed (workspace.mjs): at
+ *  once if it lies in a registered workspace or one opened lately, else once the owner allows it
+ *  (`waiting()` meanwhile) */
+async function serverBrowse(input, signal, waiting = () => {}) {
+  const path = input?.path == null || input.path === '' ? null : real(fullPath(input.path));
+  const where = path ? `文件夹 ${path}` : '本机的磁盘列表';
+  const now = Date.now();
+  opened = opened.filter((o) => o.until > now);
+  const inWorkspace = path && workspaces().some((w) => w.path && within(path, real(w.path)));
+  const open = opened.some((o) => (o.path === null ? path === null : path && within(path, o.path)));
+  if (manageMode() === 'ask' && !inWorkspace && !open) {
+    waiting();
+    note('station', `服务器请求查看${where}，等待本机审批`);
+    const action = await wsApprovals.ask({ action: 'browse', path }, signal);
+    if (action !== 'allow') {
+      note('station', `服务器的请求未获批准（${action === 'deny' ? '已拒绝' : '已超时或已取消'}）：查看${where}`);
+      throw new Error(action === 'deny' ? 'the owner denied it' : 'it was not approved within 5 minutes, or was cancelled');
+    }
+    if (manageMode() === 'off') throw new Error(OFF);
+    opened.push({ path, until: Date.now() + OPEN_FOR });
+  }
+  const list = listFolder(path);
+  if (!inWorkspace) note('station', `服务器查看了${where}`);
+  return list;
 }
 
 // ——— this machine, every 2 s, the last two minutes: the processor, the memory, the graphics card
@@ -472,7 +521,7 @@ function startWorker() {
     limit,
     keep: KEEP,
     shell: shellGate,
-    manage: { mode: manageMode, change: serverChange },
+    manage: { mode: manageMode, change: serverChange, browse: serverBrowse },
     accepting: () => !config.paused && !quitting,
     on: (e) => {
       if (e.type === 'queued') {
@@ -618,6 +667,7 @@ function connect() {
 function stop() {
   shellGate.revoke();
   wsApprovals.clear();
+  opened = [];
   // those waiting their turn: turned away, if the station no longer takes jobs
   worker?.schedule();
   const p = ssh;
@@ -742,6 +792,7 @@ const ui = createServer(async (req, res) => {
       config.manage = data.mode;
       save();
       if (data.mode !== 'ask') wsApprovals.clear();
+      opened = [];
       note('station', `服务器管理工作区：${{ off: '已关闭', ask: '需要本机审批', allow: '无需审批' }[data.mode]}`);
     } else if (path === '/manage/decide') {
       if (!['allow', 'deny'].includes(data.action)) throw new Error('action must be allow or deny');

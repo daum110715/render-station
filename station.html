@@ -1563,7 +1563,7 @@
 
     <dialog id="ws-review" aria-labelledby="ws-review-title">
       <div class="shell-panel">
-        <h4 id="ws-review-title">工作区变更待审批</h4>
+        <h4 id="ws-review-title">服务器请求待审批</h4>
         <p id="ws-review-what"></p>
         <pre id="ws-review-lines"></pre>
         <p id="ws-review-presets"></p>
@@ -1724,9 +1724,9 @@
 
       // ——— the server's changes to the workspaces: how far it may go, and each change awaiting approval ———
       const MANAGE = {
-        off: '服务器无法添加、修改或移除工作区。',
-        ask: '服务器可通过 cli.mjs workspace 添加、修改或移除工作区，每项变更须在本机批准。',
-        allow: '服务器可直接添加、修改或移除工作区，无需批准。登记工作区即表示信任其预设任务。',
+        off: '服务器无法添加、修改或移除工作区，也无法查看本机的文件夹。',
+        ask: '服务器可以请求添加、修改或移除工作区（可新建文件夹），或查看本机的文件夹，每项请求都须在本机批准。查看已登记工作区内的文件夹无需批准。',
+        allow: '服务器可以直接添加、修改或移除工作区，新建文件夹，并查看本机的任意文件夹，无需批准。登记工作区即表示信任其预设任务。',
       };
       let wsShown = null;
       function renderManage() {
@@ -1742,14 +1742,23 @@
           if (dialog.open) dialog.close();
           return;
         }
-        set('ws-review-title', { add: '服务器请求添加工作区', set: '服务器请求修改工作区', remove: '服务器请求移除工作区' }[p.action]);
-        set('ws-review-what', `工作区：${p.name}`);
-        set('ws-review-lines', p.lines.join('\n'));
-        $('#ws-review-presets').hidden = p.action === 'remove';
-        set('ws-review-presets', p.presets.length ? `该文件夹的 render-station.json 提供的预设任务：${p.presets.join('、')}` : '该文件夹中没有预设任务。');
-        set('ws-review-note', p.action === 'remove' ? '移除后，服务器将无法再在该工作区中运行任务。' : '批准后，服务器可随时运行该工作区的预设任务，这些任务以渲染站运行账户的权限执行。请只批准你认可的变更；请在 5 分钟内审批。');
+        const browse = p.action === 'browse';
+        set('ws-review-title', { add: '服务器请求添加工作区', set: '服务器请求修改工作区', remove: '服务器请求移除工作区', browse: '服务器请求查看文件夹' }[p.action]);
+        set('ws-review-what', browse ? (p.path ? `文件夹：${p.path}` : '查看本机的磁盘列表') : `工作区：${p.name}`);
+        $('#ws-review-lines').hidden = browse;
+        set('ws-review-lines', browse ? '' : p.lines.join('\n'));
+        $('#ws-review-presets').hidden = browse || p.action === 'remove';
+        set('ws-review-presets', browse ? '' : p.presets.length ? `该文件夹的 render-station.json 提供的预设任务：${p.presets.join('、')}` : '该文件夹中没有预设任务。');
+        set(
+          'ws-review-note',
+          browse
+            ? `批准后，服务器可以看到${p.path ? '该文件夹中各文件和文件夹的名称、大小和修改时间，但看不到文件内容。10 分钟内查看其中的子文件夹无需再次批准' : '本机有哪些磁盘'}。请在 5 分钟内审批。`
+            : p.action === 'remove'
+              ? '移除后，服务器将无法再在该工作区中运行任务。'
+              : '批准后，服务器可随时运行该工作区的预设任务，这些任务以渲染站运行账户的权限执行。请只批准你认可的变更；请在 5 分钟内审批。',
+        );
         $('#ws-review-more').hidden = !m.behind;
-        set('ws-review-more', `另有 ${m.behind} 项工作区变更等待审批，将依次显示。`);
+        set('ws-review-more', `另有 ${m.behind} 项服务器请求等待审批，将依次显示。`);
         if (wsShown !== p.id) {
           wsShown = p.id;
           hold(dialog);
@@ -1765,7 +1774,7 @@
         b.addEventListener('click', () => {
           const mode = b.dataset.manage;
           if (mode === S.manage.mode) return;
-          if (mode === 'allow' && !confirm('开启后，服务器无需本机批准即可登记工作区，并可运行其中的预设任务，这些任务以渲染站运行账户的权限执行。确定允许吗？')) return;
+          if (mode === 'allow' && !confirm('开启后，服务器无需本机批准即可登记工作区、新建文件夹和查看本机的任意文件夹，并可运行工作区中的预设任务，这些任务以渲染站运行账户的权限执行。确定允许吗？')) return;
           managePost('/manage', { mode });
         });
       $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
