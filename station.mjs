@@ -141,19 +141,23 @@ function checkWorkspaces(list) {
   return out;
 }
 const shellToken = randomBytes(32).toString('hex');
+/** the request awaiting approval the tray icon told of last, and those told of while any wait
+ *  (askChanged) */
+let asking = null;
+const told = new Set();
 const shellGate = createShellGate({
   workspaces,
   policy: () => config.shell,
   save,
   admin: isAdministrator(),
-  changed: push,
+  changed: () => (askChanged(), push()),
   audit: (text) => note('shell', text),
 });
 
 // ——— the server's changes to the workspaces and looks into this machine's folders (worker.mjs's
 // /workspace and /browse, from cli.mjs workspace and ls): as config.manage lets them, each shown to
 // the owner first unless it is 'allow' ———
-const wsApprovals = createApprovals({ changed: () => (push(), idle()) });
+const wsApprovals = createApprovals({ changed: () => (askChanged(), push(), idle()) });
 const OFF = 'the owner does not let the server manage workspaces or look through folders: allow it in the local station settings';
 /** a change the server asks, against the settings as they are (workspace.mjs) */
 const planChange = (input) => changeWorkspaces(config.workspaces, input, config.env);
@@ -481,18 +485,36 @@ const view = () => ({
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
 });
-/** for the tray icon, a line each: the mode, its tip, the pause item, the newest job and what to
- *  say of it, starting with Windows and the shortcuts (1 or 0), and whether to start itself again
- *  (1: it was updated) */
+// ——— what the tray icon tells of: the job that ended last, or a request newly awaiting the owner's
+// approval, whichever is newer. It shows each new one as a notification, which opens the window
+// when clicked: an approval dialog shows only there ———
+const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+function askChanged() {
+  const heads = [wsApprovals.head(), shellGate.state().pending].filter(Boolean);
+  if (!heads.length) return told.clear();
+  const p = heads.find((h) => !told.has(h.id));
+  if (!p) return;
+  told.add(p.id);
+  const what = p.action === 'browse' ? (p.path ? `查看文件夹 ${p.path}` : '查看本机的磁盘列表') : p.action ? `${CHANGE[p.action]} ${p.name}` : `执行 Shell 命令：${p.command}`;
+  asking = { key: `ask:${p.id}`, at: Date.now(), title: '有请求待审批', text: `服务器请求${clip(what, 120)}。单击此处打开渲染站审批，请在 5 分钟内处理。` };
+}
+/** for the tray icon, a line each: the mode, its tip, the pause item, what to tell of (its key, its
+ *  title and text), starting with Windows and the shortcuts (1 or 0), and whether to start itself
+ *  again (1: it was updated) */
 function trayView() {
   const mode = running.size ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
   const waiting = queued.size ? `，另有 ${queued.size} 个任务排队` : '';
   const busy = running.size === 1 ? `执行中：${running.values().next().value.what}${waiting}` : `正在执行 ${running.size} 个任务${waiting}`;
   const tip = { busy, idle: `空闲，已连接服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '无法连接服务器，将自动重试', auth: '无法登录服务器，请打开渲染站查看', off: '已暂停接收任务', unset: '尚未配置服务器，请在设置中填写' }[mode] ?? mode;
   const last = jobs[0];
-  const tell = !last ? ['', ''] : last.ok ? ['任务已完成', `${last.what}，耗时 ${took(last.ms)}，结果已返回服务器。`] : ['任务失败', `${last.what}。详细输出见渲染站的「动态」页。`];
+  const ended = last && {
+    key: `${last.id}@${last.started}`,
+    at: last.started + (last.ms ?? 0),
+    ...(last.ok ? { title: '任务已完成', text: `${last.what}，耗时 ${took(last.ms)}，结果已返回服务器。` } : { title: '任务失败', text: `${last.what}。详细输出见渲染站的「动态」页。` }),
+  };
+  const tell = asking && (!ended || asking.at > ended.at) ? asking : ended;
   const v = view();
-  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '恢复接收任务' : '暂停接收任务', last ? `${last.id}@${last.started}` : '', ...tell, v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
+  return [mode, `渲染站 · ${tip}`, tunnel.state === 'off' ? '恢复接收任务' : '暂停接收任务', tell?.key ?? '', tell?.title ?? '', tell?.text ?? '', v.autostart ? '1' : '0', v.shortcut ? '1' : '0', trayAgain ? '1' : '0']
     .map((s) => String(s).replace(/\s*\n\s*/g, ' '))
     .join('\n');
 }

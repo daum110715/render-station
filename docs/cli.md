@@ -190,7 +190,7 @@ The device's setting 服务器管理工作区 (Server manages workspaces) decide
 | 需要审批 (Ask, the default) | Each change waits for approval. | Folders in a registered workspace: listed at once. Others: each request waits for approval. |
 | 无需审批 (Allow) | Made at once. | Listed at once. |
 
-- A request waiting for approval appears as a dialog in the device's window. The command reports `waiting for the owner's approval on the device` and waits up to 5 minutes. A denial, a timeout or an interrupted command means the request has no effect.
+- A request waiting for approval appears as a dialog in the device's window, and the tray icon shows a notification that opens the window when clicked. The command reports `waiting for the owner's approval on the device` and waits up to 5 minutes. A denial, a timeout or an interrupted command means the request has no effect.
 - When the owner approves listing a folder, that folder and everything under it can be listed again for 10 minutes without another approval. Approving the drive list covers the drive list only. Changing the setting, pausing the station or reconnecting closes these windows.
 - Requests and the folders listed outside workspaces appear on the device's Activity page and in its log.
 

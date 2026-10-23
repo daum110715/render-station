@@ -171,7 +171,7 @@ The tray icon's color shows the state:
 | Red | Cannot log in to the server, or the station cannot start |
 | Gray | Paused, or no server set |
 
-Click the icon to open the window. The right-click menu has 打开渲染站 (Open), 暂停接收任务 (Pause; 恢复接收任务, Resume, while paused), 重新连接 (Reconnect), 在浏览器中打开 (Open in browser), 查看日志 (View log) and 退出渲染站 (Quit). A notification appears when a job finishes.
+Click the icon to open the window. The right-click menu has 打开渲染站 (Open), 暂停接收任务 (Pause; 恢复接收任务, Resume, while paused), 重新连接 (Reconnect), 在浏览器中打开 (Open in browser), 查看日志 (View log) and 退出渲染站 (Quit). A notification appears when a job finishes, and when a request from the server awaits approval; clicking it opens the window.
 
 ### Window
 
@@ -225,7 +225,7 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 - The actual working directory, after resolving symbolic links, must be inside the chosen workspace.
 - A command runs automatically when the full command and the working directory exactly match an allowlist entry. Nothing is allowed by interpreter or command prefix.
-- Otherwise the request waits for approval in the station's window (a dialog appears while the window is open), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). Several requests are shown one after another, in the order they came. A request not approved within 5 minutes fails.
+- Otherwise the request waits for approval in the station's window (a dialog appears while the window is open, and the tray icon shows a notification that opens the window when clicked), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). Several requests are shown one after another, in the order they came. A request not approved within 5 minutes fails.
 - The allowlist is stored in the device's `.tools/remote/config.json`; entries can be removed in the Settings page.
 
 ### YOLO mode
