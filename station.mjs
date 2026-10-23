@@ -141,10 +141,10 @@ function checkWorkspaces(list) {
   return out;
 }
 const shellToken = randomBytes(32).toString('hex');
-/** whether this runs as administrator, and whether the tray icon is to start it so (its file, made
- *  and removed by 渲染站.exe as the settings' switch asks: exe/station.c) */
+/** whether this runs as administrator, and whether 渲染站.exe is not to ask for it at each start
+ *  (the overview page's switch, turned off: exe/station.c reads this file) */
 const admin = isAdministrator();
-const ELEVATE = join(dir, 'elevate');
+const NO_ELEVATE = join(dir, 'no-elevate');
 /** the request awaiting approval the tray icon told of last, and those told of while any wait
  *  (askChanged) */
 let asking = null;
@@ -475,7 +475,7 @@ const view = () => ({
     missing: missingEnv(w),
   })),
   shell: shellGate.state(),
-  elevate: { on: win && existsSync(ELEVATE), admin },
+  elevate: { on: win && !existsSync(NO_ELEVATE), admin },
   missing: lacking(),
   // what the tray icon is to keep: both, unless switched off
   autostart: config.autostart !== false,
@@ -487,6 +487,7 @@ const view = () => ({
   update,
   version,
   autoUpdate: config.autoUpdate !== false,
+  paths: { log: LOG },
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
 });
@@ -793,7 +794,7 @@ const ui = createServer(async (req, res) => {
   // changes only from the window or the tray: another page cannot send this header without asking
   // first, and is not answered when it asks
   if (req.method !== 'POST' || req.headers['x-station'] !== '1') return res.writeHead(403).end();
-  if ((path.startsWith('/shell/') || path.startsWith('/manage')) && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
+  if ((path.startsWith('/shell/') || path.startsWith('/manage') || path === '/elevate') && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
   let data;
   try {
     const text = await body(req);
@@ -824,6 +825,11 @@ const ui = createServer(async (req, res) => {
     } else if (path === '/manage/decide') {
       if (!['allow', 'deny'].includes(data.action)) throw new Error('action must be allow or deny');
       wsApprovals.decide(data.id, data.action);
+    } else if (path === '/elevate') {
+      if (typeof data.on !== 'boolean') throw new Error('on must be boolean');
+      if (data.on) rmSync(NO_ELEVATE, { force: true });
+      else writeFileSync(NO_ELEVATE, '');
+      note('station', data.on ? '打开渲染站时将申请管理员权限' : '打开渲染站时将不再申请管理员权限');
     } else if (path === '/parallel') {
       if (!Number.isInteger(data.n) || data.n < 1 || data.n > 16) throw new Error('同时运行的任务数须为 1 到 16 之间的整数');
       config.parallel = data.n;

@@ -7,7 +7,7 @@
     <link rel="icon" id="favicon" href="data:," />
     <!-- 渲染站's window (station.mjs serves it, at http://127.0.0.1:7799, in 渲染站.exe's own window or
          any browser): how the worker and the tunnel to the server are doing and this machine with
-         them, what the jobs made, what they print as they print it, the settings and the workspaces.
+         them, what the jobs made, what they print as they print it, and the settings, a page each.
          Light or dark as the system is. -->
     <link rel="stylesheet" href="/fonts/lxgw/lxgwwenkai-regular.css" />
     <style>
@@ -18,46 +18,47 @@
         unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
       }
       :root {
-        --bg: #f8f6f5;
-        --side: #f1ecf0;
-        --paper: #ffffff;
-        --well: #f4eff3;
-        --ink: #2b2430;
-        --ink-2: #7a5d7c;
-        --ink-3: #736a77;
-        --line: #e6dbea;
-        --accent: #6a4c9e;
-        --ok: #2a9d80;
-        --wait: #d99a1e;
-        --bad: #d4563a;
-        --off: #9a8a9d;
-        --shadow: 0 1px 2px rgb(43 36 48 / 0.05), 0 12px 32px -20px rgb(43 36 48 / 0.3);
-        --lift: 0 2px 6px rgb(43 36 48 / 0.08), 0 22px 44px -24px rgb(43 36 48 / 0.45);
+        --ground: #f3f2f7;
+        --rail: #eae8f1;
+        --surface: #ffffff;
+        --sunk: #eceaf2;
+        --ink: #1e1a28;
+        --ink-2: #554e66;
+        --ink-3: #847e95;
+        --line: #dcd8e5;
+        --line-2: #eae7f0;
+        --violet: #5b3fa0;
+        --on-violet: #ffffff;
+        --ok: #1d8f74;
+        --wait: #c27e0e;
+        --bad: #c4452c;
+        --off: #8f889d;
         --hand: 'LXGW WenKai', 'KaiTi', serif;
         --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
         --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
         --out: cubic-bezier(0.22, 1, 0.36, 1);
-        --io: cubic-bezier(0.65, 0, 0.35, 1);
-        --rail: 212px;
+        --r-panel: 12px;
+        --r-ctl: 8px;
+        --rail-w: 208px;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #171216;
-          --side: #120e11;
-          --paper: #211a20;
-          --well: #1c161b;
-          --ink: #efe8ee;
-          --ink-2: #b4a3b5;
-          --ink-3: #9a8a9d;
-          --line: #3a2d3c;
-          --accent: #c9aef0;
-          --ok: #33b596;
-          --wait: #f1b74a;
-          --bad: #ec6a46;
-          --off: #7d6f80;
-          --shadow: 0 1px 2px rgb(0 0 0 / 0.35);
-          --lift: 0 2px 8px rgb(0 0 0 / 0.4), 0 24px 48px -24px rgb(0 0 0 / 0.7);
+          --ground: #121019;
+          --rail: #0f0d15;
+          --surface: #1a1722;
+          --sunk: #24202e;
+          --ink: #ece9f3;
+          --ink-2: #b0a9c1;
+          --ink-3: #817b92;
+          --line: #2c2837;
+          --line-2: #24212e;
+          --violet: #b39cf2;
+          --on-violet: #1a1424;
+          --ok: #3fbf9c;
+          --wait: #eeb04a;
+          --bad: #ef6b4e;
+          --off: #6e6880;
           color-scheme: dark;
         }
       }
@@ -67,13 +68,13 @@
       html,
       body {
         height: 100%;
-        background: var(--bg);
+        background: var(--ground);
       }
       body {
         margin: 0;
         overflow: hidden;
         color: var(--ink);
-        font: 14px/1.6 var(--ui);
+        font: 13.5px/1.65 var(--ui);
         -webkit-font-smoothing: antialiased;
         --state: var(--off);
       }
@@ -81,7 +82,7 @@
         --state: var(--ok);
       }
       body[data-mode='busy'] {
-        --state: var(--accent);
+        --state: var(--violet);
       }
       body[data-mode='connecting'],
       body[data-mode='retry'] {
@@ -91,105 +92,192 @@
       body[data-mode='gone'] {
         --state: var(--bad);
       }
-      .hand {
-        font-family: var(--hand);
-        font-weight: 400;
-        letter-spacing: 0.01em;
+      [hidden] {
+        display: none !important;
       }
       .num {
         font-variant-numeric: tabular-nums;
       }
-      [hidden] {
-        display: none !important;
-      }
-      button {
-        padding: 7px 17px;
-        border: 1px solid var(--line);
-        border-radius: 9px;
-        background: var(--paper);
-        color: var(--ink);
-        font: 15px/1.4 var(--hand);
-        cursor: pointer;
-        transition:
-          border-color 0.25s var(--out),
-          color 0.25s var(--out),
-          background-color 0.25s var(--out),
-          transform 0.25s var(--out),
-          box-shadow 0.25s var(--out);
-      }
-      button:hover {
-        border-color: var(--accent);
-        color: var(--accent);
-      }
-      button:active {
-        transform: scale(0.97);
-      }
-      button:focus-visible,
-      input:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
-      button.primary {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: var(--paper);
-      }
-      button.primary:hover {
-        color: var(--paper);
-        box-shadow: 0 6px 18px -8px var(--accent);
-      }
-      button.link {
-        padding: 3px 4px;
-        border: 0;
-        background: none;
-        font: 12.5px var(--ui);
-        color: var(--accent);
-      }
-      .card {
-        background: var(--paper);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        box-shadow: var(--shadow);
+      p {
+        margin: 0;
       }
 
-      /* ——— the frame: a rail and the page; in 渲染站.exe's window, the title bar's buttons too ——— */
+      /* ——— controls ——— */
+      button {
+        padding: 6px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-ctl);
+        background: var(--surface);
+        color: var(--ink);
+        font: 13.5px/1.4 var(--ui);
+        white-space: nowrap;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          color 0.2s,
+          background-color 0.2s;
+      }
+      button:hover {
+        border-color: color-mix(in srgb, var(--violet) 55%, var(--line));
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+        transform: none;
+      }
+      button.primary {
+        background: var(--violet);
+        border-color: var(--violet);
+        color: var(--on-violet);
+      }
+      button.link {
+        padding: 2px 4px;
+        border: 0;
+        background: none;
+        color: var(--violet);
+      }
+      button.link:hover {
+        text-decoration: underline;
+      }
+      button.danger {
+        color: var(--bad);
+      }
+      :focus-visible {
+        outline: 2px solid var(--violet);
+        outline-offset: 2px;
+      }
+      input[type='text'],
+      textarea {
+        width: 100%;
+        padding: 7px 11px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-ctl);
+        background: var(--ground);
+        color: var(--ink);
+        font: 13.5px/1.5 var(--ui);
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+      textarea {
+        min-height: 3.8em;
+        font: 12.5px/1.55 var(--mono);
+        resize: vertical;
+      }
+      input[type='text']:focus,
+      textarea:focus {
+        border-color: var(--violet);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 18%, transparent);
+        outline: none;
+      }
+      input.missing {
+        border-color: var(--wait);
+      }
+      /* a switch */
+      input[type='checkbox'] {
+        appearance: none;
+        position: relative;
+        flex: none;
+        width: 38px;
+        height: 22px;
+        margin: 0;
+        border-radius: 999px;
+        background: var(--line);
+        cursor: pointer;
+        transition: background-color 0.3s var(--out);
+      }
+      input[type='checkbox']::before {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+        transition: transform 0.35s var(--out);
+      }
+      input[type='checkbox']:checked {
+        background: var(--violet);
+      }
+      input[type='checkbox']:checked::before {
+        transform: translateX(16px);
+      }
+      input[type='checkbox']:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      /* a choice of a few, and a number to step */
+      .seg {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--ground);
+      }
+      .seg button {
+        padding: 3px 13px;
+        border: 0;
+        border-radius: 999px;
+        background: none;
+        color: var(--ink-2);
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--violet);
+        color: var(--on-violet);
+      }
+      .seg b {
+        min-width: 2.2em;
+        font-weight: 500;
+        text-align: center;
+      }
+
+      /* ——— the frame: the rail and the page; in 渲染站.exe's window, the title bar's buttons too ——— */
       .shell {
         display: grid;
-        grid-template-columns: var(--rail) minmax(0, 1fr);
+        grid-template-columns: var(--rail-w) minmax(0, 1fr);
         height: 100%;
       }
       .titlebar {
         position: fixed;
         top: 0;
-        left: var(--rail);
+        left: var(--rail-w);
         right: 0;
-        z-index: 20;
+        z-index: 30;
         display: flex;
-        justify-content: flex-end;
-        height: 36px;
-        background: color-mix(in srgb, var(--bg) 80%, transparent);
-        backdrop-filter: blur(14px);
+        height: 34px;
+        background: color-mix(in srgb, var(--ground) 84%, transparent);
+        backdrop-filter: blur(12px);
         user-select: none;
       }
-      .titlebar .tb {
+      .titlebar .drag {
+        flex: 1;
+      }
+      .tb {
         display: grid;
         place-items: center;
         width: 46px;
-        height: 36px;
+        height: 34px;
         padding: 0;
         border: 0;
         border-radius: 0;
-        background: transparent;
+        background: none;
         color: var(--ink-2);
       }
-      .titlebar .tb:hover {
-        background: var(--well);
+      .tb:hover {
+        background: var(--sunk);
         color: var(--ink);
       }
-      .titlebar .tb:active {
+      .tb:active {
         transform: none;
       }
-      .titlebar .tb.close:hover {
+      .tb.close:hover {
         background: #c42b1c;
         color: #fff;
       }
@@ -200,68 +288,70 @@
         stroke: currentColor;
         stroke-width: 1;
       }
-      .side {
+      .rail {
         display: flex;
         flex-direction: column;
-        gap: 26px;
-        padding: 24px 14px 18px;
-        background: var(--side);
+        gap: 22px;
+        min-height: 0;
+        padding: 22px 12px 16px;
+        overflow-y: auto;
+        background: var(--rail);
         border-right: 1px solid var(--line);
         user-select: none;
+        scrollbar-width: none;
       }
-      .framed .side {
-        padding-top: 40px;
+      .framed .rail {
+        padding-top: 30px;
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 11px;
+        gap: 10px;
         padding: 0 8px;
       }
       .logo {
         flex: none;
-        width: 34px;
-        height: 34px;
+        width: 30px;
+        height: 30px;
       }
       .logo circle {
-        fill: var(--accent);
-        transition: fill 0.4s;
+        fill: var(--state);
+        transition: fill 0.5s;
       }
       .logo path {
-        fill: var(--paper);
+        fill: #fff;
       }
       .brand b {
         display: block;
-        font: 400 23px/1.15 var(--hand);
+        font: 400 22px/1.15 var(--hand);
       }
       .brand small {
         display: block;
-        margin-top: 1px;
         font-size: 11.5px;
         color: var(--ink-3);
       }
       .nav {
         position: relative;
         display: grid;
-        gap: 4px;
+        gap: 2px;
       }
       .nav button {
         position: relative;
         z-index: 1;
         display: flex;
         align-items: center;
-        gap: 12px;
-        height: 42px;
-        padding: 0 13px;
+        gap: 11px;
+        height: 40px;
+        padding: 0 12px;
         border: 0;
-        border-radius: 11px;
+        border-radius: 9px;
         background: none;
-        font: 16px/1 var(--hand);
+        font: 400 16px/1 var(--hand);
         color: var(--ink-2);
         text-align: left;
       }
       .nav button:hover,
-      .nav button[aria-selected='true'] {
+      .nav button[aria-current='page'] {
         color: var(--ink);
       }
       .nav button:active {
@@ -269,45 +359,78 @@
       }
       .nav svg {
         flex: none;
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         fill: none;
         stroke: currentColor;
         stroke-width: 1.5;
         stroke-linecap: round;
         stroke-linejoin: round;
-        transition: color 0.3s;
       }
-      .nav button[aria-selected='true'] svg {
-        color: var(--accent);
+      .nav [aria-current='page'] svg {
+        color: var(--violet);
       }
       .nav .count {
         margin-left: auto;
         font: 12px var(--ui);
         color: var(--ink-3);
       }
-      .nav .badge {
+      .badge {
+        flex: none;
         margin-left: auto;
         width: 7px;
         height: 7px;
         border-radius: 50%;
         background: var(--wait);
       }
-      /* the page shown, a lit plate sliding under its name */
+      /* the page shown, a plate sliding under its name */
       .slider {
         position: absolute;
         left: 0;
         right: 0;
         top: 0;
-        height: 42px;
-        border-radius: 11px;
-        background: var(--paper);
-        box-shadow: var(--shadow);
-        transition: transform 0.5s var(--out);
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--surface);
+        transition: transform 0.45s var(--out);
       }
-      .side-foot {
+      /* the settings' pages, under 设置 while one is shown */
+      .sub {
         display: grid;
-        gap: 8px;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 0.35s var(--out);
+      }
+      .sub.open {
+        grid-template-rows: 1fr;
+      }
+      .sub > div {
+        display: grid;
+        gap: 1px;
+        min-height: 0;
+        overflow: hidden;
+        margin-left: 21px;
+        padding-left: 9px;
+        border-left: 1px solid var(--line);
+      }
+      .nav .sub button {
+        height: 32px;
+        margin: 1px 0;
+        padding: 0 10px;
+        border-radius: 7px;
+        font: 13.5px/1 var(--ui);
+        color: var(--ink-3);
+      }
+      .nav .sub button:hover {
+        color: var(--ink);
+      }
+      .nav .sub button[aria-current='page'] {
+        background: color-mix(in srgb, var(--violet) 10%, transparent);
+        color: var(--violet);
+      }
+      .rail-foot {
+        display: grid;
+        gap: 6px;
         margin-top: auto;
         padding: 0 6px;
       }
@@ -316,29 +439,29 @@
         align-items: center;
         gap: 9px;
         width: fit-content;
-        padding: 6px 13px 6px 11px;
+        padding: 5px 13px 5px 11px;
         border: 1px solid var(--line);
         border-radius: 999px;
-        background: var(--paper);
+        background: var(--surface);
         font-size: 12.5px;
         color: var(--ink-2);
-        transition: border-color 0.4s;
       }
       .dot {
         position: relative;
+        flex: none;
         width: 8px;
         height: 8px;
         border-radius: 50%;
         background: var(--state);
-        transition: background-color 0.4s;
+        transition: background-color 0.5s;
       }
       body[data-mode='busy'] .dot::after,
       body[data-mode='connecting'] .dot::after {
         content: '';
         position: absolute;
         inset: -4px;
-        border-radius: 50%;
         border: 1px solid var(--state);
+        border-radius: 50%;
         animation: ring 1.6s var(--out) infinite;
       }
       @keyframes ring {
@@ -351,6 +474,10 @@
           transform: scale(1.6);
         }
       }
+      .rail-foot .link {
+        justify-self: start;
+        font-size: 12.5px;
+      }
       .main {
         position: relative;
         overflow-y: auto;
@@ -358,252 +485,274 @@
         scrollbar-color: var(--line) transparent;
       }
       .page {
-        max-width: 900px;
+        max-width: 860px;
         margin: 0 auto;
-        padding: 28px 34px 40px;
+        padding: 34px 36px 48px;
       }
       .framed .page {
         padding-top: 44px;
       }
       .page.enter {
-        animation: rise 0.5s var(--out) both;
+        animation: enter 0.35s var(--out) both;
       }
-      @keyframes rise {
+      @keyframes enter {
         from {
           opacity: 0;
-          transform: translateY(12px);
+          transform: translateY(6px);
         }
       }
-      .head {
+      .page-head {
         display: flex;
         align-items: baseline;
         gap: 14px;
-        margin-bottom: 18px;
+        margin-bottom: 8px;
       }
-      .head h2 {
+      .page-head h2 {
         margin: 0;
-        font: 400 27px/1.2 var(--hand);
+        font: 400 26px/1.25 var(--hand);
       }
-      .head .sub {
+      .page-head .sub-line {
         font-size: 12.5px;
         color: var(--ink-3);
       }
-      .head .end {
+      .page-head .end {
         margin-left: auto;
       }
-      h3 {
+      .lede {
+        max-width: 62ch;
+        margin-bottom: 24px;
+        color: var(--ink-2);
+      }
+      .block {
+        margin-top: 34px;
+      }
+      .block-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .block-head h3 {
         margin: 0;
         font: 400 18px/1.3 var(--hand);
       }
+      .block-head .sub-line {
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-panel);
+      }
+      .hint {
+        margin-top: 12px;
+        max-width: 66ch;
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .err {
+        color: var(--bad);
+      }
       .empty {
-        margin: 0;
-        padding: 34px 18px;
+        padding: 30px 20px;
         font-size: 13px;
         color: var(--ink-3);
         text-align: center;
       }
 
-      /* ——— 总览: how it is ——— */
-      .hero {
-        position: relative;
+      /* ——— 总览: the state, in words as large as the page has, and the frames as they are made ——— */
+      .state {
         display: grid;
-        grid-template-columns: 156px 1fr;
-        gap: 30px;
-        align-items: center;
-        padding: 26px 30px 26px 26px;
-        overflow: hidden;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 24px;
+        padding-bottom: 26px;
+        border-bottom: 1px solid var(--line);
       }
-      /* the state's colour, as a light behind */
-      .hero::before {
-        content: '';
-        position: absolute;
-        right: -14%;
-        top: -60%;
-        width: 62%;
-        aspect-ratio: 1;
-        border-radius: 50%;
-        background: var(--state);
-        opacity: 0.11;
-        filter: blur(70px);
-        transition: background-color 0.8s var(--io);
+      .state-word {
+        margin: 0;
+        font: 400 46px/1.15 var(--hand);
+        color: var(--state);
+        transition: color 0.5s;
       }
-      body[data-mode='busy'] .hero::before {
-        animation: breathe 3.6s var(--io) infinite alternate;
-      }
-      @keyframes breathe {
-        to {
-          opacity: 0.2;
-          transform: scale(1.08);
-        }
-      }
-      .hero > * {
-        position: relative;
-      }
-      .meter {
-        width: 156px;
-        height: 156px;
-      }
-      .meter svg {
-        width: 100%;
-        height: 100%;
-        transform: rotate(-90deg);
-      }
-      .meter circle {
-        fill: none;
-        stroke-width: 6;
-      }
-      .meter .track {
-        stroke: var(--well);
-      }
-      .meter .arc {
-        stroke: var(--state);
-        stroke-linecap: round;
-        filter: drop-shadow(0 0 5px color-mix(in srgb, var(--state) 45%, transparent));
-        transition:
-          stroke-dashoffset 0.9s var(--out),
-          stroke-dasharray 0.6s var(--out),
-          stroke 0.5s,
-          opacity 0.5s;
-      }
-      .meter.spin svg {
-        animation: spin 1.2s linear infinite;
-      }
-      @keyframes spin {
-        from {
-          transform: rotate(-90deg);
-        }
-        to {
-          transform: rotate(270deg);
-        }
-      }
-      .meter-in {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-content: center;
-        text-align: center;
-      }
-      .meter-in b {
-        font: 500 36px/1.1 var(--ui);
-        font-variant-numeric: tabular-nums;
-      }
-      .meter-in b.word {
-        font: 400 27px/1.2 var(--hand);
-      }
-      .meter-in small {
-        margin-top: 4px;
-        font-size: 12px;
-        color: var(--ink-3);
-      }
-      .say {
-        min-width: 0;
-      }
-      .say h2 {
-        margin: 0 0 6px;
-        font: 400 27px/1.35 var(--hand);
+      .state-what {
+        margin: 4px 0 0;
+        font: 400 19px/1.45 var(--hand);
         overflow-wrap: anywhere;
       }
-      #detail {
-        margin: 0;
-        font-size: 13.5px;
+      .state-detail {
+        margin-top: 4px;
         color: var(--ink-2);
         overflow-wrap: anywhere;
       }
-      #nums {
-        margin: 7px 0 0;
+      .state .actions {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-content: start;
+        gap: 8px;
+        padding-top: 10px;
+      }
+      .state > :not(.actions) {
+        grid-column: 1;
+      }
+      .state .strip-wrap {
+        grid-column: 1 / -1;
+        margin-top: 20px;
+      }
+      /* the frames: a cell each (or each so many), filled as they are made */
+      .strip {
+        display: grid;
+        grid-template-columns: repeat(var(--segs, 48), minmax(0, 1fr));
+        gap: 3px;
+        height: 20px;
+      }
+      .strip i {
+        border-radius: 2px;
+        background: var(--sunk);
+        transition: background-color 0.5s;
+      }
+      .strip i.on {
+        background: var(--state);
+      }
+      .strip i.now {
+        animation: now 1.1s ease-in-out infinite alternate;
+      }
+      @keyframes now {
+        to {
+          background: color-mix(in srgb, var(--state) 55%, var(--sunk));
+        }
+      }
+      /* no telling how far: a light passing along */
+      .strip.sweep i {
+        animation: sweep 1.8s ease-in-out infinite;
+        animation-delay: calc(var(--i) * 28ms);
+      }
+      @keyframes sweep {
+        0%,
+        60%,
+        100% {
+          background: var(--sunk);
+        }
+        25% {
+          background: color-mix(in srgb, var(--state) 60%, var(--sunk));
+        }
+      }
+      .strip-meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 4px 16px;
+        margin-top: 8px;
         font-size: 12.5px;
         color: var(--ink-3);
       }
-      #nums:empty {
-        display: none;
+      .strip-meta b {
+        font-weight: 500;
+        color: var(--ink);
       }
-      .actions {
+      .strip.mini {
+        height: 6px;
+        gap: 2px;
+        margin-top: 7px;
+      }
+      .strip.mini i {
+        border-radius: 1px;
+      }
+      .notice {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 10px;
-        margin-top: 18px;
+        gap: 10px 16px;
+        margin-top: 22px;
+        padding: 12px 16px;
+        border: 1px solid color-mix(in srgb, var(--wait) 40%, var(--line));
+        border-radius: var(--r-panel);
+        background: color-mix(in srgb, var(--wait) 9%, var(--surface));
       }
-      .notice {
-        margin: 14px 0 0;
-        padding: 11px 15px;
-        border-left: 2px solid var(--wait);
-        background: var(--paper);
-        border-radius: 0 10px 10px 0;
-        font-size: 13px;
+      .notice p {
+        flex: 1 1 260px;
       }
-      .stats {
+      .figures {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 14px;
-        margin-top: 16px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 24px;
       }
-      .stat {
+      .figure {
         min-width: 0;
-        padding: 14px 16px 13px;
-        transition:
-          transform 0.35s var(--out),
-          box-shadow 0.35s var(--out);
+        padding: 0 18px;
+        border-left: 1px solid var(--line);
       }
-      .stat:hover,
-      .chart:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--lift);
+      .figure:first-child {
+        padding-left: 0;
+        border-left: 0;
       }
-      .stat span,
+      .figure span,
+      .figure small {
+        display: block;
+        font-size: 12px;
+        color: var(--ink-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .figure b {
+        display: block;
+        font: 500 22px/1.35 var(--ui);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* this machine: running as administrator or not, and its last two minutes */
+      .machine-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px 20px;
+        padding: 13px 18px;
+        border-bottom: 1px solid var(--line-2);
+      }
+      .machine-row label {
+        display: flex;
+        flex: 1 1 300px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        cursor: pointer;
+      }
+      .charts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      }
+      .chart {
+        position: relative;
+        min-width: 0;
+        padding: 13px 16px 0;
+        overflow: hidden;
+        border-left: 1px solid var(--line-2);
+      }
+      .chart:first-child {
+        border-left: 0;
+      }
       .chart span {
         display: block;
         font-size: 12px;
         color: var(--ink-3);
       }
-      .stat b {
-        display: block;
-        margin-top: 2px;
-        font: 500 24px/1.3 var(--ui);
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .stat small {
-        display: block;
-        font-size: 11.5px;
-        color: var(--ink-3);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      /* this machine, its last two minutes */
-      .machine {
-        margin-top: 26px;
-      }
-      .machine .head {
-        margin-bottom: 12px;
-      }
-      .charts {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 14px;
-      }
-      .chart {
-        position: relative;
-        min-width: 0;
-        padding: 14px 16px 0;
-        overflow: hidden;
-        transition:
-          transform 0.35s var(--out),
-          box-shadow 0.35s var(--out);
-      }
       .chart b {
         display: block;
-        font: 500 24px/1.3 var(--ui);
+        font: 500 22px/1.35 var(--ui);
         font-variant-numeric: tabular-nums;
       }
       .chart small {
         position: absolute;
         right: 16px;
-        top: 15px;
-        max-width: 55%;
+        top: 14px;
+        max-width: 58%;
         font-size: 11px;
         color: var(--ink-3);
         white-space: nowrap;
@@ -613,64 +762,53 @@
       .chart svg {
         display: block;
         width: calc(100% + 32px);
-        height: 62px;
-        margin: 6px -16px 0;
+        height: 56px;
+        margin: 4px -16px 0;
       }
       .chart .line {
         fill: none;
-        stroke: currentColor;
-        stroke-width: 1.6;
+        stroke: var(--tone);
+        stroke-width: 1.5;
         vector-effect: non-scaling-stroke;
       }
-      .chart .area {
-        stroke: none;
+      .chart stop {
+        stop-color: var(--tone);
       }
       .c-cpu {
-        color: var(--accent);
+        --tone: var(--violet);
       }
       .c-mem {
-        color: var(--ok);
+        --tone: var(--ok);
       }
       .c-gpu {
-        color: var(--wait);
-      }
-      .chart b,
-      .chart span {
-        color: var(--ink);
-      }
-      .chart span {
-        color: var(--ink-3);
+        --tone: var(--wait);
       }
       /* the jobs */
-      .recent {
-        margin-top: 26px;
-      }
-      .recent .head {
-        margin-bottom: 12px;
-      }
-      ol {
+      ol,
+      ul {
         margin: 0;
-        padding: 4px 0;
+        padding: 0;
         list-style: none;
       }
-      li + li {
-        border-top: 1px solid var(--line);
+      .list > li + li {
+        border-top: 1px solid var(--line-2);
       }
       .job {
         display: grid;
-        grid-template-columns: 3.2em 1fr auto auto auto;
+        grid-template-columns: 3.2em minmax(0, 1fr) auto auto auto;
         align-items: center;
         gap: 14px;
         padding: 12px 18px;
-        font-size: 13px;
         cursor: pointer;
-        transition: background-color 0.25s var(--out);
+        transition: background-color 0.2s;
       }
       .job:hover {
-        background: var(--well);
+        background: color-mix(in srgb, var(--sunk) 55%, transparent);
+      }
+      .list > li:first-child .job {
+        border-radius: var(--r-panel) var(--r-panel) 0 0;
       }
       .job:focus-visible {
-        outline: 2px solid var(--accent);
         outline-offset: -2px;
       }
       .job .at,
@@ -679,69 +817,48 @@
         color: var(--ink-3);
       }
       .job .what {
-        font: 15px/1.4 var(--hand);
+        min-width: 0;
+        font: 15px/1.45 var(--hand);
         overflow-wrap: anywhere;
       }
-      .tag {
-        padding: 1px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-      }
-      .tag.ok {
-        color: var(--ok);
-        background: color-mix(in srgb, var(--ok) 12%, transparent);
-      }
-      .tag.bad {
-        color: var(--bad);
-        background: color-mix(in srgb, var(--bad) 12%, transparent);
-      }
-      .tag.run {
-        color: var(--accent);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
-      }
-      .tag.wait {
-        color: var(--wait);
-        background: color-mix(in srgb, var(--wait) 12%, transparent);
-      }
-      /* the jobs running and waiting, each with how far it is */
       .job.live {
-        grid-template-columns: 3.2em 1fr auto auto;
+        grid-template-columns: 3.2em minmax(0, 1fr) auto auto;
         cursor: default;
       }
       .job.live:hover {
         background: none;
       }
-      .prog {
-        display: block;
-        height: 3px;
-        margin-top: 6px;
-        border-radius: 2px;
-        background: var(--well);
-        overflow: hidden;
+      .tag {
+        padding: 1px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        white-space: nowrap;
       }
-      .prog b {
-        display: block;
-        width: 0;
-        height: 100%;
-        background: var(--accent);
-        transition: width 0.6s var(--out);
+      .tag.ok {
+        color: var(--ok);
+        background: color-mix(in srgb, var(--ok) 13%, transparent);
       }
-      .job .open,
-      .acts button {
+      .tag.bad {
+        color: var(--bad);
+        background: color-mix(in srgb, var(--bad) 13%, transparent);
+      }
+      .tag.run {
+        color: var(--violet);
+        background: color-mix(in srgb, var(--violet) 13%, transparent);
+      }
+      .tag.wait {
+        color: var(--wait);
+        background: color-mix(in srgb, var(--wait) 14%, transparent);
+      }
+      .job .open {
         padding: 2px 12px;
         border-radius: 999px;
-        font-size: 13px;
-      }
-      .acts {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: -2px 18px 10px;
+        font-size: 12.5px;
       }
       .fold {
         display: grid;
         grid-template-rows: 0fr;
-        transition: grid-template-rows 0.4s var(--out);
+        transition: grid-template-rows 0.35s var(--out);
       }
       .fold.open {
         grid-template-rows: 1fr;
@@ -749,22 +866,39 @@
       .fold > div {
         overflow: hidden;
       }
-      pre {
+      .acts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 18px 10px;
+      }
+      .acts button {
+        padding: 2px 12px;
+        border-radius: 999px;
+        font-size: 12.5px;
+      }
+      pre.out {
+        max-height: 240px;
         margin: 0 18px 14px;
         padding: 10px 12px;
-        max-height: 240px;
         overflow: auto;
-        background: var(--well);
-        border-radius: 9px;
+        border-radius: var(--r-ctl);
+        background: var(--sunk);
         font: 11.5px/1.55 var(--mono);
         color: var(--ink-2);
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
+      .foot {
+        margin-top: 30px;
+        font-size: 12px;
+        color: var(--ink-3);
+        text-align: center;
+      }
 
       /* ——— 输出: what the jobs made ——— */
       .group + .group {
-        margin-top: 26px;
+        margin-top: 28px;
       }
       .group-head {
         display: flex;
@@ -782,31 +916,22 @@
       }
       .tiles {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 10px;
       }
       .tile {
         position: relative;
         display: block;
         aspect-ratio: 16 / 9;
         padding: 0;
-        border: 1px solid var(--line);
-        border-radius: 12px;
         overflow: hidden;
-        background: var(--well);
-        box-shadow: var(--shadow);
-        transition:
-          transform 0.45s var(--out),
-          box-shadow 0.45s var(--out),
-          border-color 0.3s;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--sunk);
+        transition: border-color 0.25s;
       }
       .tile:hover {
-        transform: translateY(-3px);
-        box-shadow: var(--lift);
-        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
-      }
-      .tile:active {
-        transform: translateY(-1px) scale(0.99);
+        border-color: var(--violet);
       }
       .tile img,
       .tile video {
@@ -814,9 +939,7 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition:
-          transform 0.8s var(--out),
-          opacity 0.5s;
+        transition: opacity 0.4s;
       }
       .tile img {
         opacity: 0;
@@ -824,48 +947,46 @@
       .tile img.in {
         opacity: 1;
       }
-      .tile:hover img,
-      .tile:hover video {
-        transform: scale(1.04);
-      }
       .tile .cap {
         position: absolute;
         left: 0;
         right: 0;
         bottom: 0;
-        padding: 18px 11px 7px;
-        background: linear-gradient(transparent, rgb(20 14 19 / 0.62));
+        padding: 16px 10px 6px;
+        background: linear-gradient(transparent, rgb(18 14 25 / 0.66));
         color: #fff;
         font: 12px/1.3 var(--ui);
         text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .tile.doc {
         display: grid;
         place-items: center;
       }
       .tile.doc b {
-        font: 600 22px/1 var(--ui);
+        font: 600 20px/1 var(--ui);
         letter-spacing: 0.04em;
         color: var(--ink-3);
       }
       .tile .play {
         position: absolute;
-        right: 9px;
-        top: 9px;
+        right: 8px;
+        top: 8px;
         display: grid;
         place-items: center;
-        width: 28px;
-        height: 28px;
+        width: 26px;
+        height: 26px;
         border-radius: 50%;
-        background: rgb(20 14 19 / 0.5);
-        backdrop-filter: blur(6px);
-        transition: opacity 0.3s;
+        background: rgb(18 14 25 / 0.55);
+        transition: opacity 0.25s;
       }
       .tile .play svg {
-        width: 11px;
-        height: 11px;
-        fill: #fff;
+        width: 10px;
+        height: 10px;
         margin-left: 2px;
+        fill: #fff;
       }
       .tile:hover .play {
         opacity: 0;
@@ -879,8 +1000,8 @@
         grid-template-rows: 1fr auto;
         place-items: center;
         padding: 52px 72px 18px;
-        background: rgb(16 11 15 / 0.82);
-        backdrop-filter: blur(18px);
+        background: rgb(14 11 19 / 0.86);
+        backdrop-filter: blur(16px);
         opacity: 0;
         transition: opacity 0.3s var(--out);
       }
@@ -898,17 +1019,16 @@
       .lb-stage video {
         max-width: 100%;
         max-height: 100%;
-        border-radius: 10px;
-        box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.8);
-        transform: scale(0.96);
+        border-radius: 8px;
         opacity: 0;
+        transform: scale(0.97);
         transition:
-          transform 0.45s var(--out),
+          transform 0.4s var(--out),
           opacity 0.3s var(--out);
       }
       .lightbox.on .lb-stage .in {
-        transform: none;
         opacity: 1;
+        transform: none;
       }
       .lb-bar {
         display: flex;
@@ -917,29 +1037,27 @@
         justify-content: center;
         gap: 10px 16px;
         padding-top: 14px;
-        color: #efe8ee;
+        color: #ece9f3;
         font-size: 13px;
       }
       .lb-bar .n {
-        color: #9a8a9d;
+        color: #9a93ab;
       }
       .lightbox button {
-        border-color: rgb(255 255 255 / 0.18);
+        border-color: rgb(255 255 255 / 0.2);
         background: rgb(255 255 255 / 0.06);
-        color: #efe8ee;
+        color: #ece9f3;
       }
       .lightbox button:hover {
-        border-color: rgb(255 255 255 / 0.4);
-        background: rgb(255 255 255 / 0.12);
-        color: #fff;
+        border-color: rgb(255 255 255 / 0.45);
       }
       .lb-nav,
       .lb-close {
         position: absolute;
         display: grid;
         place-items: center;
-        width: 44px;
-        height: 44px;
+        width: 42px;
+        height: 42px;
         padding: 0;
         border-radius: 50%;
       }
@@ -972,7 +1090,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 12px;
+        margin: 16px 0 12px;
       }
       .chips {
         position: relative;
@@ -980,7 +1098,7 @@
         gap: 4px;
         padding: 3px;
         border-radius: 999px;
-        background: var(--well);
+        background: var(--sunk);
       }
       .chips button {
         position: relative;
@@ -989,7 +1107,6 @@
         border: 0;
         border-radius: 999px;
         background: transparent;
-        font: 13px/1.6 var(--ui);
         color: var(--ink-2);
       }
       .chips button[aria-pressed='true'] {
@@ -1004,14 +1121,13 @@
         bottom: 3px;
         left: 0;
         border-radius: 999px;
-        background: var(--paper);
-        box-shadow: var(--shadow);
+        background: var(--surface);
         transition:
-          transform 0.45s var(--out),
-          width 0.45s var(--out);
+          transform 0.4s var(--out),
+          width 0.4s var(--out);
       }
       .term {
-        height: calc(100vh - 190px);
+        height: calc(100vh - 200px);
         min-height: 300px;
         overflow: auto;
         padding: 14px 18px;
@@ -1021,22 +1137,15 @@
         scrollbar-color: var(--line) transparent;
       }
       .term:empty::before {
-        content: '还没有动静。';
+        content: '暂无动态。';
         color: var(--ink-3);
       }
       .ln {
         display: grid;
-        grid-template-columns: 4.7em 3.6em 1fr;
+        grid-template-columns: 4.7em 3.6em minmax(0, 1fr);
         gap: 10px;
         align-items: baseline;
         padding: 1px 0;
-        animation: line-in 0.35s var(--out);
-      }
-      @keyframes line-in {
-        from {
-          opacity: 0;
-          transform: translateY(4px);
-        }
       }
       .ln time {
         font-size: 11.5px;
@@ -1044,31 +1153,32 @@
         font-variant-numeric: tabular-nums;
       }
       .ln i {
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--tag) 13%, transparent);
+        color: color-mix(in srgb, var(--tag) 80%, var(--ink));
         font: normal 11px/1.7 var(--ui);
         text-align: center;
-        border-radius: 4px;
-        color: color-mix(in srgb, var(--tag) 80%, var(--ink));
-        background: color-mix(in srgb, var(--tag) 13%, transparent);
       }
       .ln span {
         overflow-wrap: anywhere;
       }
-      .k-render {
-        --tag: var(--accent);
+      .k-job,
+      .k-out {
+        --tag: var(--violet);
       }
-      .k-tunnel {
+      .k-tunnel,
+      .k-ssh {
         --tag: var(--wait);
       }
       .k-station {
         --tag: var(--ok);
       }
-      .ln.raw {
-        padding: 0;
+      .k-shell {
+        --tag: var(--bad);
       }
       .ln.raw i {
         visibility: hidden;
       }
-      /* what a job printed: its number */
       .ln.raw.of-job i {
         visibility: visible;
         font-variant-numeric: tabular-nums;
@@ -1079,269 +1189,307 @@
         white-space: pre-wrap;
       }
       .ln.raw.k-out span {
-        border-left: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
-        padding-left: 9px;
         margin-left: -11px;
+        padding-left: 9px;
+        border-left: 2px solid color-mix(in srgb, var(--violet) 30%, transparent);
       }
 
-      /* ——— 设置 ——— */
-      form {
-        display: grid;
-        gap: 14px;
-        padding: 20px 22px 22px;
+      /* ——— 设置: a page each, rows of a label and its control ——— */
+      .rows > * + * {
+        border-top: 1px solid var(--line-2);
       }
-      h4 {
-        margin: 8px 0 -2px;
-        font: 16px/1.4 var(--hand);
-        color: var(--ink);
-      }
-      h4:first-child {
-        margin-top: 0;
-      }
-      label {
-        display: grid;
-        gap: 5px;
-        font-size: 13px;
-        color: var(--ink-2);
-      }
-      label code {
-        margin-left: 6px;
-        font: 11px var(--ui);
-        color: var(--ink-3);
-      }
-      input[type='text'],
-      textarea {
-        width: 100%;
-        padding: 8px 11px;
-        border: 1px solid var(--line);
-        border-radius: 9px;
-        background: var(--bg);
-        color: var(--ink);
-        font: 13px var(--ui);
-        transition:
-          border-color 0.25s,
-          box-shadow 0.25s;
-      }
-      textarea {
-        min-height: 3.4em;
-        font: 12.5px/1.5 var(--mono);
-        resize: vertical;
-      }
-      input[type='text']:focus,
-      textarea:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-        outline: none;
-      }
-      .shell-panel { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
-      .shell-panel p { font-size: 13px; color: var(--ink-2); }
-      .shell-panel pre { margin: 10px 0; border-radius: 0; }
-      .shell-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-      .shell-actions button { border-radius: 0; background: transparent; }
-      #shell-rules li { padding: 10px 0; font-size: 13px; }
-      #shell-error { color: var(--bad); white-space: pre-wrap; }
-      #shell-review, #ws-review { width: 680px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-      #shell-review::backdrop, #ws-review::backdrop { background: rgb(0 0 0 / 40%); }
-      /* a choice of a few, and a number to step */
-      .seg {
-        display: inline-flex;
-        flex: none;
-        align-items: center;
-        padding: 2px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-      }
-      .seg button {
-        padding: 3px 12px;
-        border: 0;
-        border-radius: 999px;
-        background: none;
-        font: 13px var(--ui);
-        color: var(--ink-2);
-      }
-      .seg button[aria-pressed='true'] {
-        background: var(--accent);
-        color: var(--paper);
-      }
-      .seg b {
-        min-width: 2em;
-        font: 500 13px var(--ui);
-        text-align: center;
-      }
-      div.switch {
-        cursor: default;
-      }
-      #manage-error,
-      #elevate-error {
-        font-size: 12.5px;
-        color: var(--bad);
-      }
-      input.missing {
-        border-color: var(--wait);
-      }
-      .two {
-        display: grid;
-        grid-template-columns: 1fr 8em;
-        gap: 12px;
-      }
-      .two.wide {
-        grid-template-columns: 11em 1fr;
-      }
-      label > span small {
-        margin-left: 6px;
-        font-size: 11.5px;
-        color: var(--ink-3);
-      }
-      .hint {
-        margin: 0;
-        font-size: 12.5px;
-        color: var(--ink-3);
-      }
-      .ws {
-        display: grid;
-        gap: 12px;
-        min-width: 0;
-        margin: 0;
-        padding: 14px 0 4px;
-        border: 0;
-        border-top: 1px solid var(--line);
-      }
-      .ws-head {
+      .row {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 12px 20px;
+        padding: 14px 18px;
       }
-      .ws-head b {
-        font: 400 16px/1.3 var(--hand);
+      label.row {
+        cursor: pointer;
       }
-      .ws .switch {
-        border-top: 0;
-        padding: 0;
+      .row .text {
+        min-width: 0;
       }
-      .ws-note {
-        margin: 0;
+      .row .text b {
+        display: block;
+        font-weight: 400;
+        font-size: 14px;
+      }
+      .row .text small {
+        display: block;
+        margin-top: 2px;
         font-size: 12.5px;
         color: var(--ink-3);
         overflow-wrap: anywhere;
       }
-      .ws-note.bad {
+      .row .text small.err {
         color: var(--bad);
       }
-      #ws-add {
-        justify-self: start;
+      .row .ctl {
+        display: flex;
+        flex: none;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
       }
-      #save-error {
+      .fields {
+        display: grid;
+        gap: 14px;
+        padding: 16px 18px;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      .field > span {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .field code {
+        font: 11.5px var(--mono);
+        color: var(--ink-3);
+      }
+      .field small {
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 7em;
+        gap: 12px;
+      }
+      .pair.wide {
+        grid-template-columns: 11em minmax(0, 1fr);
+      }
+      .status {
         font-size: 12.5px;
+        color: var(--ok);
+        transition: opacity 0.3s;
+      }
+      .status.err {
         color: var(--bad);
       }
-      .switch {
+      .status:empty {
+        display: none;
+      }
+      /* a workspace: its name, path and how it is, opened to its settings */
+      .wsc + .wsc {
+        margin-top: 10px;
+      }
+      .wsc-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto 14px;
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+        padding: 13px 18px;
+        border: 0;
+        border-radius: var(--r-panel);
+        background: none;
+        text-align: left;
+      }
+      .wsc-head:hover {
+        border: 0;
+      }
+      .wsc-head b {
+        display: block;
+        font: 400 18px/1.3 var(--hand);
+      }
+      .wsc-head small {
+        display: block;
+        font-size: 12.5px;
+        color: var(--ink-3);
+        overflow-wrap: anywhere;
+      }
+      .chev {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: var(--ink-3);
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 0.3s var(--out);
+      }
+      [aria-expanded='true'] .chev {
+        transform: rotate(90deg);
+      }
+      .wsc-body {
+        border-top: 1px solid var(--line-2);
+      }
+      .wsc .switch-field {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        padding: 10px 0;
-        border-top: 1px solid var(--line);
-        color: var(--ink);
-        font-size: 13.5px;
+        font-size: 13px;
+        color: var(--ink-2);
         cursor: pointer;
       }
-      .switch small {
+      .wsc .switch-field small {
         display: block;
         font-size: 12px;
         color: var(--ink-3);
       }
-      .group-set {
+      .presets {
         display: grid;
         gap: 4px;
-        margin-top: 6px;
       }
-      input[type='checkbox'] {
-        appearance: none;
-        position: relative;
-        flex: none;
-        width: 38px;
-        height: 22px;
-        margin: 0;
-        border-radius: 999px;
-        background: var(--line);
-        cursor: pointer;
-        transition: background-color 0.3s var(--out);
+      .presets li {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        font-size: 13px;
       }
-      input[type='checkbox']::before {
-        content: '';
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
-        transition: transform 0.35s var(--out);
+      .presets code {
+        font: 12.5px var(--mono);
+        color: var(--violet);
       }
-      input[type='checkbox']:checked {
-        background: var(--accent);
+      .presets span {
+        color: var(--ink-3);
       }
-      input[type='checkbox']:checked::before {
-        transform: translateX(16px);
-      }
-      .save {
+      .wsc-foot {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 12px;
-        margin-top: 2px;
+        padding: 10px 18px 14px;
       }
-      #saved {
+      .add-panel {
+        margin-top: 10px;
+        border-style: dashed;
+        background: transparent;
+      }
+      .add-panel > button {
+        width: 100%;
+        padding: 13px 18px;
+        border: 0;
+        background: none;
+        color: var(--violet);
+        text-align: left;
+      }
+      .add-panel .fields {
+        border-top: 1px dashed var(--line);
+      }
+      .add-panel .acts {
+        margin: 0;
+      }
+      .rules li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 11px 18px;
+      }
+      .rules li + li {
+        border-top: 1px solid var(--line-2);
+      }
+      .rules pre {
+        margin: 0;
+        font: 12px/1.55 var(--mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .rules pre span {
+        color: var(--ink-3);
+      }
+
+      /* ——— the server's requests awaiting approval ——— */
+      dialog.review {
+        width: 560px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 32px);
+        padding: 0;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--ink);
+        box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.5);
+      }
+      dialog.review::backdrop {
+        background: rgb(16 12 22 / 0.48);
+      }
+      .review header {
+        padding: 20px 22px 0;
+      }
+      .review h3 {
+        margin: 0;
+        font: 400 21px/1.3 var(--hand);
+      }
+      .review .from {
         font-size: 12.5px;
-        color: var(--ok);
-        opacity: 0;
-        transform: translateX(-4px);
-        transition:
-          opacity 0.35s var(--out),
-          transform 0.35s var(--out);
+        color: var(--ink-3);
       }
-      #saved.on {
-        opacity: 1;
-        transform: none;
+      .review .body {
+        display: grid;
+        gap: 12px;
+        padding: 14px 22px 18px;
       }
-      .update {
+      .review dl {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 4px 16px;
+        margin: 0;
+        font-size: 13px;
+      }
+      .review dt {
+        color: var(--ink-3);
+      }
+      .review dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .review pre {
+        max-height: 260px;
+        margin: 0;
+        padding: 12px 14px;
+        overflow: auto;
+        border-radius: var(--r-ctl);
+        background: var(--sunk);
+        font: 12.5px/1.6 var(--mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .review .note {
+        font-size: 12.5px;
+        color: var(--ink-2);
+      }
+      .review footer {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 10px 0 0;
-        border-top: 1px solid var(--line);
-        font-size: 13px;
-        color: var(--ink-2);
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 14px 22px 18px;
+        border-top: 1px solid var(--line-2);
       }
-      .version {
-        margin-top: -4px;
+      .review footer .more {
+        margin-right: auto;
         font-size: 12px;
         color: var(--ink-3);
-      }
-      .foot {
-        margin-top: 24px;
-        font-size: 12px;
-        color: var(--ink-3);
-        text-align: center;
       }
 
-      /* narrow: the rail shows its icons only */
+      /* narrow: the rail shows its icons only, and the settings' pages as a row atop them */
       @media (max-width: 760px) {
         :root {
-          --rail: 68px;
+          --rail-w: 64px;
         }
         .brand > div,
-        .nav button span,
+        .nav button > span,
         .nav .count,
-        .side-foot .link,
+        .sub,
+        .rail-foot .link,
         .pill span {
           display: none;
         }
         .brand,
-        .side-foot {
+        .rail-foot {
           justify-content: center;
           padding: 0;
         }
@@ -1349,27 +1497,83 @@
           justify-content: center;
           padding: 0;
         }
+        .nav .badge {
+          position: absolute;
+          right: 8px;
+          top: 8px;
+        }
         .pill {
           padding: 8px;
         }
         .page {
-          padding: 22px 20px 32px;
+          padding: 26px 20px 36px;
         }
-        .stats {
-          grid-template-columns: repeat(2, 1fr);
+        .figures {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          row-gap: 16px;
+        }
+        .figure:nth-child(3) {
+          padding-left: 0;
+          border-left: 0;
+        }
+        .tabs-narrow {
+          display: flex !important;
         }
       }
+      .tabs-narrow {
+        display: none;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 18px;
+      }
+      .tabs-narrow button {
+        padding: 3px 12px;
+        border-radius: 999px;
+        font-size: 12.5px;
+      }
+      .tabs-narrow button[aria-current='page'] {
+        border-color: var(--violet);
+        color: var(--violet);
+      }
       @media (max-width: 560px) {
-        .hero {
+        .state {
           grid-template-columns: 1fr;
-          justify-items: start;
-          padding: 22px;
+        }
+        .state .actions {
+          grid-column: 1;
+          grid-row: auto;
+          justify-content: flex-start;
+          padding-top: 16px;
+        }
+        .state-word {
+          font-size: 38px;
+        }
+        .chart {
+          border-left: 0;
+          border-top: 1px solid var(--line-2);
+        }
+        .chart:first-child {
+          border-top: 0;
+        }
+        .job {
+          grid-template-columns: 3.2em minmax(0, 1fr) auto;
+        }
+        .job .took,
+        .job .open {
+          display: none;
         }
         .ln {
-          grid-template-columns: 4.7em 1fr;
+          grid-template-columns: 4.7em minmax(0, 1fr);
         }
         .ln i {
           display: none;
+        }
+        .row {
+          flex-wrap: wrap;
+        }
+        .pair,
+        .pair.wide {
+          grid-template-columns: 1fr;
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -1384,11 +1588,13 @@
   </head>
   <body data-mode="connecting">
     <div class="titlebar" id="titlebar" hidden>
+      <div class="drag" id="drag"></div>
       <button type="button" class="tb" id="tb-min" aria-label="最小化"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg></button>
+      <button type="button" class="tb" id="tb-max" aria-label="最大化"><svg viewBox="0 0 10 10" aria-hidden="true"><path id="tb-max-icon" d="M0.5 0.5h9v9h-9z" /></svg></button>
       <button type="button" class="tb close" id="tb-close" aria-label="关闭"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg></button>
     </div>
     <div class="shell">
-      <aside class="side" id="side">
+      <aside class="rail" id="rail">
         <div class="brand">
           <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" /><path d="M12.5 9 23.5 16 12.5 23z" /></svg>
           <div>
@@ -1396,72 +1602,94 @@
             <small>为服务器分担任务</small>
           </div>
         </div>
-        <nav class="nav" role="tablist" aria-label="页面">
-          <i class="slider" id="slider"></i>
-          <button type="button" role="tab" data-page="home" title="总览">
+        <nav class="nav" aria-label="页面">
+          <i class="slider" id="slider" aria-hidden="true"></i>
+          <button type="button" data-page="home" title="总览">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0" /><path d="M12 15.5l3.6-4.2" /><path d="M4 19h16" /></svg><span>总览</span>
           </button>
-          <button type="button" role="tab" data-page="gallery" title="输出">
+          <button type="button" data-page="gallery" title="输出">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M4 17.5l5-4.5 4 3.5 3-2.5 4.5 3.8" /></svg><span>输出</span><b class="count num" id="n-gallery"></b>
           </button>
-          <button type="button" role="tab" data-page="feed" title="动态">
+          <button type="button" data-page="feed" title="动态">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 5 12 2.5-6h4" /></svg><span>动态</span>
           </button>
-          <button type="button" role="tab" data-page="settings" title="设置">
+          <button type="button" data-page="connection" data-group="settings" title="设置">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9.5M18.5 7H20M4 17h3.5M12.5 17H20" /><circle cx="16" cy="7" r="2.2" /><circle cx="10" cy="17" r="2.2" /></svg><span>设置</span><i class="badge" id="badge" hidden></i>
           </button>
+          <div class="sub" id="sub">
+            <div>
+              <button type="button" data-page="connection">连接<i class="badge" id="badge-connection" hidden></i></button>
+              <button type="button" data-page="workspaces">工作区<i class="badge" id="badge-workspaces" hidden></i></button>
+              <button type="button" data-page="access">权限与审批</button>
+              <button type="button" data-page="machine">本机</button>
+              <button type="button" data-page="about">更新与关于</button>
+            </div>
+          </div>
         </nav>
-        <div class="side-foot">
+        <div class="rail-foot">
           <span class="pill" id="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
-          <button type="button" class="link" id="in-browser" hidden>在浏览器中打开 ↗</button>
+          <button type="button" class="link" id="in-browser" hidden>在浏览器中打开</button>
         </div>
       </aside>
 
       <main class="main" id="main">
         <!-- 总览 -->
         <section class="page" id="page-home">
-          <div class="hero card" aria-live="polite">
-            <div class="meter" id="meter">
-              <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" /><circle class="arc" id="arc" cx="60" cy="60" r="52" /></svg>
-              <div class="meter-in"><b id="big" class="word">…</b><small id="small"></small></div>
+          <div class="state" aria-live="polite">
+            <h2 class="state-word" id="state-word">…</h2>
+            <p class="state-what" id="state-what"></p>
+            <p class="state-detail" id="state-detail"></p>
+            <div class="actions">
+              <button type="button" id="reconnect" hidden>重新连接</button>
+              <button type="button" id="toggle">暂停接收任务</button>
             </div>
-            <div class="say">
-              <h2 id="headline">正在启动…</h2>
-              <p id="detail"></p>
-              <p id="nums" class="num"></p>
-              <div class="actions">
-                <button type="button" id="toggle">暂停接收任务</button>
-                <button type="button" id="reconnect" hidden>重新连接</button>
+            <div class="strip-wrap" id="strip-wrap" hidden>
+              <div class="strip" id="strip"></div>
+              <div class="strip-meta"><span id="strip-left"></span><span id="strip-right"></span></div>
+            </div>
+          </div>
+          <div class="notice" id="notice" hidden>
+            <p id="notice-text"></p>
+            <button type="button" id="notice-go">去填写</button>
+          </div>
+          <div class="figures">
+            <div class="figure"><span>今天</span><b id="f-today">0</b><small id="f-today-sub">个任务</small></div>
+            <div class="figure"><span>上一个任务</span><b id="f-last">—</b><small id="f-last-sub">暂无</small></div>
+            <div class="figure"><span>速度</span><b id="f-rate">—</b><small>毫秒 / 帧</small></div>
+            <div class="figure"><span>隧道</span><b id="f-tunnel">—</b><small id="f-tunnel-sub"></small></div>
+          </div>
+
+          <section class="block" id="active-sec" hidden>
+            <div class="block-head"><h3>运行中</h3><span class="sub-line" id="active-sub"></span></div>
+            <div class="panel"><ol class="list" id="active"></ol></div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><h3>本机</h3><span class="sub-line" id="m-sub"></span></div>
+            <div class="panel">
+              <div class="machine-row" id="admin" hidden>
+                <label>
+                  <span class="text"
+                    >以管理员身份运行<small id="elevate-hint" style="display: block; font-size: 12.5px; color: var(--ink-3)"></small
+                    ><small class="err" id="elevate-error" role="alert" style="display: block; font-size: 12.5px"></small
+                  ></span>
+                  <input type="checkbox" id="elevate" role="switch" />
+                </label>
+                <button type="button" id="elevate-now" hidden>以管理员身份重新启动</button>
+              </div>
+              <div class="charts">
+                <div class="chart c-cpu" id="c-cpu"><span>处理器</span><b>—</b><small></small></div>
+                <div class="chart c-mem" id="c-mem"><span>内存</span><b>—</b><small></small></div>
+                <div class="chart c-gpu" id="c-gpu" hidden><span>显卡</span><b>—</b><small></small></div>
               </div>
             </div>
-          </div>
-          <p class="notice" id="notice" hidden></p>
-          <div class="stats">
-            <div class="stat card"><span>隧道</span><b id="s-tunnel">—</b><small id="s-tunnel-sub"></small></div>
-            <div class="stat card"><span>今天</span><b id="s-today">0</b><small id="s-today-sub">个任务</small></div>
-            <div class="stat card"><span>上一个任务</span><b id="s-last">—</b><small id="s-last-sub">暂无</small></div>
-            <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
-          </div>
-
-          <section class="recent" id="active-sec" hidden>
-            <div class="head"><h3>运行中</h3><span class="sub" id="active-sub"></span></div>
-            <div class="card"><ol id="active"></ol></div>
           </section>
 
-          <section class="machine">
-            <div class="head"><h3>本机</h3><span class="sub" id="m-sub"></span></div>
-            <div class="charts">
-              <div class="chart card c-cpu" id="c-cpu"><span>处理器</span><b>—</b><small></small></div>
-              <div class="chart card c-mem" id="c-mem"><span>内存</span><b>—</b><small></small></div>
-              <div class="chart card c-gpu" id="c-gpu" hidden><span>显卡</span><b>—</b><small></small></div>
-            </div>
-          </section>
-
-          <section class="recent">
-            <div class="head"><h3>最近的任务</h3><span class="sub" id="jobs-sub"></span></div>
-            <div class="card">
-              <ol id="jobs"></ol>
-              <p class="empty" id="empty">暂无任务。服务器通过 cli.mjs 提交的任务将列在此处：单击任务可查看其输出，单击「打开」可查看其产出的文件。</p>
+          <section class="block">
+            <div class="block-head"><h3>最近的任务</h3><span class="sub-line" id="jobs-sub"></span></div>
+            <div class="panel">
+              <ol class="list" id="jobs"></ol>
+              <p class="empty" id="empty">暂无任务。服务器通过 rs 命令提交的任务会列在这里：单击任务可以查看它的输出，单击「打开」可以查看它生成的文件。</p>
             </div>
           </section>
           <p class="foot">关闭此窗口后，渲染站仍在后台运行。如需退出，请右键单击任务栏通知区域中的渲染站图标。</p>
@@ -1469,20 +1697,20 @@
 
         <!-- 输出 -->
         <section class="page" id="page-gallery" hidden>
-          <div class="head">
+          <div class="page-head">
             <h2>输出</h2>
-            <span class="sub" id="g-sub"></span>
+            <span class="sub-line" id="g-sub"></span>
             <button type="button" class="link end" id="g-folder" hidden>打开文件夹</button>
           </div>
-          <div id="groups"></div>
-          <p class="empty card" id="g-empty">此处列出任务产出并保留在本机的文件，最多保留最近 30 次任务。图片和视频可直接预览。</p>
+          <div id="groups" style="margin-top: 18px"></div>
+          <p class="empty panel" id="g-empty" style="margin-top: 18px">任务生成并保留在本机的文件会列在这里，最多保留最近 30 次任务。图片和视频可以直接预览。</p>
         </section>
 
         <!-- 动态 -->
         <section class="page" id="page-feed" hidden>
-          <div class="head">
+          <div class="page-head">
             <h2>动态</h2>
-            <span class="sub">连接过程，以及 ssh 和任务的输出</span>
+            <span class="sub-line">连接过程，以及 ssh 和任务的输出</span>
           </div>
           <div class="bar">
             <div class="chips" id="chips">
@@ -1491,91 +1719,183 @@
               <button type="button" data-filter="job" aria-pressed="false">任务</button>
               <button type="button" data-filter="tunnel" aria-pressed="false">连接</button>
             </div>
-            <button type="button" class="link" id="to-end" hidden>回到最新 ↓</button>
+            <button type="button" class="link" id="to-end" hidden>回到最新</button>
           </div>
-          <div class="term card" id="term" role="log"></div>
+          <div class="term panel" id="term" role="log"></div>
         </section>
 
-        <!-- 设置 -->
-        <section class="page" id="page-settings" hidden>
-          <div class="head"><h2>设置</h2></div>
-          <div class="shell-panel">
-            <h4>Shell 权限</h4>
-            <p id="shell-mode"></p>
-            <p>auto 模式：工作目录限定在工作区内（未指定工作区时使用第一个）；完整命令与工作目录均与白名单匹配时自动执行，其余请求须经本机审批。Windows 上使用 PowerShell，其他系统使用 sh。</p>
-            <p>命令可以读写文件。目录检查与白名单属于授权机制，并非系统沙箱；获准的命令拥有渲染站运行账户的全部权限。预设任务同样以该账户的权限运行。</p>
-            <label class="switch"><span>允许接收 Shell 任务</span><input type="checkbox" id="shell-enabled" role="switch" /></label>
-            <div class="shell-actions"><button type="button" id="shell-yolo">开启 YOLO</button></div>
-            <p id="shell-admin"></p>
-            <p>YOLO 模式允许任意命令和工作目录，仅能在以管理员身份运行的渲染站中开启；暂停接收任务、重新连接或重启后自动关闭。关闭 Shell 权限或暂停接收任务不会中止已在运行的命令。</p>
-            <h4>白名单</h4>
-            <ul id="shell-rules"></ul>
-            <p id="shell-error" role="alert"></p>
-          </div>
-          <form class="card" id="form" autocomplete="off">
-            <h4>连接服务器</h4>
-            <div class="two">
-              <label>SSH 地址<input type="text" name="target" placeholder="用户名@服务器" /></label>
-              <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22" /></label>
-            </div>
-            <h4>工作区</h4>
-            <p class="hint">任务只在已登记的工作区中运行。工作区根目录下的 render-station.json 规定该工作区所需的设置和提供的预设任务；登记工作区，即表示信任其预设任务。填写路径并保存后，此处将列出该工作区所需的设置；如果该文件夹中留有旧版渲染站的设置，将自动导入。</p>
-            <div id="ws-list"></div>
-            <button type="button" id="ws-add">添加工作区</button>
-            <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存</span><span id="save-error" role="alert"></span></div>
-            <div class="group-set">
-              <h4>本机</h4>
-              <div class="switch">
-                <span>同时运行的任务数<small>超出的任务排队等候。同一工作区的预设任务默认一次只运行一个，工作区可在 render-station.json 中用 parallel 放宽</small></span>
-                <span class="seg"><button type="button" id="par-dec" aria-label="减少">−</button><b class="num" id="par-n">2</b><button type="button" id="par-inc" aria-label="增加">+</button></span>
+        <!-- 设置 · 连接 -->
+        <section class="page" id="page-connection" data-group="settings" hidden>
+          <div class="tabs-narrow"></div>
+          <div class="page-head"><h2>连接</h2></div>
+          <p class="lede">渲染站通过 SSH 反向隧道连接服务器，本机不需要公网地址，也不用开放端口。登录须使用无需密码的密钥。</p>
+          <div class="panel">
+            <div class="fields">
+              <div class="pair">
+                <label class="field"><span>SSH 地址</span><input type="text" id="ssh-target" placeholder="用户名@服务器" spellcheck="false" autocomplete="off" /></label>
+                <label class="field"><span>端口</span><input type="text" id="ssh-port" inputmode="numeric" placeholder="22" autocomplete="off" /></label>
               </div>
-              <div class="switch">
-                <span>服务器管理工作区<small id="manage-hint"></small><small id="manage-error" role="alert"></small></span>
+            </div>
+          </div>
+          <p class="hint">修改后自动保存，并重新连接。<span class="status" id="ssh-status" role="status"></span></p>
+          <section class="block">
+            <div class="block-head"><h3>隧道</h3></div>
+            <div class="panel">
+              <div class="row">
+                <div class="text"><b id="tun-state"></b><small id="tun-detail"></small></div>
+                <div class="ctl"><button type="button" id="tun-reconnect">重新连接</button><button type="button" id="tun-toggle">暂停接收任务</button></div>
+              </div>
+            </div>
+            <p class="hint">暂停接收任务会关闭隧道，服务器无法再提交任务；已在运行的任务不受影响。</p>
+          </section>
+        </section>
+
+        <!-- 设置 · 工作区 -->
+        <section class="page" id="page-workspaces" data-group="settings" hidden>
+          <div class="tabs-narrow"></div>
+          <div class="page-head"><h2>工作区</h2><span class="sub-line" id="ws-sub"></span></div>
+          <p class="lede">任务只在已登记的工作区中运行。工作区根目录下的 render-station.json 规定它需要哪些设置、提供哪些预设任务；登记工作区，即表示信任它的预设任务。</p>
+          <div id="ws-list"></div>
+          <div class="panel add-panel">
+            <button type="button" id="ws-add">添加工作区</button>
+            <div id="ws-add-form" hidden>
+              <div class="fields">
+                <div class="pair wide">
+                  <label class="field"><span>名称</span><input type="text" id="ws-new-name" placeholder="可留空" spellcheck="false" autocomplete="off" /></label>
+                  <label class="field"><span>路径</span><input type="text" id="ws-new-path" placeholder="D:\projects\…" spellcheck="false" autocomplete="off" /></label>
+                </div>
+                <p class="hint" style="margin: 0">名称留空时，使用 render-station.json 中的名称，再没有就用文件夹名。如果该文件夹中留有旧版渲染站的设置，会自动导入。</p>
+                <div class="acts">
+                  <button type="button" class="primary" id="ws-new-add">添加</button>
+                  <button type="button" id="ws-new-cancel">取消</button>
+                  <span class="status err" id="ws-new-error" role="alert"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设置 · 权限与审批 -->
+        <section class="page" id="page-access" data-group="settings" hidden>
+          <div class="tabs-narrow"></div>
+          <div class="page-head"><h2>权限与审批</h2></div>
+          <p class="lede">服务器的哪些请求可以直接执行，哪些须在本机批准。等待审批的请求会在窗口中弹出，托盘图标也会弹出通知。</p>
+          <div class="panel">
+            <div class="row">
+              <div class="text"><b>服务器管理工作区</b><small id="manage-hint"></small><small class="err" id="manage-error" role="alert"></small></div>
+              <div class="ctl">
                 <span class="seg" id="manage"><button type="button" data-manage="off">关闭</button><button type="button" data-manage="ask">需要审批</button><button type="button" data-manage="allow">无需审批</button></span>
               </div>
-              <label class="switch"><span>自动更新<small id="u-hint">有新版本时自动下载并安装</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
-              <div class="update"><span id="u-state">尚未检查</span><button type="button" class="link" id="u-check">立即检查</button></div>
-              <div class="version" id="version"></div>
-              <div id="here">
-                <label class="switch"><span>登录 Windows 后自动启动<small>登录后在后台自动运行；可在任务管理器的「启动应用」中查看</small></span><input type="checkbox" id="autostart" role="switch" /></label>
-                <label class="switch" id="shortcut-row"><span>在桌面和开始菜单中创建「渲染站」快捷方式<small>双击快捷方式即可打开此窗口，不显示终端窗口</small></span><input type="checkbox" id="shortcut" role="switch" /></label>
-                <label class="switch"><span>以管理员身份运行<small id="elevate-hint"></small><small id="elevate-error" role="alert"></small></span><input type="checkbox" id="elevate" role="switch" /></label>
+            </div>
+          </div>
+          <section class="block">
+            <div class="block-head"><h3>Shell 任务</h3><span class="sub-line" id="shell-mode"></span></div>
+            <div class="panel rows">
+              <label class="row">
+                <span class="text"><b>允许接收 Shell 任务</b><small>开启后为 auto 模式：工作目录限定在工作区内；完整命令和工作目录都与白名单中的某条一致时自动执行，其余请求须在本机批准。</small></span>
+                <input type="checkbox" id="shell-enabled" role="switch" />
+              </label>
+              <div class="row">
+                <div class="text"><b>YOLO 模式</b><small>允许任意命令和任意工作目录，无需审批。只能在渲染站以管理员身份运行时开启；暂停接收任务、重新连接或重启后自动关闭。</small><small id="shell-admin"></small></div>
+                <div class="ctl"><button type="button" id="shell-yolo">开启 YOLO</button></div>
               </div>
             </div>
-          </form>
+            <p class="hint">目录检查和白名单是授权机制，不是系统沙箱：获准的命令和预设任务都拥有渲染站运行账户的全部权限。关闭 Shell 或暂停接收任务，不会中止已在运行的命令。</p>
+          </section>
+          <section class="block">
+            <div class="block-head"><h3>白名单</h3><span class="sub-line">工作目录和完整命令都一致时自动执行</span></div>
+            <div class="panel"><ul class="rules" id="shell-rules"></ul></div>
+            <p class="hint err" id="shell-error" role="alert"></p>
+          </section>
+        </section>
+
+        <!-- 设置 · 本机 -->
+        <section class="page" id="page-machine" data-group="settings" hidden>
+          <div class="tabs-narrow"></div>
+          <div class="page-head"><h2>本机</h2></div>
+          <p class="lede">这台电脑上的渲染站怎么运行。「以管理员身份运行」在「总览」页的「本机」中设置。</p>
+          <div class="panel rows">
+            <div class="row">
+              <div class="text"><b>同时运行的任务数</b><small>超出的任务排队等候。同一工作区的预设任务默认一次只运行一个，工作区可在 render-station.json 中用 parallel 放宽。</small></div>
+              <div class="ctl">
+                <span class="seg"><button type="button" id="par-dec" aria-label="减少">−</button><b class="num" id="par-n">2</b><button type="button" id="par-inc" aria-label="增加">+</button></span>
+              </div>
+            </div>
+            <label class="row" id="autostart-row">
+              <span class="text"><b>登录 Windows 后自动启动</b><small>登录后在后台运行，可在任务管理器的「启动应用」中查看。</small></span>
+              <input type="checkbox" id="autostart" role="switch" />
+            </label>
+            <label class="row" id="shortcut-row">
+              <span class="text"><b>在桌面和开始菜单中创建快捷方式</b><small>双击「渲染站」即可打开此窗口，不显示终端窗口。</small></span>
+              <input type="checkbox" id="shortcut" role="switch" />
+            </label>
+          </div>
+        </section>
+
+        <!-- 设置 · 更新与关于 -->
+        <section class="page" id="page-about" data-group="settings" hidden>
+          <div class="tabs-narrow"></div>
+          <div class="page-head"><h2>更新与关于</h2></div>
+          <p class="lede">渲染站让服务器上的 agent 把高负载任务交给这台电脑运行。</p>
+          <div class="panel rows">
+            <label class="row">
+              <span class="text"><b>自动更新</b><small id="u-hint">有新版本时自动下载并安装</small></span>
+              <input type="checkbox" id="autoupdate" role="switch" />
+            </label>
+            <div class="row">
+              <div class="text"><b id="u-state">尚未检查</b><small id="version"></small></div>
+              <div class="ctl"><button type="button" id="u-check">立即检查</button></div>
+            </div>
+            <div class="row">
+              <div class="text"><b>日志</b><small id="log-path"></small></div>
+              <div class="ctl"><button type="button" id="log-open" hidden>打开日志</button></div>
+            </div>
+          </div>
+          <p class="hint">源代码：github.com/daum110715/render-station，MIT 许可。</p>
         </section>
       </main>
     </div>
 
-    <dialog id="shell-review" aria-labelledby="shell-review-title">
-      <div class="shell-panel">
-        <h4 id="shell-review-title">Shell 请求待审批</h4>
-        <p id="shell-review-cwd"></p>
+    <dialog class="review" id="shell-review" aria-labelledby="shell-review-title">
+      <header>
+        <h3 id="shell-review-title">服务器请求执行命令</h3>
+        <span class="from">Shell 任务，等待你的批准</span>
+      </header>
+      <div class="body">
+        <dl>
+          <dt>工作区</dt>
+          <dd id="shell-review-ws"></dd>
+          <dt>工作目录</dt>
+          <dd id="shell-review-cwd"></dd>
+          <dt>执行时限</dt>
+          <dd id="shell-review-timeout"></dd>
+        </dl>
         <pre id="shell-review-command"></pre>
-        <p id="shell-review-timeout"></p>
-        <p>请只批准你信任的完整命令。加入白名单后，同一工作目录中的同一命令将自动执行；命令所引用脚本的内容此后仍可能变化。</p>
-        <p id="shell-review-more" hidden></p>
-        <div class="shell-actions">
-          <button type="button" data-shell-decision="deny">拒绝</button>
-          <button type="button" data-shell-decision="once">仅本次允许</button>
-          <button type="button" data-shell-decision="remember">允许并加入白名单</button>
-        </div>
+        <p class="note">请只批准你信任的完整命令。加入白名单后，同一工作目录中的同一命令将自动执行；命令引用的脚本此后仍可能被修改。请在 5 分钟内处理。</p>
       </div>
+      <footer>
+        <span class="more" id="shell-review-more" hidden></span>
+        <button type="button" data-shell-decision="deny">拒绝</button>
+        <button type="button" data-shell-decision="once">仅本次允许</button>
+        <button type="button" class="primary" data-shell-decision="remember">允许并加入白名单</button>
+      </footer>
     </dialog>
 
-    <dialog id="ws-review" aria-labelledby="ws-review-title">
-      <div class="shell-panel">
-        <h4 id="ws-review-title">服务器请求待审批</h4>
-        <p id="ws-review-what"></p>
+    <dialog class="review" id="ws-review" aria-labelledby="ws-review-title">
+      <header>
+        <h3 id="ws-review-title">服务器的请求</h3>
+        <span class="from" id="ws-review-from"></span>
+      </header>
+      <div class="body">
         <pre id="ws-review-lines"></pre>
-        <p id="ws-review-presets"></p>
-        <p id="ws-review-note"></p>
-        <p id="ws-review-more" hidden></p>
-        <div class="shell-actions">
-          <button type="button" data-ws-decision="deny">拒绝</button>
-          <button type="button" data-ws-decision="allow">批准</button>
-        </div>
+        <p class="note" id="ws-review-presets"></p>
+        <p class="note" id="ws-review-note"></p>
       </div>
+      <footer>
+        <span class="more" id="ws-review-more" hidden></span>
+        <button type="button" data-ws-decision="deny">拒绝</button>
+        <button type="button" class="primary" data-ws-decision="allow">批准</button>
+      </footer>
     </dialog>
 
     <div class="lightbox" id="lightbox" hidden>
@@ -1588,10 +1908,8 @@
 
     <script>
       const $ = (s) => document.querySelector(s);
-      const C = 2 * Math.PI * 52;
       const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
       let S = null;
-      let filled = false;
       let gone = false;
       let page0 = null;
       const open = new Set();
@@ -1608,8 +1926,7 @@
       const stamp = (t) => `${clock(t)}:${pad(new Date(t).getSeconds())}`;
       const day = (t) => {
         const d = new Date(t);
-        const today = new Date();
-        return d.toDateString() === today.toDateString() ? `今天 ${clock(t)}` : `${d.getMonth() + 1}月${d.getDate()}日 ${clock(t)}`;
+        return d.toDateString() === new Date().toDateString() ? `今天 ${clock(t)}` : `${d.getMonth() + 1}月${d.getDate()}日 ${clock(t)}`;
       };
       const took = (ms) => {
         const s = Math.round(ms / 1000);
@@ -1630,165 +1947,155 @@
         const el = typeof id === 'string' ? document.getElementById(id) : id;
         if (el.textContent !== text) el.textContent = text;
       };
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text != null) e.textContent = text;
+        return e;
+      };
       // a number that runs to its new value rather than jumps
       const runs = new WeakMap();
-      function count(el, to, fmt = (v) => String(Math.round(v))) {
-        const was = runs.get(el);
+      function count(node, to, fmt = (v) => String(Math.round(v))) {
+        const was = runs.get(node);
         if (was && was.to === to) return;
         const from = was ? was.value : 0;
         const run = { value: from, to };
-        runs.set(el, run);
+        runs.set(node, run);
         if (still || from === to) {
           run.value = to;
-          return set(el, fmt(to));
+          return set(node, fmt(to));
         }
         const t0 = performance.now();
         const step = (now) => {
-          if (runs.get(el) !== run) return;
+          if (runs.get(node) !== run) return;
           const p = Math.min(1, (now - t0) / 700);
           run.value = from + (to - from) * (1 - (1 - p) ** 3);
-          set(el, fmt(run.value));
+          set(node, fmt(run.value));
           if (p < 1) requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
       }
-      const word = (el, text) => {
-        runs.delete(el);
-        set(el, text);
+      const word = (node, text) => {
+        runs.delete(node);
+        set(node, text);
       };
       const post = (path, body) =>
         fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
           .then((r) => r.json())
           .then(render)
           .catch(() => {});
-
+      /** a change the page asks: the state it leaves, or why not (thrown) */
+      async function change(path, body, token = false) {
+        const response = await fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json', ...(token ? { 'x-shell-local': shellToken } : {}) }, body: JSON.stringify(body) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+        render(data);
+        return data;
+      }
       const shellToken = '__SHELL_LOCAL_TOKEN__';
-      // what only this window may ask: the Shell's settings and approvals, and the workspace changes'
+      // what only this window may ask: the Shell's settings and approvals, the workspace changes', and
+      // whether to ask for administrator rights
       async function guarded(path, body, error) {
         try {
           error.textContent = '';
-          const response = await fetch(path, { method: 'POST', headers: { 'x-station': '1', 'x-shell-local': shellToken, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
-          render(data);
-        } catch (e) { error.textContent = e.message; }
-      }
-      const shellPost = (path, body) => guarded(`/shell/${path}`, body, $('#shell-error'));
-      const managePost = (path, body) => guarded(path, body, $('#manage-error'));
-      // a request newly shown: its buttons wait a moment, so a click meant for the one before is not taken for it
-      function hold(dialog) {
-        const buttons = dialog.querySelectorAll('.shell-actions button');
-        for (const b of buttons) b.disabled = true;
-        setTimeout(() => buttons.forEach((b) => (b.disabled = false)), 600);
-      }
-      let shellShown = null;
-      let shellRulesKey = '';
-      function renderShell() {
-        if (!S.shell) return;
-        const shell = S.shell;
-        $('#shell-mode').textContent = `当前模式：${shell.mode} · 工作区：${shell.workspaces.join('、') || '无'}`;
-        $('#shell-enabled').checked = shell.mode !== 'disabled';
-        $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
-        $('#shell-yolo').textContent = shell.mode === 'yolo' ? '关闭 YOLO，恢复 auto 模式' : '开启 YOLO';
-        $('#shell-admin').textContent = shell.admin ? '渲染站已通过管理员权限检查。' : '如需开启 YOLO：请先在「本机」中开启「以管理员身份运行」，或退出渲染站后右键选择「以管理员身份运行」（其他系统须以 root 运行）。';
-        const key = JSON.stringify(shell.rules);
-        if (key !== shellRulesKey) {
-          shellRulesKey = key;
-          const list = $('#shell-rules');
-          list.replaceChildren();
-          if (!shell.rules.length) list.textContent = '白名单为空。审批请求时可选择加入白名单。';
-          shell.rules.forEach((rule, index) => {
-            const row = document.createElement('li');
-            const text = document.createElement('pre');
-            text.textContent = `${rule.cwd}\n${rule.command}`;
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.textContent = '移除';
-            button.onclick = () => shellPost('remove', { index });
-            row.append(text, button);
-            list.append(row);
-          });
+          await change(path, body, true);
+        } catch (e) {
+          error.textContent = e.message;
         }
-        const dialog = $('#shell-review');
-        if (shell.pending) {
-          $('#shell-review-cwd').textContent = `工作区：${shell.pending.workspace ?? '（无）'} · 工作目录：${shell.pending.cwd}`;
-          $('#shell-review-command').textContent = shell.pending.command;
-          $('#shell-review-timeout').textContent = `执行时限 ${shell.pending.timeout} 秒；请在 5 分钟内审批。`;
-          $('#shell-review-more').hidden = !shell.behind;
-          $('#shell-review-more').textContent = `另有 ${shell.behind} 个 Shell 请求等待审批，将依次显示。`;
-          if (shellShown !== shell.pending.id) {
-            shellShown = shell.pending.id;
-            hold(dialog);
-          }
-          if (!dialog.open) dialog.showModal();
-        } else if (dialog.open) dialog.close();
+      }
+      /** "已保存" beside what was saved, for a moment; or why it was not */
+      function said(node, error) {
+        clearTimeout(node.timer);
+        node.classList.toggle('err', !!error);
+        node.textContent = error ? error : '已保存';
+        if (!error) node.timer = setTimeout(() => (node.textContent = ''), 2200);
       }
 
-      // ——— the server's changes to the workspaces: how far it may go, and each change awaiting approval ———
-      const MANAGE = {
-        off: '服务器无法添加、修改或移除工作区，也无法查看本机的文件夹。',
-        ask: '服务器可以请求添加、修改或移除工作区（可新建文件夹），或查看本机的文件夹，每项请求都须在本机批准。查看已登记工作区内的文件夹无需批准。',
-        allow: '服务器可以直接添加、修改或移除工作区，新建文件夹，并查看本机的任意文件夹，无需批准。登记工作区即表示信任其预设任务。',
-      };
-      let wsShown = null;
-      function renderManage() {
-        const m = S.manage;
-        for (const b of document.querySelectorAll('[data-manage]')) b.setAttribute('aria-pressed', b.dataset.manage === m.mode);
-        set('manage-hint', MANAGE[m.mode]);
-        set('par-n', String(S.parallel));
-        $('#par-dec').disabled = S.parallel <= 1;
-        $('#par-inc').disabled = S.parallel >= 16;
-        const dialog = $('#ws-review');
-        const p = m.pending;
-        if (!p) {
-          if (dialog.open) dialog.close();
-          return;
-        }
-        const browse = p.action === 'browse';
-        set('ws-review-title', { add: '服务器请求添加工作区', set: '服务器请求修改工作区', remove: '服务器请求移除工作区', browse: '服务器请求查看文件夹' }[p.action]);
-        set('ws-review-what', browse ? (p.path ? `文件夹：${p.path}` : '查看本机的磁盘列表') : `工作区：${p.name}`);
-        $('#ws-review-lines').hidden = browse;
-        set('ws-review-lines', browse ? '' : p.lines.join('\n'));
-        $('#ws-review-presets').hidden = browse || p.action === 'remove';
-        set('ws-review-presets', browse ? '' : p.presets.length ? `该文件夹的 render-station.json 提供的预设任务：${p.presets.join('、')}` : '该文件夹中没有预设任务。');
-        set(
-          'ws-review-note',
-          browse
-            ? `批准后，服务器可以看到${p.path ? '该文件夹中各文件和文件夹的名称、大小和修改时间，但看不到文件内容。10 分钟内查看其中的子文件夹无需再次批准' : '本机有哪些磁盘'}。请在 5 分钟内审批。`
-            : p.action === 'remove'
-              ? '移除后，服务器将无法再在该工作区中运行任务。'
-              : '批准后，服务器可随时运行该工作区的预设任务，这些任务以渲染站运行账户的权限执行。请只批准你认可的变更；请在 5 分钟内审批。',
+      // ——— the pages: three of their own, and the settings' five under 设置 ———
+      const SETTINGS = ['connection', 'workspaces', 'access', 'machine', 'about'];
+      const NAMES = { connection: '连接', workspaces: '工作区', access: '权限与审批', machine: '本机', about: '更新与关于' };
+      const PAGES = ['home', 'gallery', 'feed', ...SETTINGS];
+      let current = null;
+      // the same row of the settings' pages atop each, for a narrow window
+      for (const strip of document.querySelectorAll('.tabs-narrow'))
+        strip.append(
+          ...SETTINGS.map((name) => {
+            const b = el('button', null, NAMES[name]);
+            b.type = 'button';
+            b.dataset.page = name;
+            return b;
+          }),
         );
-        $('#ws-review-more').hidden = !m.behind;
-        set('ws-review-more', `另有 ${m.behind} 项服务器请求等待审批，将依次显示。`);
-        if (wsShown !== p.id) {
-          wsShown = p.id;
-          hold(dialog);
-        }
-        if (!dialog.open) dialog.showModal();
+      function placeSlider() {
+        const top = [...document.querySelectorAll('.nav > button')].find((b) => b.getAttribute('aria-current') === 'page');
+        if (top) $('#slider').style.transform = `translateY(${top.offsetTop}px)`;
       }
-      for (const button of document.querySelectorAll('[data-ws-decision]')) button.onclick = () => managePost('/manage/decide', { id: S.manage.pending?.id, action: button.dataset.wsDecision });
-      $('#ws-review').addEventListener('cancel', (event) => {
-        event.preventDefault();
-        managePost('/manage/decide', { id: S.manage.pending?.id, action: 'deny' });
+      function show(name) {
+        if (!PAGES.includes(name)) name = 'home';
+        if (name === current) return;
+        current = name;
+        const inSettings = SETTINGS.includes(name);
+        for (const b of document.querySelectorAll('[data-page]')) {
+          const on = b.dataset.group === 'settings' ? inSettings : b.dataset.page === name;
+          if (on) b.setAttribute('aria-current', 'page');
+          else b.removeAttribute('aria-current');
+        }
+        $('#sub').classList.toggle('open', inSettings);
+        placeSlider();
+        // once the list under 设置 has opened or closed
+        setTimeout(placeSlider, 360);
+        for (const p of PAGES) {
+          const sec = $(`#page-${p}`);
+          sec.hidden = p !== name;
+          if (p === name && !still) {
+            sec.classList.remove('enter');
+            sec.offsetWidth;
+            sec.classList.add('enter');
+          }
+        }
+        $('#main').scrollTop = 0;
+        try {
+          localStorage.setItem('station-page', name);
+        } catch {}
+        // in a browser, the address says the page too (#gallery…)
+        history.replaceState(null, '', name === 'home' ? location.pathname : `#${name}`);
+        if (name === 'feed') {
+          place(document.querySelector('[data-filter][aria-pressed="true"]'));
+          term.scrollTop = term.scrollHeight;
+        }
+        if (S) render();
+      }
+      document.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-page]');
+        if (b) show(b.dataset.page);
       });
-      for (const b of document.querySelectorAll('[data-manage]'))
-        b.addEventListener('click', () => {
-          const mode = b.dataset.manage;
-          if (mode === S.manage.mode) return;
-          if (mode === 'allow' && !confirm('开启后，服务器无需本机批准即可登记工作区、新建文件夹和查看本机的任意文件夹，并可运行工作区中的预设任务，这些任务以渲染站运行账户的权限执行。确定允许吗？')) return;
-          managePost('/manage', { mode });
-        });
-      $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
-      $('#par-inc').addEventListener('click', () => post('/parallel', { n: S.parallel + 1 }));
-      $('#shell-enabled').onchange = (event) => shellPost('enabled', { on: event.target.checked });
-      $('#shell-yolo').onclick = () => {
-        const on = S.shell.mode !== 'yolo';
-        if (!on || confirm('开启后，本次会话中服务器可以渲染站账户的权限执行任意 Shell 命令，并可使用任意工作目录。确定开启 YOLO 吗？')) shellPost('yolo', { on });
+      const fromHash = () => {
+        const h = location.hash.slice(1);
+        return h === 'settings' ? 'connection' : h;
       };
-      for (const button of document.querySelectorAll('[data-shell-decision]')) button.onclick = () => shellPost('decide', { id: S.shell.pending?.id, action: button.dataset.shellDecision });
-      $('#shell-review').addEventListener('cancel', (event) => { event.preventDefault(); shellPost('decide', { id: S.shell.pending?.id, action: 'deny' }); });
+      addEventListener('hashchange', () => show(fromHash() || 'home'));
 
+      // ——— the state, in words, and the frames as they are made ———
+      const SEGS = 48;
+      /** a strip of cells: `fill` of them filled (a fraction), or a light passing along (`sweep`) */
+      function strip(node, { fill = 0, sweep = false, segs = SEGS }) {
+        if (node.children.length !== segs) {
+          node.style.setProperty('--segs', segs);
+          node.replaceChildren(
+            ...Array.from({ length: segs }, (_, i) => {
+              const cell = document.createElement('i');
+              cell.style.setProperty('--i', i);
+              return cell;
+            }),
+          );
+        }
+        node.classList.toggle('sweep', sweep);
+        const on = sweep ? 0 : Math.floor(Math.min(1, fill) * segs);
+        [...node.children].forEach((cell, i) => {
+          cell.classList.toggle('on', i < on);
+          cell.classList.toggle('now', !sweep && i === on && fill > 0 && fill < 1);
+        });
+      }
       // the window's icon in the state's colour, as the tray's
       let painted = '';
       function paint(color) {
@@ -1798,200 +2105,94 @@
       }
       const COLORS = { idle: '#2a9d80', busy: '#6a4c9e', connecting: '#d99a1e', retry: '#d99a1e', auth: '#d4563a', gone: '#d4563a' };
 
-      function render(s) {
-        if (s) S = s;
-        if (!S) return;
-        renderShell();
-        renderManage();
-        // the page changed on disk (an update): this one again, as it is now
-        if (page0 == null) page0 = S.page;
-        else if (S.page && S.page !== page0) return location.reload();
+      function renderState() {
         const t = S.tunnel;
-        // the job running, if it is the only one
+        const now = Date.now();
         const many = S.running.length;
         const j = many === 1 ? S.running[0] : null;
-        const shellJob = j?.kind === 'shell';
-        const waiting = S.queued.length ? `；另有 ${S.queued.length} 个任务排队` : '';
-        const now = Date.now();
+        const waiting = S.queued.length ? `，另有 ${S.queued.length} 个任务排队` : '';
         const mode = gone ? 'gone' : many ? 'busy' : t.state === 'up' ? 'idle' : t.state;
         document.body.dataset.mode = mode;
         paint(COLORS[mode] ?? '#9a8a9d');
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
-          gone: ['未运行', '渲染站未运行', '后台进程已停止，托盘程序将在几秒内自动重启。如果托盘中也没有渲染站，请双击桌面上的「渲染站」。'],
-          busy: j ? ['执行中', `正在执行：${j.what}`, `${clock(j.started)} 开始，已运行 ${took(now - j.started)}${waiting}`] : ['执行中', `正在执行 ${many} 个任务`, `各任务的进度见下方「运行中」${waiting}`],
-          idle: ['在线', '空闲，等待服务器提交任务', `隧道于 ${t.since ? clock(t.since) : ''} 建立。服务器通过 cli.mjs 提交的任务将在本机运行。`],
-          connecting: ['连接中', '正在连接服务器…', `ssh ${target}`],
-          retry: ['重连中', '无法连接服务器，即将重试', t.message || '网络中断或本机刚从睡眠中唤醒，渲染站将自动重新连接。'],
+          gone: ['未运行', '后台进程已停止', '托盘程序会在几秒内自动重启它。如果任务栏通知区域中也没有渲染站，请双击桌面上的「渲染站」。'],
+          busy: j ? ['执行中', j.what, `${clock(j.started)} 开始，已运行 ${took(now - j.started)}${waiting}。`] : ['执行中', `正在执行 ${many} 个任务`, `各任务的进度见下方「运行中」${waiting}。`],
+          idle: ['空闲', '等待服务器提交任务', `已连接服务器，隧道于 ${t.since ? clock(t.since) : ''} 建立。服务器通过 rs 命令提交的任务会在这台电脑上运行。`],
+          connecting: ['连接中', '正在连接服务器', `ssh ${target}`],
+          retry: ['重连中', '无法连接服务器', t.message || '网络中断，或这台电脑刚从睡眠中唤醒。渲染站会自动重新连接。'],
           auth: ['登录失败', '无法登录服务器', `${t.message ? `${t.message}。` : ''}自动连接须使用无需密码的密钥登录：请在终端中运行 ssh ${target}，确认无需输入密码即可登录，然后单击「重新连接」。`],
-          off: ['已暂停', '已暂停接收任务', '隧道已关闭，服务器无法提交任务。单击「恢复接收任务」重新连接。'],
-          unset: ['未配置', '尚未配置服务器', '请在「设置」中填写服务器的 SSH 地址，渲染站随后将自动连接。'],
-        }[mode] ?? [mode, mode, ''];
+          off: ['已暂停', '不接收任务', '隧道已关闭，服务器无法提交任务。单击「恢复接收任务」即可重新连接。'],
+          unset: ['未配置', '尚未填写服务器', '在「设置 → 连接」中填写服务器的 SSH 地址后，渲染站会自动连接。'],
+        }[mode] ?? [mode, '', ''];
         set('chip', text[0]);
-        set('headline', text[1]);
-        set('detail', text[2]);
+        set('state-word', text[0]);
+        set('state-what', text[1]);
+        set('state-detail', text[2]);
         document.title = `渲染站 · ${text[0]}`;
 
-        // the ring: how far the job is, the wait before trying again, or just the state
-        let p = 0;
-        let spin = false;
-        let small = '';
-        const big = $('#big');
-        if (mode === 'busy' && j?.total > 0) {
-          p = Math.min(1, j.n / j.total);
-          big.className = '';
-          count(big, Math.floor(p * 100), (v) => `${Math.round(v)}%`);
-          small = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}`;
-        } else if (mode === 'busy' && !j) {
-          spin = true;
-          big.className = '';
-          count(big, many);
-          small = '个任务运行中';
+        // the strip: the frames made, the wait before trying again, or a light passing while there is no telling
+        const wrap = $('#strip-wrap');
+        let left = '';
+        let right = '';
+        if (j?.total > 0) {
+          strip($('#strip'), { fill: j.n / j.total });
+          left = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}，${Math.floor((j.n / j.total) * 100)}%`;
+          if (j.frames && j.ms) right = `${j.ms} 毫秒 / 帧，预计还需 ${took((j.total - j.n) * j.ms)}`;
+          else if (j.n) right = `预计还需 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`;
+        } else if (mode === 'busy') {
+          strip($('#strip'), { sweep: true });
+          left = j ? `已运行 ${took(now - j.started)}` : `${many} 个任务运行中`;
         } else if (mode === 'retry') {
-          p = t.wait ? Math.min(1, (secs * 1000) / t.wait) : 0;
-          big.className = '';
-          word(big, String(secs));
-          small = '秒后重连';
-        } else {
-          big.className = 'word';
-          const label = { busy: '执行', idle: '在线', connecting: '连接', auth: '失败', off: '暂停', unset: '未配置', gone: '停止' }[mode] ?? '…';
-          word(big, label);
-          if (mode === 'busy') {
-            spin = true;
-            small = shellJob ? '命令运行中' : '运行中';
-          } else if (mode === 'idle') {
-            p = 1;
-            small = `端口 ${t.port}`;
-          } else if (mode === 'connecting') {
-            spin = true;
-            small = `端口 ${t.port ?? ''}`;
-          } else if (mode === 'auth') p = 1;
-          else if (mode === 'gone') small = '等待重启';
+          strip($('#strip'), { fill: t.wait ? (secs * 1000) / t.wait : 0 });
+          left = `${secs} 秒后重新连接`;
+        } else if (mode === 'connecting') {
+          strip($('#strip'), { sweep: true });
+          left = t.port ? `服务器端口 ${t.port}` : '';
         }
-        const arc = $('#arc');
-        $('#meter').classList.toggle('spin', spin);
-        arc.style.strokeDasharray = spin ? `${C * 0.26} ${C}` : `${C} ${C}`;
-        arc.style.strokeDashoffset = spin ? '0' : String(C * (1 - p));
-        arc.style.opacity = spin || p > 0 ? '1' : '0';
-        set('small', small);
-
-        if (j && j.total > 0 && j.frames) {
-          const left = j.ms ? took((j.total - j.n) * j.ms) : '…';
-          set('nums', `${j.ms ?? '…'} ms/帧 · 预计剩余 ${left}`);
-        } else if (j && j.total > 0 && j.n) set('nums', `预计剩余 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`);
-        else set('nums', '');
+        wrap.hidden = !['busy', 'retry', 'connecting'].includes(mode);
+        set('strip-left', left);
+        set('strip-right', right);
 
         const toggle = $('#toggle');
         set(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
         toggle.classList.toggle('primary', t.state === 'off');
         toggle.hidden = gone;
         $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
+        $('#reconnect').classList.toggle('primary', t.state === 'auth');
 
-        // the numbers
-        if (!gone && t.state === 'up') {
-          set('s-tunnel', uptime(now - t.since));
-          set('s-tunnel-sub', `端口 ${t.port} · ${clock(t.since)} 建立`);
-        } else {
-          set('s-tunnel', '—');
-          set('s-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录失败', off: '已关闭', unset: '未配置' }[t.state] ?? ''));
-        }
+        // the figures
         const all = S.today.done + S.today.failed;
-        count($('#s-today'), all);
-        set('s-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，全部成功' : '个任务');
+        count($('#f-today'), all);
+        set('f-today-sub', S.today.failed ? `个任务，${S.today.failed} 个失败` : all ? '个任务，全部成功' : '个任务');
         const last = S.jobs[0];
-        set('s-last', last ? took(last.ms) : '—');
-        set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '成功' : '失败'}` : '暂无');
+        set('f-last', last ? took(last.ms) : '—');
+        set('f-last-sub', last ? `${ago(last.started + last.ms)}，${last.ok ? '成功' : '失败'}` : '暂无');
         const rate = S.running.find((x) => x.ms)?.ms ?? S.jobs.find((x) => x.rate)?.rate;
-        if (rate) count($('#s-rate'), rate);
-        else word($('#s-rate'), '—');
+        if (rate) count($('#f-rate'), rate);
+        else word($('#f-rate'), '—');
+        if (!gone && t.state === 'up') {
+          set('f-tunnel', uptime(now - t.since));
+          set('f-tunnel-sub', `服务器端口 ${t.port}`);
+        } else {
+          set('f-tunnel', '—');
+          set('f-tunnel-sub', gone ? '' : ({ connecting: '连接中', retry: '重连中', auth: '登录失败', off: '已关闭', unset: '未配置' }[t.state] ?? ''));
+        }
 
+        // what the settings still lack, and where to fill it in
         const notice = $('#notice');
         notice.hidden = gone || !S.missing.length;
-        if (S.missing.length) notice.textContent = `设置尚不完整，缺少：${S.missing.join('、')}。补全之前，相关任务将无法运行。`;
-        $('#badge').hidden = !S.missing.length;
-        set('jobs-sub', S.jobs.length ? `共 ${S.jobs.length} 个，按时间倒序排列` : '');
-
-        charts();
-        renderActive();
-        renderJobs();
-        renderShelf();
-        if (!filled) fill();
-        renderWorkspaces();
-        $('[name=target]').classList.toggle('missing', !S.config.ssh.target);
-        $('#here').hidden = S.platform !== 'win32';
-        $('#shortcut-row').hidden = !S.canShortcut;
-        renderElevate();
-        for (const [id, on] of [
-          ['autostart', S.autostart],
-          ['shortcut', S.shortcut],
-          ['autoupdate', S.autoUpdate],
-        ])
-          if (!flying.has(id)) $(`#${id}`).checked = on;
-        const u = S.update;
-        const going = ['checking', 'downloading'].includes(u.state);
-        const said = { idle: '尚未检查', checking: '正在检查更新…', current: '已是最新版本' }[u.state] ?? u.message;
-        set('u-state', `${said}${u.at && !going ? `（${clock(u.at)}）` : ''}`);
-        $('#u-check').hidden = going;
-        // an installed copy updates from the update server; a checkout, from its git branch
-        const fromGit = S.version?.kind === 'git';
-        set('u-hint', fromGit ? '跟随仓库的新版本自动更新；仓库中有本地改动时不更新' : '有新版本时自动下载并安装');
-        set('version', S.version ? `当前版本：${S.version.name}（${fromGit ? '提交于' : '发布于'} ${day(S.version.at)}）` : '');
+        if (S.missing.length) set('notice-text', `设置尚不完整，缺少${S.missing.join('、')}。补全之前，相关任务无法运行。`);
+        const noServer = !S.config.ssh.target;
+        const wsLack = S.workspaces.some((w) => w.missing.length || w.error);
+        $('#badge').hidden = !noServer && !wsLack;
+        $('#badge-connection').hidden = !noServer;
+        $('#badge-workspaces').hidden = !wsLack;
       }
-
-      // ——— this machine: a line of the last two minutes each, sliding left as it goes ———
-      const W = 240;
-      const H = 62;
-      const STEP = W / 59;
-      let sampled = 0;
-      function curve(values) {
-        const n = values.length;
-        const pts = values.map((v, i) => [W - (n - 1 - i) * STEP, H - 3 - (v / 100) * (H - 10)]);
-        let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
-        // through every point, smoothly (Catmull-Rom as Béziers)
-        for (let i = 0; i < n - 1; i++) {
-          const [p0, p1, p2, p3] = [pts[i - 1] ?? pts[i], pts[i], pts[i + 1], pts[i + 2] ?? pts[i + 1]];
-          const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-          const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-          d += ` C${c1.map((v) => v.toFixed(1))} ${c2.map((v) => v.toFixed(1))} ${p2.map((v) => v.toFixed(1))}`;
-        }
-        return { line: d, area: `${d} L${pts[n - 1][0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z` };
-      }
-      function chart(el, values, sub) {
-        if (!el.querySelector('svg')) {
-          const id = `g-${el.id}`;
-          el.insertAdjacentHTML(
-            'beforeend',
-            `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity="0.28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><g><path class="area" fill="url(#${id})"/><path class="line"/></g></svg>`,
-          );
-        }
-        el.querySelector('small').textContent = sub ?? '';
-        if (!values?.length) return;
-        count(el.querySelector('b'), values.at(-1), (v) => `${Math.round(v)}%`);
-        if (values.length < 2) return;
-        const { line, area } = curve(values);
-        const g = el.querySelector('g');
-        el.querySelector('.line').setAttribute('d', line);
-        el.querySelector('.area').setAttribute('d', area);
-        if (still) return;
-        // drawn a step to the right, then slid back over the two seconds to the next sample
-        g.style.transition = 'none';
-        g.style.transform = `translateX(${STEP}px)`;
-        g.getBoundingClientRect();
-        g.style.transition = 'transform 2s linear';
-        g.style.transform = 'translateX(0)';
-      }
-      function charts() {
-        const m = S.machine;
-        if (!m || m.t === sampled) return;
-        sampled = m.t;
-        const gb = (b) => `${(b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0)} GB`;
-        set('m-sub', `${m.cores} 个核心 · ${gb(m.memTotal)} 内存`);
-        chart($('#c-cpu'), m.cpu, m.cpuName.replace(/\s+/g, ' ').replace(/\(R\)|\(TM\)|CPU|Processor/gi, '').trim());
-        chart($('#c-mem'), m.mem, `已用 ${gb((m.memTotal * (m.mem.at(-1) ?? 0)) / 100)}`);
-        $('#c-gpu').hidden = !m.gpu;
-        if (m.gpu) chart($('#c-gpu'), m.gpu, m.gpuName ?? '');
-      }
+      $('#notice-go').addEventListener('click', () => show(S.config.ssh.target ? 'workspaces' : 'connection'));
+      $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
+      $('#reconnect').addEventListener('click', () => post('/reconnect'));
 
       // ——— the jobs running and waiting, when more than one: each with how far it is ———
       function renderActive() {
@@ -2008,7 +2209,7 @@
             ...all.map(() => {
               const li = document.createElement('li');
               li.className = 'job live';
-              li.innerHTML = '<span class="at num"></span><span class="what"><span></span><i class="prog"><b></b></i></span><span class="took num"></span><span class="tag"></span>';
+              li.innerHTML = '<span class="at num"></span><span class="what"><span></span><span class="strip mini"></span></span><span class="took num"></span><span class="tag"></span>';
               return li;
             }),
           );
@@ -2018,48 +2219,122 @@
           set(id, `#${x.id}`);
           set(what.firstChild, x.what);
           const bar = what.lastChild;
-          bar.hidden = !(x.total > 0);
-          if (x.total > 0) bar.firstChild.style.width = `${Math.min(100, (x.n / x.total) * 100)}%`;
+          if (x.total > 0) strip(bar, { fill: x.n / x.total, segs: 32 });
+          else strip(bar, { sweep: !x.queued, segs: 32 });
           if (x.queued) set(detail, `已等待 ${took(now - x.at)}`);
-          else if (x.total > 0) set(detail, `${x.n} / ${x.total} ${x.frames ? '帧' : '张'} · 已运行 ${took(now - x.started)}`);
+          else if (x.total > 0) set(detail, `${x.n} / ${x.total} ${x.frames ? '帧' : '张'}，已运行 ${took(now - x.started)}`);
           else set(detail, `已运行 ${took(now - x.started)}`);
           tag.className = `tag ${x.queued ? 'wait' : 'run'}`;
           set(tag, x.queued ? '排队中' : '运行中');
         });
       }
 
+      // ——— this machine: a line of the last two minutes each, sliding left as it goes ———
+      const W = 240;
+      const H = 56;
+      const STEP = W / 59;
+      let sampled = 0;
+      function curve(values) {
+        const n = values.length;
+        const pts = values.map((v, i) => [W - (n - 1 - i) * STEP, H - 3 - (v / 100) * (H - 10)]);
+        let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+        // through every point, smoothly (Catmull-Rom as Béziers)
+        for (let i = 0; i < n - 1; i++) {
+          const [p0, p1, p2, p3] = [pts[i - 1] ?? pts[i], pts[i], pts[i + 1], pts[i + 2] ?? pts[i + 1]];
+          const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+          const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+          d += ` C${c1.map((v) => v.toFixed(1))} ${c2.map((v) => v.toFixed(1))} ${p2.map((v) => v.toFixed(1))}`;
+        }
+        return { line: d, area: `${d} L${pts[n - 1][0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z` };
+      }
+      function chart(node, values, sub) {
+        if (!node.querySelector('svg')) {
+          const id = `g-${node.id}`;
+          node.insertAdjacentHTML(
+            'beforeend',
+            `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-opacity="0.22"/><stop offset="1" stop-opacity="0"/></linearGradient></defs><g><path class="area" fill="url(#${id})"/><path class="line"/></g></svg>`,
+          );
+        }
+        set(node.querySelector('small'), sub ?? '');
+        if (!values?.length) return;
+        count(node.querySelector('b'), values.at(-1), (v) => `${Math.round(v)}%`);
+        if (values.length < 2) return;
+        const { line, area } = curve(values);
+        const g = node.querySelector('g');
+        node.querySelector('.line').setAttribute('d', line);
+        node.querySelector('.area').setAttribute('d', area);
+        if (still) return;
+        // drawn a step to the right, then slid back over the two seconds to the next sample
+        g.style.transition = 'none';
+        g.style.transform = `translateX(${STEP}px)`;
+        g.getBoundingClientRect();
+        g.style.transition = 'transform 2s linear';
+        g.style.transform = 'translateX(0)';
+      }
+      function charts() {
+        const m = S.machine;
+        if (!m || m.t === sampled) return;
+        sampled = m.t;
+        const gb = (b) => `${(b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0)} GB`;
+        set('m-sub', `${m.cores} 个核心，${gb(m.memTotal)} 内存`);
+        chart($('#c-cpu'), m.cpu, m.cpuName.replace(/\s+/g, ' ').replace(/\(R\)|\(TM\)|CPU|Processor|\d+-Core/gi, '').trim());
+        chart($('#c-mem'), m.mem, `已用 ${gb((m.memTotal * (m.mem.at(-1) ?? 0)) / 100)}`);
+        $('#c-gpu').hidden = !m.gpu;
+        if (m.gpu) chart($('#c-gpu'), m.gpu, m.gpuName ?? '');
+      }
+
+      // ——— as administrator: 渲染站.exe asks at each start, unless the switch is off; started again
+      // so from its window alone, as it asks Windows' User Account Control ———
+      function renderElevate() {
+        const e = S.elevate;
+        $('#admin').hidden = S.platform !== 'win32';
+        if (!flying.has('elevate')) $('#elevate').checked = e.on;
+        $('#elevate-now').hidden = e.admin || !host;
+        set(
+          'elevate-hint',
+          e.admin
+            ? `正以管理员身份运行，预设任务和 Shell 命令都具有管理员权限。${e.on ? '' : '下次打开时将不再申请管理员权限。'}`
+            : e.on
+              ? `打开渲染站时会申请管理员权限；这次未获准，当前以普通权限运行。${host ? '' : '如需以管理员身份重新启动，请在渲染站自己的窗口中操作。'}`
+              : '打开渲染站时不申请管理员权限，当前以普通权限运行。',
+        );
+      }
+      $('#elevate').addEventListener('change', async (event) => {
+        flying.add('elevate');
+        await guarded('/elevate', { on: event.target.checked }, $('#elevate-error'));
+        flying.delete('elevate');
+      });
+      $('#elevate-now').addEventListener('click', () => {
+        set('elevate-error', '');
+        if (S.running.length || S.queued.length) return set('elevate-error', '渲染站会重新启动。请在没有任务运行或排队时操作。');
+        host.postMessage('elevate');
+      });
+
       // ——— the jobs ———
       function renderJobs() {
         const list = $('#jobs');
         $('#empty').hidden = S.jobs.length > 0;
+        set('jobs-sub', S.jobs.length ? `${S.jobs.length} 个，最新的在前` : '');
         const key = JSON.stringify(S.jobs.map((j) => [j.id, j.started, open.has(j.id)]));
         if (list.dataset.key === key) return;
         list.dataset.key = key;
         list.replaceChildren(
           ...S.jobs.map((j) => {
             const li = document.createElement('li');
-            const row = document.createElement('div');
-            row.className = 'job';
+            const row = el('div', 'job');
             row.tabIndex = 0;
             row.setAttribute('role', 'button');
             row.setAttribute('aria-expanded', open.has(j.id));
-            const cell = (cls, text) => {
-              const span = document.createElement('span');
-              span.className = cls;
-              span.textContent = text;
-              return span;
-            };
             const button = (text, act) => {
-              const b = document.createElement('button');
+              const b = el('button', null, text);
               b.type = 'button';
-              b.textContent = text;
               b.addEventListener('click', (e) => {
                 e.stopPropagation();
                 act();
               });
               return b;
             };
-            row.append(cell('at num', clock(j.started)), cell('what', j.what), cell('took num', took(j.ms)), cell(`tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '成功' : '失败'));
+            row.append(el('span', 'at num', clock(j.started)), el('span', 'what', j.what), el('span', 'took num', took(j.ms)), el('span', `tag ${j.ok ? 'ok' : 'bad'}`, j.ok ? '成功' : '失败'));
             // what it made, kept on this machine too
             const kept = j.paths?.length ? j.paths : null;
             if (kept) {
@@ -2079,18 +2354,14 @@
             });
             li.append(row);
             if (open.has(j.id)) {
-              const fold = document.createElement('div');
-              fold.className = 'fold';
+              const fold = el('div', 'fold');
               const inner = document.createElement('div');
               if (kept) {
-                const acts = document.createElement('div');
-                acts.className = 'acts';
+                const acts = el('div', 'acts');
                 acts.append(button('在「输出」中查看', () => showKept(kept[0])), button('在文件夹中显示', () => reveal(kept[0], true)));
                 inner.append(acts);
               }
-              const pre = document.createElement('pre');
-              pre.textContent = (j.files?.length ? `已返回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（无输出）').trim();
-              inner.append(pre);
+              inner.append(el('pre', 'out', (j.files?.length ? `已返回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（无输出）').trim()));
               fold.append(inner);
               li.append(fold);
               requestAnimationFrame(() => requestAnimationFrame(() => fold.classList.add('open')));
@@ -2113,31 +2384,21 @@
         groups.dataset.key = key;
         $('#g-empty').hidden = shelf.length > 0;
         $('#g-folder').hidden = !shelf.length;
-        set('g-sub', shelf.length ? `共 ${shelf.length} 次任务，按时间倒序排列` : '');
+        set('g-sub', shelf.length ? `${shelf.length} 次任务，最新的在前` : '');
         items = shelf.flatMap((g) => g.files.filter((f) => f.url).map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
         groups.replaceChildren(
           ...shelf.map((g) => {
-            const sec = document.createElement('section');
-            sec.className = 'group';
-            const head = document.createElement('div');
-            head.className = 'group-head';
-            const b = document.createElement('b');
-            b.textContent = g.what;
-            const meta = document.createElement('span');
-            meta.textContent = `${day(g.at)}${g.ms ? ` · 耗时 ${took(g.ms)}` : ''}`;
-            head.append(b, meta);
-            const tiles = document.createElement('div');
-            tiles.className = 'tiles';
+            const sec = el('section', 'group');
+            const head = el('div', 'group-head');
+            head.append(el('b', null, g.what), el('span', null, `${day(g.at)}${g.ms ? `，耗时 ${took(g.ms)}` : ''}`));
+            const tiles = el('div', 'tiles');
             for (const f of g.files) {
-              const tile = document.createElement('button');
+              const tile = el('button', 'tile');
               tile.type = 'button';
-              tile.className = 'tile';
               tile.title = f.name;
               if (!f.url) {
                 tile.classList.add('doc');
-                const ext = document.createElement('b');
-                ext.textContent = (f.name.match(/\.([^./]{1,6})$/)?.[1] ?? '文件').toUpperCase();
-                tile.append(ext);
+                tile.append(el('b', null, (f.name.match(/\.([^./]{1,6})$/)?.[1] ?? '文件').toUpperCase()));
               } else if (video(f.name)) {
                 const v = document.createElement('video');
                 v.src = `${f.url}#t=0.1`;
@@ -2162,10 +2423,7 @@
                 img.src = f.url;
                 tile.append(img);
               }
-              const cap = document.createElement('span');
-              cap.className = 'cap';
-              cap.textContent = caption(f.name);
-              tile.append(cap);
+              tile.append(el('span', 'cap', caption(f.name)));
               tile.addEventListener('click', () => (f.url ? lightbox(items.findIndex((i) => i.path === f.path)) : reveal(f.path)));
               tiles.append(tile);
             }
@@ -2190,7 +2448,6 @@
         if (i < 0 || !items.length) return;
         at = (i + items.length) % items.length;
         const it = items[at];
-        const stage = $('#lb-stage');
         const media = document.createElement(video(it.name) ? 'video' : 'img');
         media.src = it.url;
         if (media.tagName === 'VIDEO') {
@@ -2198,10 +2455,9 @@
           media.autoplay = true;
           media.loop = true;
         }
-        const appear = () => requestAnimationFrame(() => media.classList.add('in'));
-        media.addEventListener(media.tagName === 'VIDEO' ? 'loadeddata' : 'load', appear, { once: true });
-        stage.replaceChildren(media);
-        set('lb-cap', `${it.what} · ${it.cap}`);
+        media.addEventListener(media.tagName === 'VIDEO' ? 'loadeddata' : 'load', () => requestAnimationFrame(() => media.classList.add('in')), { once: true });
+        $('#lb-stage').replaceChildren(media);
+        set('lb-cap', `${it.what}：${it.cap}`);
         set('lb-n', `${at + 1} / ${items.length}`);
         if (box.hidden) {
           box.hidden = false;
@@ -2210,8 +2466,7 @@
       }
       function closeBox() {
         box.classList.remove('on');
-        const v = box.querySelector('video');
-        if (v) v.pause();
+        box.querySelector('video')?.pause();
         setTimeout(() => {
           if (!box.classList.contains('on')) {
             box.hidden = true;
@@ -2227,149 +2482,14 @@
       box.addEventListener('click', (e) => {
         if (e.target === box || e.target.id === 'lb-stage') closeBox();
       });
+      // the window closed (渲染站.exe hides it a while): a video playing in it stops
+      document.addEventListener('visibilitychange', () => document.hidden && box.querySelector('video')?.pause());
       addEventListener('keydown', (e) => {
         if (box.hidden) return;
         if (e.key === 'Escape') closeBox();
         else if (e.key === 'ArrowLeft') lightbox(at - 1);
         else if (e.key === 'ArrowRight') lightbox(at + 1);
       });
-
-      // ——— 设置: the workspaces, a block each: its name and path, the settings its file asks for,
-      // what else its jobs get, and its presets ———
-      let wsKey = '';
-      let dirty = false;
-      function renderWorkspaces(force = false) {
-        const key = JSON.stringify([S.config.workspaces, S.workspaces]);
-        if (!force && (dirty || key === wsKey)) return;
-        wsKey = key;
-        $('#ws-list').replaceChildren(...S.config.workspaces.map((w, i) => wsBlock(w, S.workspaces[i])));
-      }
-      function wsBlock(w, seen) {
-        const el = document.createElement('fieldset');
-        el.className = 'ws';
-        const field = (labelText, key, input) => {
-          const label = document.createElement('label');
-          const span = document.createElement('span');
-          span.textContent = labelText;
-          if (key) {
-            const code = document.createElement('code');
-            code.textContent = key;
-            span.append(code);
-          }
-          label.append(span, input);
-          return label;
-        };
-        const text = (value, placeholder) => {
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.value = value ?? '';
-          input.placeholder = placeholder ?? '';
-          return input;
-        };
-        const head = document.createElement('div');
-        head.className = 'ws-head';
-        const title = document.createElement('b');
-        title.textContent = seen?.name || '新工作区';
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'link';
-        remove.textContent = '移除';
-        remove.addEventListener('click', () => {
-          el.remove();
-          dirty = true;
-        });
-        head.append(title, remove);
-        const two = document.createElement('div');
-        two.className = 'two wide';
-        const name = text(w.name, '留空时使用 render-station.json 中的名称');
-        name.dataset.k = 'name';
-        const path = text(w.path, 'D:\\projects\\…');
-        path.dataset.k = 'path';
-        two.append(field('名称', null, name), field('路径', null, path));
-        el.append(head, two);
-        const declared = new Set();
-        for (const e of seen?.fields ?? []) {
-          declared.add(e.key);
-          const given = w.env?.[e.key];
-          if (e.type === 'switch') {
-            const label = document.createElement('label');
-            label.className = 'switch';
-            const span = document.createElement('span');
-            span.textContent = e.label || e.key;
-            if (e.hint) {
-              const small = document.createElement('small');
-              small.textContent = e.hint;
-              span.append(small);
-            }
-            const box = document.createElement('input');
-            box.type = 'checkbox';
-            box.setAttribute('role', 'switch');
-            box.checked = (given ?? e.default ?? '0') === '1';
-            box.dataset.env = e.key;
-            label.append(span, box);
-            el.append(label);
-          } else {
-            const input = text(given, e.placeholder);
-            input.dataset.env = e.key;
-            input.classList.toggle('missing', seen.missing.includes(e.key));
-            const label = field(e.label || e.key, e.key, input);
-            if (e.hint) label.title = e.hint;
-            el.append(label);
-          }
-        }
-        const extra = document.createElement('textarea');
-        extra.dataset.k = 'extra';
-        extra.rows = 2;
-        extra.spellcheck = false;
-        extra.value = Object.entries(w.env ?? {})
-          .filter(([k]) => !declared.has(k))
-          .map(([k, v]) => `${k}=${v}`)
-          .join('\n');
-        const more = field('其他环境变量', null, extra);
-        const small = document.createElement('small');
-        small.textContent = '每行一个，格式为 名称=值';
-        more.firstChild.append(small);
-        el.append(more);
-        const note = document.createElement('p');
-        note.className = 'ws-note';
-        if (seen?.error) {
-          note.classList.add('bad');
-          note.textContent = seen.error === 'folder not found' ? '找不到该文件夹。' : seen.error;
-        } else if (seen) note.textContent = seen.presets.length ? `预设任务：${seen.presets.map((p) => (p.description ? `${p.name}（${p.description}）` : p.name)).join('、')}` : '无预设任务：该工作区中没有 render-station.json，只能运行 Shell 任务。';
-        else note.textContent = '保存后将读取该文件夹中的 render-station.json。';
-        el.append(note);
-        return el;
-      }
-      $('#ws-add').addEventListener('click', () => {
-        $('#ws-list').append(wsBlock({ name: '', path: '', env: {} }, null));
-        dirty = true;
-      });
-      $('#form').addEventListener('input', () => (dirty = true));
-      /** the workspaces as the form has them; an "其他环境变量" line that is not NAME=value, refused */
-      function readWorkspaces() {
-        return [...$('#ws-list').children].map((el) => {
-          const env = {};
-          el.querySelector('[data-k=extra]')
-            .value.split('\n')
-            .forEach((line, n) => {
-              if (!line.trim()) return;
-              const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
-              if (!m) throw new Error(`「其他环境变量」第 ${n + 1} 行的格式应为 名称=值`);
-              env[m[1]] = m[2].trim();
-            });
-          for (const input of el.querySelectorAll('[data-env]')) env[input.dataset.env] = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
-          return { name: el.querySelector('[data-k=name]').value, path: el.querySelector('[data-k=path]').value, env };
-        });
-      }
-
-      function fill() {
-        filled = true;
-        const f = $('#form');
-        f.elements.target.value = S.config.ssh.target ?? '';
-        f.elements.port.value = S.config.ssh.port ?? '';
-        // what is missing, unless another page was asked for
-        if (S.missing.length && !location.hash) show('settings');
-      }
 
       // ——— 动态: what is said, and what ssh and the jobs print ———
       const term = $('#term');
@@ -2381,25 +2501,18 @@
       // a job's progress ("frame n/total"), one line rewritten
       const progress = (item) => item?.kind === 'out' && /^frame \d+\/\d+/.test(item.text);
       function line(item) {
-        const el = document.createElement('div');
         const raw = item.kind === 'out' || item.kind === 'ssh';
-        el.className = `ln k-${item.kind}${raw ? ' raw' : ''}${raw && item.job ? ' of-job' : ''}`;
-        const time = document.createElement('time');
-        time.textContent = raw ? '' : stamp(item.t);
-        const tag = document.createElement('i');
-        tag.textContent = raw && item.job ? `#${item.job}` : TAGS[item.kind] ?? '';
-        const text = document.createElement('span');
-        text.textContent = item.text;
-        el.append(time, tag, text);
-        item.el = el;
-        return el;
+        const node = el('div', `ln k-${item.kind}${raw ? ' raw' : ''}${raw && item.job ? ' of-job' : ''}`);
+        node.append(el('time', null, raw ? '' : stamp(item.t)), el('i', null, raw && item.job ? `#${item.job}` : (TAGS[item.kind] ?? '')), el('span', null, item.text));
+        item.el = node;
+        return node;
       }
       const atEnd = () => term.scrollTop + term.clientHeight >= term.scrollHeight - 16;
       // each job's last line: its progress is rewritten there, whatever other jobs printed since
       const lastOf = new Map();
-      function add(items) {
+      function add(news) {
         const stick = atEnd();
-        for (const item of items) {
+        for (const item of news) {
           const prev = item.job ? lastOf.get(item.job) : lines.at(-1);
           if (progress(item) && progress(prev) && lines.includes(prev)) {
             prev.text = item.text;
@@ -2428,10 +2541,10 @@
       });
       // the filter's knob slides under the one pressed
       const knob = $('#knob');
-      const place = (b) => {
+      function place(b) {
         knob.style.width = `${b.offsetWidth}px`;
         knob.style.transform = `translateX(${b.offsetLeft}px)`;
-      };
+      }
       for (const b of document.querySelectorAll('[data-filter]'))
         b.addEventListener('click', () => {
           filter = b.dataset.filter;
@@ -2440,70 +2553,332 @@
           rebuild();
         });
 
-      // ——— the pages ———
-      const tabs = [...document.querySelectorAll('[role=tab]')];
-      let current = null;
-      function show(name) {
-        if (name === current) return;
-        current = name;
-        tabs.forEach((b, i) => {
-          const on = b.dataset.page === name;
-          b.setAttribute('aria-selected', on);
-          if (on) $('#slider').style.transform = `translateY(${i * (b.offsetHeight + 4)}px)`;
-        });
-        for (const b of tabs) {
-          const sec = $(`#page-${b.dataset.page}`);
-          const on = b.dataset.page === name;
-          sec.hidden = !on;
-          if (on) {
-            sec.classList.remove('enter');
-            sec.offsetWidth;
-            sec.classList.add('enter');
-          }
-        }
-        $('#main').scrollTop = 0;
+      // ——— 设置 · 连接: saved once changed, and the tunnel as it is ———
+      const editing = new Set();
+      for (const id of ['ssh-target', 'ssh-port']) {
+        const input = $(`#${id}`);
+        input.addEventListener('input', () => editing.add(id));
+        input.addEventListener('change', saveServer);
+        input.addEventListener('keydown', (e) => e.key === 'Enter' && input.blur());
+      }
+      async function saveServer() {
         try {
-          localStorage.setItem('station-page', name);
-        } catch {}
-        // in a browser, the address says the page too (#gallery…)
-        history.replaceState(null, '', name === 'home' ? location.pathname : `#${name}`);
-        if (name === 'feed') {
-          place(document.querySelector('[data-filter][aria-pressed="true"]'));
-          term.scrollTop = term.scrollHeight;
+          await change('/config', { ssh: { target: $('#ssh-target').value, port: $('#ssh-port').value } });
+          editing.delete('ssh-target');
+          editing.delete('ssh-port');
+          said($('#ssh-status'));
+        } catch (e) {
+          said($('#ssh-status'), e.message);
         }
       }
-      for (const b of tabs) b.addEventListener('click', () => show(b.dataset.page));
-      addEventListener('hashchange', () => {
-        const name = location.hash.slice(1) || 'home';
-        if (tabs.some((t) => t.dataset.page === name)) show(name);
-      });
-      let first = location.hash.slice(1) || 'home';
-      try {
-        if (!location.hash) first = localStorage.getItem('station-page') || 'home';
-      } catch {}
-      show(tabs.some((b) => b.dataset.page === first) ? first : 'home');
+      function renderConnection() {
+        for (const [id, v] of [
+          ['ssh-target', S.config.ssh.target ?? ''],
+          ['ssh-port', S.config.ssh.port ?? ''],
+        ])
+          if (!editing.has(id) && document.activeElement !== $(`#${id}`)) $(`#${id}`).value = v;
+        $('#ssh-target').classList.toggle('missing', !S.config.ssh.target);
+        const t = S.tunnel;
+        const now = Date.now();
+        const state = {
+          up: ['已连接', `服务器端口 ${t.port}，${t.since ? `${clock(t.since)} 建立，已连接 ${uptime(now - t.since)}` : ''}`],
+          connecting: ['正在连接', t.port ? `服务器端口 ${t.port}` : ''],
+          retry: ['无法连接，即将重试', `${t.retryAt ? `${Math.max(0, Math.ceil((t.retryAt - now) / 1000))} 秒后重试。` : ''}${t.message ?? ''}`],
+          auth: ['无法登录', t.message ?? '请确认可以使用无需密码的密钥登录服务器。'],
+          off: ['已暂停接收任务', '隧道已关闭'],
+          unset: ['尚未填写服务器', '填写 SSH 地址后自动连接'],
+        }[t.state] ?? [t.state, ''];
+        set('tun-state', gone ? '渲染站未运行' : state[0]);
+        set('tun-detail', gone ? '' : state[1]);
+        set('tun-toggle', t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
+        $('#tun-toggle').classList.toggle('primary', t.state === 'off');
+        $('#tun-reconnect').hidden = gone || t.state === 'off' || t.state === 'unset';
+        $('#tun-toggle').hidden = gone;
+      }
+      $('#tun-toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
+      $('#tun-reconnect').addEventListener('click', () => post('/reconnect'));
 
-      $('#form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const f = e.target;
-        set('save-error', '');
-        try {
-          const res = await fetch('/config', {
-            method: 'POST',
-            headers: { 'x-station': '1', 'content-type': 'application/json' },
-            body: JSON.stringify({ workspaces: readWorkspaces(), ssh: { target: f.elements.target.value, port: f.elements.port.value } }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-          dirty = false;
-          render(data);
+      // ——— 设置 · 工作区: a block each, opened to its settings, each change saved at once ———
+      let wsKey = '';
+      const wsOpen = new Set();
+      // a field typed in and not yet saved: the list is not built again over it
+      let wsTyping = false;
+      const STATUS = (seen) =>
+        !seen ? ['tag wait', '读取中'] : seen.error ? ['tag bad', seen.error === 'folder not found' ? '找不到文件夹' : '文件有误'] : seen.missing.length ? ['tag wait', `缺少 ${seen.missing.length} 项设置`] : ['tag ok', '可以使用'];
+      function renderWorkspaces(force = false) {
+        const n = S.config.workspaces.length;
+        set('ws-sub', n ? `${n} 个` : '');
+        const key = JSON.stringify([S.config.workspaces, S.workspaces]);
+        if (!force && (wsTyping || key === wsKey)) return;
+        wsKey = key;
+        const list = $('#ws-list');
+        // the field being typed in, kept as it is
+        const focus = document.activeElement;
+        const at = focus && list.contains(focus) ? { card: focus.closest('.wsc')?.dataset.i, k: focus.dataset.k, env: focus.dataset.env, start: focus.selectionStart } : null;
+        list.replaceChildren(...S.config.workspaces.map((w, i) => wsCard(w, S.workspaces[i], i)));
+        if (at) {
+          const card = list.querySelector(`.wsc[data-i="${at.card}"]`);
+          const again = card?.querySelector(at.k ? `[data-k="${at.k}"]` : `[data-env="${at.env}"]`);
+          if (again) {
+            again.focus();
+            if (at.start != null && again.setSelectionRange) again.setSelectionRange(at.start, at.start);
+          }
+        }
+      }
+      function wsCard(w, seen, i) {
+        const card = el('div', 'panel wsc');
+        card.dataset.i = i;
+        const head = el('button', 'wsc-head');
+        head.type = 'button';
+        head.setAttribute('aria-expanded', wsOpen.has(i));
+        const who = document.createElement('span');
+        who.append(el('b', null, seen?.name || w.name || '新工作区'), el('small', null, w.path));
+        const [tagClass, tagText] = STATUS(seen);
+        head.append(who, el('span', tagClass, tagText));
+        head.insertAdjacentHTML('beforeend', '<svg class="chev" viewBox="0 0 14 14" aria-hidden="true"><path d="m5 2.5 4.5 4.5L5 11.5"/></svg>');
+        head.addEventListener('click', () => {
+          wsOpen.has(i) ? wsOpen.delete(i) : wsOpen.add(i);
           renderWorkspaces(true);
-          $('#saved').classList.add('on');
-          setTimeout(() => $('#saved').classList.remove('on'), 2200);
-        } catch (error) {
-          set('save-error', error.message);
+        });
+        card.append(head);
+        if (!wsOpen.has(i)) return card;
+
+        const body = el('div', 'wsc-body');
+        const fields = el('div', 'fields');
+        const field = (labelText, key, input, note) => {
+          const label = el('label', 'field');
+          const span = el('span', null, labelText);
+          if (key) span.append(el('code', null, key));
+          if (note) span.append(el('small', null, note));
+          label.append(span, input);
+          return label;
+        };
+        const text = (value, placeholder) => {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = value ?? '';
+          input.placeholder = placeholder ?? '';
+          input.spellcheck = false;
+          input.autocomplete = 'off';
+          return input;
+        };
+        const pair = el('div', 'pair wide');
+        const name = text(w.name, '留空时使用 render-station.json 中的名称');
+        name.dataset.k = 'name';
+        const path = text(w.path, 'D:\\projects\\…');
+        path.dataset.k = 'path';
+        pair.append(field('名称', null, name), field('路径', null, path));
+        fields.append(pair);
+        if (seen?.error) fields.append(el('p', 'err', seen.error === 'folder not found' ? '找不到该文件夹。请检查路径。' : seen.error));
+        const declared = new Set();
+        for (const e of seen?.fields ?? []) {
+          declared.add(e.key);
+          const given = w.env?.[e.key];
+          if (e.type === 'switch') {
+            const label = el('label', 'switch-field');
+            const span = el('span', null, e.label || e.key);
+            if (e.hint) span.append(el('small', null, e.hint));
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.setAttribute('role', 'switch');
+            check.checked = (given ?? e.default ?? '0') === '1';
+            check.dataset.env = e.key;
+            label.append(span, check);
+            fields.append(label);
+          } else {
+            const input = text(given, e.placeholder);
+            input.dataset.env = e.key;
+            input.classList.toggle('missing', seen.missing.includes(e.key));
+            const label = field(e.label || e.key, e.key, input, seen.missing.includes(e.key) ? '必填' : null);
+            if (e.hint) label.title = e.hint;
+            fields.append(label);
+          }
+        }
+        const extra = document.createElement('textarea');
+        extra.dataset.k = 'extra';
+        extra.rows = 2;
+        extra.spellcheck = false;
+        extra.value = Object.entries(w.env ?? {})
+          .filter(([k]) => !declared.has(k))
+          .map(([k, v]) => `${k}=${v}`)
+          .join('\n');
+        fields.append(field('其他环境变量', null, extra, '每行一个，格式为 名称=值'));
+        if (seen && !seen.error) {
+          const presets = el('div', 'field');
+          presets.append(el('span', null, '预设任务'));
+          if (seen.presets.length) {
+            const ul = el('ul', 'presets');
+            for (const p of seen.presets) {
+              const li = document.createElement('li');
+              li.append(el('code', null, `${seen.name}/${p.name}`));
+              if (p.description) li.append(el('span', null, p.description));
+              ul.append(li);
+            }
+            presets.append(ul);
+          } else presets.append(el('p', 'hint', '该文件夹中没有 render-station.json，只能运行 Shell 任务。'));
+          fields.append(presets);
+        }
+        body.append(fields);
+        const foot = el('div', 'wsc-foot');
+        const status = el('span', 'status');
+        status.setAttribute('role', 'status');
+        const remove = el('button', 'link danger', '移除工作区');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          if (!confirm(`移除工作区 ${seen?.name || w.name || w.path}？移除后，服务器无法再运行其中的预设任务；文件夹本身不受影响。`)) return;
+          try {
+            wsOpen.clear();
+            await saveWorkspaces(S.config.workspaces.filter((_, j) => j !== i));
+          } catch (e) {
+            said(status, e.message);
+          }
+        });
+        foot.append(status, remove);
+        body.append(foot);
+        // saved as soon as a field is left changed, or a switch flipped
+        body.addEventListener('input', (e) => {
+          if (e.target.type !== 'checkbox') wsTyping = true;
+        });
+        // the block as it is once saved (the list built again), or this one
+        const statusNow = () => $('#ws-list').querySelector(`.wsc[data-i="${i}"] .status`) ?? status;
+        body.addEventListener('change', async () => {
+          try {
+            const entry = readCard(card);
+            await saveWorkspaces(S.config.workspaces.map((x, j) => (j === i ? entry : x)));
+            said(statusNow());
+          } catch (e) {
+            said(statusNow(), e.message);
+          }
+        });
+        card.append(body);
+        return card;
+      }
+      /** a workspace as its block has it; an "其他环境变量" line that is not NAME=value, refused */
+      function readCard(card) {
+        const env = {};
+        card
+          .querySelector('[data-k=extra]')
+          .value.split('\n')
+          .forEach((text, n) => {
+            if (!text.trim()) return;
+            const m = text.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
+            if (!m) throw new Error(`「其他环境变量」第 ${n + 1} 行的格式应为 名称=值`);
+            env[m[1]] = m[2].trim();
+          });
+        for (const input of card.querySelectorAll('[data-env]')) env[input.dataset.env] = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
+        return { name: card.querySelector('[data-k=name]').value, path: card.querySelector('[data-k=path]').value, env };
+      }
+      async function saveWorkspaces(list) {
+        try {
+          await change('/config', { workspaces: list });
+        } finally {
+          wsTyping = false;
+        }
+        renderWorkspaces(true);
+      }
+      $('#ws-add').addEventListener('click', () => {
+        $('#ws-add').hidden = true;
+        $('#ws-add-form').hidden = false;
+        $('#ws-new-path').focus();
+      });
+      const closeAdd = () => {
+        $('#ws-add').hidden = false;
+        $('#ws-add-form').hidden = true;
+        $('#ws-new-name').value = '';
+        $('#ws-new-path').value = '';
+        set('ws-new-error', '');
+      };
+      $('#ws-new-cancel').addEventListener('click', closeAdd);
+      $('#ws-new-add').addEventListener('click', async () => {
+        const path = $('#ws-new-path').value.trim();
+        if (!path) return set('ws-new-error', '请填写路径');
+        try {
+          await saveWorkspaces([...S.config.workspaces, { name: $('#ws-new-name').value.trim(), path, env: {} }]);
+          wsOpen.add(S.config.workspaces.length - 1);
+          closeAdd();
+          renderWorkspaces(true);
+        } catch (e) {
+          set('ws-new-error', e.message);
         }
       });
+      $('#ws-new-path').addEventListener('keydown', (e) => e.key === 'Enter' && $('#ws-new-add').click());
+
+      // ——— 设置 · 权限与审批: the server's changes to the workspaces, Shell, its allowlist ———
+      const MANAGE = {
+        off: '服务器不能添加、修改或移除工作区，也不能查看这台电脑的文件夹。',
+        ask: '服务器可以请求添加、修改或移除工作区（可以新建文件夹），或查看这台电脑的文件夹，每项请求都须在这里批准。查看已登记工作区内的文件夹无需批准。',
+        allow: '服务器可以直接添加、修改或移除工作区，新建文件夹，查看这台电脑的任意文件夹，无需批准。登记工作区即表示信任它的预设任务。',
+      };
+      let rulesKey = '';
+      function renderAccess() {
+        const m = S.manage;
+        for (const b of document.querySelectorAll('[data-manage]')) b.setAttribute('aria-pressed', b.dataset.manage === m.mode);
+        set('manage-hint', MANAGE[m.mode]);
+        const shell = S.shell;
+        set('shell-mode', { disabled: '已关闭', auto: 'auto 模式', yolo: 'YOLO 模式' }[shell.mode] ?? shell.mode);
+        $('#shell-enabled').checked = shell.mode !== 'disabled';
+        $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
+        set('shell-yolo', shell.mode === 'yolo' ? '关闭 YOLO' : '开启 YOLO');
+        set('shell-admin', shell.admin ? '渲染站正以管理员身份运行，可以开启。' : '渲染站当前以普通权限运行：请先在「总览」页单击「以管理员身份重新启动」，并在「用户账户控制」窗口中选择「是」。');
+        const key = JSON.stringify(shell.rules);
+        if (key === rulesKey) return;
+        rulesKey = key;
+        const list = $('#shell-rules');
+        list.replaceChildren();
+        if (!shell.rules.length) return list.append(el('li', 'empty', '白名单为空。批准 Shell 请求时可以选择加入白名单。'));
+        shell.rules.forEach((rule, index) => {
+          const li = document.createElement('li');
+          const pre = document.createElement('pre');
+          pre.append(el('span', null, `${rule.cwd}\n`), rule.command);
+          const b = el('button', 'link danger', '移除');
+          b.type = 'button';
+          b.addEventListener('click', () => shellPost('remove', { index }));
+          li.append(pre, b);
+          list.append(li);
+        });
+      }
+      const shellPost = (path, body) => guarded(`/shell/${path}`, body, $('#shell-error'));
+      const managePost = (path, body) => guarded(path, body, $('#manage-error'));
+      for (const b of document.querySelectorAll('[data-manage]'))
+        b.addEventListener('click', () => {
+          const mode = b.dataset.manage;
+          if (mode === S.manage.mode) return;
+          if (mode === 'allow' && !confirm('选择「无需审批」后，服务器不经批准就能登记工作区、新建文件夹、查看这台电脑的任意文件夹，并运行工作区中的预设任务，这些任务以渲染站运行账户的权限执行。确定吗？')) return;
+          managePost('/manage', { mode });
+        });
+      $('#shell-enabled').addEventListener('change', (event) => shellPost('enabled', { on: event.target.checked }));
+      $('#shell-yolo').addEventListener('click', () => {
+        const on = S.shell.mode !== 'yolo';
+        if (!on || confirm('开启后，在这次运行期间，服务器可以用渲染站账户的权限执行任意 Shell 命令，并使用任意工作目录。确定开启 YOLO 吗？')) shellPost('yolo', { on });
+      });
+
+      // ——— 设置 · 本机, and 更新与关于 ———
+      function renderMachine() {
+        set('par-n', String(S.parallel));
+        $('#par-dec').disabled = S.parallel <= 1;
+        $('#par-inc').disabled = S.parallel >= 16;
+        $('#autostart-row').hidden = S.platform !== 'win32';
+        $('#shortcut-row').hidden = !S.canShortcut;
+        for (const [id, on] of [
+          ['autostart', S.autostart],
+          ['shortcut', S.shortcut],
+          ['autoupdate', S.autoUpdate],
+        ])
+          if (!flying.has(id)) $(`#${id}`).checked = on;
+        const u = S.update;
+        const going = ['checking', 'downloading'].includes(u.state);
+        const text = { idle: '尚未检查更新', checking: '正在检查更新…', current: '已是最新版本' }[u.state] ?? u.message;
+        set('u-state', `${text}${u.at && !going ? `（${clock(u.at)}）` : ''}`);
+        $('#u-check').disabled = going;
+        // an installed copy updates from the update server; a checkout, from its git branch
+        const fromGit = S.version?.kind === 'git';
+        set('u-hint', fromGit ? '跟随仓库的新版本自动更新；仓库中有本地改动时不更新' : '有新版本时自动下载并安装；有任务运行时，等任务结束后再更新');
+        set('version', S.version ? `当前版本 ${S.version.name}，${fromGit ? '提交于' : '发布于'}${day(S.version.at)}` : '');
+        set('log-path', S.paths?.log ?? '');
+        $('#log-open').hidden = !host;
+      }
+      $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
+      $('#par-inc').addEventListener('click', () => post('/parallel', { n: S.parallel + 1 }));
       // applied at once; not set back by the state while the change is on its way
       for (const id of ['autostart', 'shortcut', 'autoupdate'])
         $(`#${id}`).addEventListener('change', async (e) => {
@@ -2511,75 +2886,144 @@
           await post(`/${id}`, { on: e.target.checked });
           flying.delete(id);
         });
-      // ——— as administrator: made so by 渲染站.exe, which asks Windows' User Account Control, so only
-      // in its window ———
-      let elevating = false;
-      function renderElevate() {
-        const e = S.elevate;
-        if (!elevating) $('#elevate').checked = e.on;
-        $('#elevate').disabled = !host || elevating;
-        set(
-          'elevate-hint',
-          !host
-            ? '只能在渲染站自己的窗口中更改，浏览器中无法更改。'
-            : e.on && e.admin
-              ? '渲染站正以管理员身份运行。预设任务和 Shell 命令都具有管理员权限。'
-              : e.on
-                ? '已开启，但渲染站当前未以管理员身份运行。请退出渲染站后重新打开；如仍未生效，请关闭后重新开启此项。'
-                : e.admin
-                  ? '已关闭。渲染站当前仍以管理员身份运行，退出后重新打开即恢复为普通权限。'
-                  : '开启后，渲染站及其运行的预设任务和 Shell 命令都具有管理员权限。开启时须在「用户账户控制」窗口中确认一次，此后启动不再询问。',
-        );
+      $('#u-check').addEventListener('click', () => post('/update'));
+      $('#log-open').addEventListener('click', () => host?.postMessage('log'));
+
+      // ——— the server's requests awaiting approval: one shown at a time ———
+      // a request newly shown: its buttons wait a moment, so a click meant for the one before is not taken for it
+      function hold(dialog) {
+        const buttons = dialog.querySelectorAll('footer button');
+        for (const b of buttons) b.disabled = true;
+        setTimeout(() => buttons.forEach((b) => (b.disabled = false)), 600);
       }
-      $('#elevate').addEventListener('change', (event) => {
-        const on = event.target.checked;
-        set('elevate-error', '');
-        if (on && (S.running.length || S.queued.length)) {
-          event.target.checked = false;
-          return set('elevate-error', '开启后渲染站将重新启动。请在没有任务运行或排队时开启。');
-        }
-        if (on && !confirm('开启后，渲染站将以管理员身份重新启动，此后运行的预设任务和 Shell 命令都具有管理员权限，能够修改系统设置和任意文件。接下来 Windows 将弹出「用户账户控制」窗口，请选择「是」。确定开启吗？')) {
-          event.target.checked = false;
+      let shellShown = null;
+      let wsShown = null;
+      function renderReviews() {
+        const shell = S.shell;
+        let dialog = $('#shell-review');
+        const p = shell.pending;
+        if (p) {
+          set('shell-review-ws', p.workspace ?? '（无）');
+          set('shell-review-cwd', p.cwd);
+          set('shell-review-timeout', `${p.timeout} 秒`);
+          set('shell-review-command', p.command);
+          $('#shell-review-more').hidden = !shell.behind;
+          set('shell-review-more', `另有 ${shell.behind} 个请求，将依次显示`);
+          if (shellShown !== p.id) {
+            shellShown = p.id;
+            hold(dialog);
+          }
+          if (!dialog.open) dialog.showModal();
+        } else if (dialog.open) dialog.close();
+
+        const m = S.manage;
+        const q = m.pending;
+        dialog = $('#ws-review');
+        if (!q) {
+          if (dialog.open) dialog.close();
           return;
         }
-        elevating = true;
-        renderElevate();
-        host.postMessage(`elevate\t${on ? 1 : 0}`);
+        const browse = q.action === 'browse';
+        set('ws-review-title', { add: '服务器请求添加工作区', set: '服务器请求修改工作区', remove: '服务器请求移除工作区', browse: '服务器请求查看文件夹' }[q.action]);
+        set('ws-review-from', browse ? '查看文件夹，等待你的批准' : `工作区 ${q.name}，等待你的批准`);
+        set('ws-review-lines', browse ? (q.path ?? '这台电脑的磁盘列表') : q.lines.join('\n'));
+        $('#ws-review-presets').hidden = browse || q.action === 'remove';
+        set('ws-review-presets', browse ? '' : q.presets.length ? `该文件夹的 render-station.json 提供这些预设任务：${q.presets.join('、')}。` : '该文件夹中没有预设任务。');
+        set(
+          'ws-review-note',
+          browse
+            ? `批准后，服务器可以看到${q.path ? '该文件夹中各文件和文件夹的名称、大小和修改时间，但看不到文件内容；10 分钟内查看其中的子文件夹无需再次批准' : '这台电脑有哪些磁盘'}。请在 5 分钟内处理。`
+            : q.action === 'remove'
+              ? '移除后，服务器无法再在该工作区中运行任务。请在 5 分钟内处理。'
+              : '批准后，服务器可以随时运行该工作区的预设任务，这些任务以渲染站运行账户的权限执行。请只批准你认可的变更，并在 5 分钟内处理。',
+        );
+        $('#ws-review-more').hidden = !m.behind;
+        set('ws-review-more', `另有 ${m.behind} 个请求，将依次显示`);
+        if (wsShown !== q.id) {
+          wsShown = q.id;
+          hold(dialog);
+        }
+        if (!dialog.open) dialog.showModal();
+      }
+      for (const b of document.querySelectorAll('[data-ws-decision]')) b.addEventListener('click', () => managePost('/manage/decide', { id: S.manage.pending?.id, action: b.dataset.wsDecision }));
+      $('#ws-review').addEventListener('cancel', (event) => {
+        event.preventDefault();
+        managePost('/manage/decide', { id: S.manage.pending?.id, action: 'deny' });
       });
-      // how it went, from 渲染站.exe (turned on, it starts the station again as administrator instead)
-      host?.addEventListener('message', (event) => {
-        const [what, how, code] = String(event.data).split('\t');
-        if (what !== 'elevate') return;
-        elevating = false;
-        const said = {
-          on: '',
-          off: '',
-          cancelled: '已取消：在「用户账户控制」窗口中选择「是」后才能开启或关闭。',
-          busy: '开启后渲染站将重新启动。请在没有任务运行时开启。',
-          error: `无法在任务计划程序中${$('#elevate').checked ? '创建' : '删除'}任务（错误代码 ${code}）。`,
-        }[how];
-        set('elevate-error', said ?? '');
-        if (how !== 'on' && how !== 'off') $('#elevate').checked = S.elevate.on;
-        renderElevate();
+      for (const b of document.querySelectorAll('[data-shell-decision]')) b.addEventListener('click', () => shellPost('decide', { id: S.shell.pending?.id, action: b.dataset.shellDecision }));
+      $('#shell-review').addEventListener('cancel', (event) => {
+        event.preventDefault();
+        shellPost('decide', { id: S.shell.pending?.id, action: 'deny' });
       });
-      $('#u-check').addEventListener('click', () => post('/update'));
-      $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
-      $('#reconnect').addEventListener('click', () => post('/reconnect'));
 
+      function render(s) {
+        if (s) S = s;
+        if (!S) return;
+        // the page changed on disk (an update): this one again, as it is now
+        if (page0 == null) page0 = S.page;
+        else if (S.page && S.page !== page0) return location.reload();
+        renderState();
+        renderReviews();
+        renderShelf();
+        if (current === 'home') {
+          charts();
+          renderActive();
+          renderElevate();
+          renderJobs();
+        }
+        if (current === 'connection') renderConnection();
+        if (current === 'workspaces') renderWorkspaces();
+        if (current === 'access') renderAccess();
+        if (current === 'machine' || current === 'about') renderMachine();
+        if (!routed) route();
+      }
+      // the first page: the one asked for, else what the settings lack, else the last one shown
+      let routed = false;
+      function route() {
+        routed = true;
+        if (location.hash) return;
+        if (S.missing.length) show(S.config.ssh.target ? 'workspaces' : 'connection');
+      }
+
+      // ——— in 渲染站.exe's window: its title bar, and what it says back ———
       if (host) {
         document.documentElement.classList.add('framed');
         $('#titlebar').hidden = false;
         $('#in-browser').hidden = false;
         // pressed on the bar, or on the rail where nothing is: the window moves, as by a title bar
-        const drag = (e) => {
-          if (e.button === 0 && !e.target.closest('button, input, a')) host.postMessage('drag');
-        };
-        $('#titlebar').addEventListener('mousedown', drag);
-        $('#side').addEventListener('mousedown', drag);
+        // (pressed twice, as a double click, it is maximized or restored: 渲染站.exe tells which)
+        for (const area of [$('#drag'), $('#rail')])
+          area.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && !e.target.closest('button, input, a, label')) host.postMessage('drag');
+          });
         $('#tb-min').addEventListener('click', () => host.postMessage('min'));
+        $('#tb-max').addEventListener('click', () => host.postMessage('max'));
         $('#tb-close').addEventListener('click', () => host.postMessage('close'));
         $('#in-browser').addEventListener('click', () => host.postMessage('browser'));
+        host.addEventListener('message', (event) => {
+          const [what, how, code] = String(event.data).split('\t');
+          if (what === 'window') {
+            // maximized: the button restores, and shows it
+            $('#tb-max').setAttribute('aria-label', how === 'max' ? '向下还原' : '最大化');
+            $('#tb-max-icon').setAttribute('d', how === 'max' ? 'M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z' : 'M0.5 0.5h9v9h-9z');
+          } else if (what === 'elevate') {
+            // why it did not start again as administrator
+            const text = {
+              cancelled: '已取消：在「用户账户控制」窗口中选择「是」，渲染站才能以管理员身份重新启动。',
+              busy: '渲染站会重新启动。请在没有任务运行时操作。',
+              error: `无法以管理员身份重新启动（错误代码 ${code}）。`,
+            }[how];
+            set('elevate-error', text ?? '');
+          }
+        });
+        host.postMessage('ready');
       }
+
+      let first = fromHash() || 'home';
+      try {
+        if (!location.hash) first = localStorage.getItem('station-page') || 'home';
+      } catch {}
+      show(first);
 
       const events = new EventSource('/events');
       // the station sends its whole feed on each connection

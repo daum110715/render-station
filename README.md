@@ -50,7 +50,7 @@ Server: Node.js 18 or later and a checkout of this repository.
 1. Download the installer: <https://8.137.206.169/assets/render-station/render-station-setup.exe> (about 40 MB, Node.js included).
 2. Run it. The installer is not code-signed, so Windows may say "Windows protected your PC"; click "More info", then "Run anyway".
 3. Click 安装 (Install). The station is installed for the current user in `%LOCALAPPDATA%\Programs\render-station\`, without administrator rights; it then starts and creates 渲染站 shortcuts on the desktop and in the Start menu.
-4. In the window's 设置 (Settings) page, enter the server's SSH address and port, register workspaces, and click 保存 (Save).
+4. In the window's 设置 → 连接 (Settings → Connection) page, enter the server's SSH address and port; then register workspaces in 设置 → 工作区 (Settings → Workspaces). Changes are saved as they are made.
 
 The installer first closes a running station. Running a newer installer installs over the old copy and keeps the settings. To uninstall, find 渲染站 under Windows Settings → Apps → Installed apps and choose Uninstall; you can choose whether to keep the settings and the jobs' output.
 
@@ -66,43 +66,46 @@ The station used to live in qiqi.help's `promo/remote/`. Running the installer m
 
 ## Configuration
 
-The settings are stored in `.tools/remote/config.json` and edited in the window's Settings page.
+The settings are stored in `.tools/remote/config.json` and edited in the window's 设置 (Settings), which has five pages: 连接 (Connection), 工作区 (Workspaces), 权限与审批 (Permissions and approvals), 本机 (This computer) and 更新与关于 (Updates and about). Each change takes effect at once; there is no Save button.
 
 ### Server
 
-Write the SSH address as `user@server`. The port is the server's SSH port; when empty, 22 is used. The station opens no tunnel until an address is set. Changing either reconnects the tunnel.
+In Settings → Connection. Write the SSH address as `user@server`. The port is the server's SSH port; when empty, 22 is used. The station opens no tunnel until an address is set. Changing either reconnects the tunnel.
 
 ### Workspaces
 
-Each workspace has:
+In Settings → Workspaces. Each workspace is a block showing its name, its path and whether it is ready; click it to open its settings. Each workspace has:
 
 | Item | Description |
 |---|---|
 | Name | The name the server uses to call its presets. When empty, the station uses the `name` in the workspace file, then the folder name. Letters, digits, `.`, `_` and `-` only; names must be unique. |
 | Path | The folder on the device. |
-| Settings the workspace file declares | After the path is saved, the Settings page lists the fields from the file's `env`. While a required field is empty, the workspace's presets are refused. |
+| Settings the workspace file declares | Once the path is set, the fields from the file's `env` are listed. While a required field is empty, the workspace's presets are refused. |
 | Other environment variables | One `NAME=value` per line, also passed to the workspace's jobs. |
 
-Each workspace's presets are listed below it. The station rereads a workspace file when it changes; no restart is needed.
+An opened workspace lists its presets. A field is saved when you leave it, a switch when you flip it. 添加工作区 (Add workspace) takes a name and a path; 移除工作区 (Remove workspace) asks first and leaves the folder alone. The station rereads a workspace file when it changes; no restart is needed.
 
 When a workspace is added, in the Settings page or by the server, and its folder still holds an old station's `.tools\remote\config.json`, the settings there that the workspace file's `env` declares and that are not yet filled in are imported.
 
-The server can also add, change and remove workspaces with `rs workspace`, as far as 服务器管理工作区 (Server manages workspaces) under "This computer" allows (see "Command line").
+The server can also add, change and remove workspaces with `rs workspace`, as far as 服务器管理工作区 (Server manages workspaces) under Settings → Permissions and approvals allows (see "Command line").
 
 **Registering a workspace trusts its presets.** Presets run without approval. If a preset lets the caller upload a script and runs it, the caller can run any code on the device with the rights of the account the station runs under.
+
+### Permissions and approvals
+
+- 服务器管理工作区 (Server manages workspaces): what the server may do with `rs workspace` and `rs ls`. 关闭 (Off), it can neither change workspaces nor list folders; 需要审批 (Ask, the default), each change, and each folder listing outside the registered workspaces, must be approved in the device's window; 无需审批 (Allow), it does all of these directly.
+- Shell jobs, YOLO mode and the allowlist: see "Shell permissions".
 
 ### This computer
 
 - 同时运行的任务数 (Jobs at once): see "How it works".
-- 服务器管理工作区 (Server manages workspaces): what the server may do with `rs workspace` and `rs ls`. 关闭 (Off), it can neither change workspaces nor list folders; 需要审批 (Ask, the default), each change, and each folder listing outside the registered workspaces, must be approved in the device's window; 无需审批 (Allow), it does all of these directly.
-
-- 以管理员身份运行 (Run as administrator): off by default, and changed only in the station's own window. Turning it on needs no jobs running or waiting: Windows asks once through User Account Control, the station creates a task named `RenderStation` in Task Scheduler that starts `渲染站.exe` with the highest rights, and restarts through it. From then on, starting with Windows and the shortcuts go through that task, and Windows no longer asks. While it is on, presets and Shell commands run with administrator rights. Turning it off removes the task; the station keeps its rights until it is next started.
+- 以管理员身份运行 (Run as administrator), on the 总览 (Overview) page under 本机: on by default. Each time the station starts, including with Windows, Windows asks through User Account Control whether it may run as administrator; if the answer is no, it runs with normal rights. While it runs as administrator, presets and Shell commands do too. When it runs with normal rights, the button 以管理员身份重新启动 (Restart as administrator) asks again; it needs no jobs running or waiting. Turned off, the station no longer asks from its next start on.
 
 These switches are on by default; turning one off undoes its effect:
 
-- 自动更新 (Automatic updates): see "Automatic updates".
 - 登录 Windows 后自动启动 (Start when signing in to Windows): visible under Startup apps in Task Manager.
-- 在桌面和开始菜单中创建「渲染站」快捷方式 (Shortcuts on the desktop and in the Start menu).
+- 在桌面和开始菜单中创建快捷方式 (Shortcuts on the desktop and in the Start menu).
+- 自动更新 (Automatic updates), in Settings → Updates and about: see "Automatic updates". The same page shows the version and where the log is, and opens the log.
 
 ## Workspace file
 
@@ -177,20 +180,20 @@ Click the icon to open the window. The right-click menu has 打开渲染站 (Ope
 
 ### Window
 
-The window is `station.html` in WebView2, without a system title bar; the minimize, close and drag controls are at the top of the page. The sidebar has four pages:
+The window is `station.html` in WebView2, without a system title bar; the minimize, maximize and close buttons are at the page's top right. Drag the top of the page or an empty part of the sidebar to move the window; double-click there to maximize or restore it. The window opens where it was last, at its last size, maximized if it was. A closed window's page stays loaded in the background for 5 minutes, so opening it again within that time is instant. The sidebar has four items:
 
-- 总览 (Overview): the state, today's counts, the last two minutes of CPU, memory and GPU load, and the recent jobs with their output. While more than one job runs or waits, 运行中 (Running) lists each with its progress.
+- 总览 (Overview): the state with a progress strip, today's counts, the last two minutes of CPU, memory and GPU load, and the recent jobs with their output. While more than one job runs or waits, 运行中 (Running) lists each with its progress.
 - 输出 (Output): the files the jobs produced, kept on this device. Images and videos can be previewed (videos play on hover, click to enlarge, arrow keys to browse); other files open in their default program.
 - 动态 (Activity): the connection's progress and the live output of ssh and the jobs, each line of a job's output marked with its number.
-- 设置 (Settings): see "Configuration" and "Shell permissions".
+- 设置 (Settings): five pages, Connection, Workspaces, Permissions and approvals, This computer, and Updates and about; see "Configuration" and "Shell permissions". A page lacking a required setting has a yellow dot beside its name.
 
-The same page is available in a browser at `http://127.0.0.1:7799`; append `#gallery`, `#feed` or `#settings` to open a page directly.
+The same page is available in a browser at `http://127.0.0.1:7799`; append `#gallery`, `#feed`, `#connection`, `#workspaces`, `#access`, `#machine` or `#about` to open a page directly; `#settings` opens Connection.
 
-Lines of the form `frame 12/300` in a job's output are read as progress: shown on the Overview page's ring while one job runs, and in the Running list while several do.
+Lines of the form `frame 12/300` in a job's output are read as progress: shown on the Overview page's progress strip while one job runs, and in the Running list while several do.
 
 ### State and logs
 
-After the device wakes from sleep, loses the network, or the worker exits, the station reopens the tunnel and restarts the worker on its own. The log is `.tools/remote/station.log`.
+After the device wakes from sleep, loses the network, or the worker exits, the station reopens the tunnel and restarts the worker on its own. The log is `.tools/remote/station.log`; open it from the tray menu's 查看日志 (View log) or from Settings → Updates and about.
 
 While the tunnel is open, anyone who can log in to the server can run the device's presets. Pause the station (in the window or the tray menu) when it is not needed; pausing closes the tunnel.
 
@@ -221,18 +224,18 @@ rs run video/transcode --crf 23
 
 ## Shell permissions
 
-The station refuses Shell jobs by default. Enable them on the device under 设置 → Shell 权限 (Settings → Shell permissions); they start in auto mode.
+The station refuses Shell jobs by default. Enable them on the device under 设置 → 权限与审批 (Settings → Permissions and approvals); they start in auto mode.
 
 ### Auto mode
 
 - The actual working directory, after resolving symbolic links, must be inside the chosen workspace.
 - A command runs automatically when the full command and the working directory exactly match an allowlist entry. Nothing is allowed by interpreter or command prefix.
 - Otherwise the request waits for approval in the station's window (a dialog appears while the window is open, and the tray icon shows a notification that opens the window when clicked), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). Several requests are shown one after another, in the order they came. A request not approved within 5 minutes fails.
-- The allowlist is stored in the device's `.tools/remote/config.json`; entries can be removed in the Settings page.
+- The allowlist is stored in the device's `.tools/remote/config.json`; entries can be removed in Settings → Permissions and approvals.
 
 ### YOLO mode
 
-- To enable it: run the station as administrator, either by turning on 以管理员身份运行 (see "This computer") or by quitting it and, on Windows, right-clicking it and choosing Run as administrator (elsewhere, run it as root); then turn on YOLO in the Settings page and confirm.
+- To enable it: run the station as administrator (on Windows, choose Yes when User Account Control asks as it starts, or click 以管理员身份重新启动 on the Overview page; elsewhere, run it as root); then turn on YOLO in Settings → Permissions and approvals and confirm.
 - The station checks that its process has administrator rights; then any command and any working directory are allowed. With no workspace registered, working directories are relative to the user's home folder.
 - The mode is kept in memory only. Pausing, reconnecting or restarting returns to auto mode.
 
@@ -243,14 +246,14 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 - This is an authorization mechanism, not an operating-system sandbox. An approved command can read and write files with all the rights of the station's account; the directory check constrains only the initial working directory.
 - The allowlist records command text and does not pin the content of scripts the command uses. If a script changes, the same command still runs automatically.
 - Presets do not go through the Shell allowlist; for the trust they carry, see "Workspaces".
-- With 以管理员身份运行 on, the station and everything it runs have administrator rights, so a preset or an approved command can change system settings and any file. Only the device's window can turn it on, and Windows asks through User Account Control.
+- Run as administrator, the station and everything it runs have administrator rights, so a preset or an approved command can change system settings and any file. Windows asks through User Account Control each time; turn off 以管理员身份运行 to stop it asking.
 - A pending command, workspace change or folder listing never takes effect after a denial, an approval timeout, or the submitter disconnecting.
 - Turning off Shell permissions or pausing refuses further jobs and cancels pending requests, waiting jobs and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
 - Mode changes, pending requests, manual decisions, executed commands, working directories, results, workspace changes and folders listed outside the workspaces are written to the device's `.tools/remote/station.log`.
 
 ## Automatic updates
 
-When enabled, the station checks one minute after starting and every 30 minutes after that; the 立即检查 (Check now) button in the Settings page checks immediately. While jobs run, wait or await approval, the update waits until all are over. When the station's own files change, it restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
+When enabled, the station checks one minute after starting and every 30 minutes after that; the 立即检查 (Check now) button in Settings → Updates and about checks immediately. While jobs run, wait or await approval, the update waits until all are over. When the station's own files change, it restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
 
 **A copy installed by the installer** takes new versions from the update server, `https://8.137.206.169/assets/render-station/`:
 
@@ -267,8 +270,9 @@ When enabled, the station checks one minute after starting and every 30 minutes 
 - When started, it copies itself and `WebView2Loader.dll` to `%LOCALAPPDATA%\render-station\` and runs from there, so the installed (or repository) exe is never locked and updates can replace it.
 - Starts `station.mjs` in the background and restarts it whenever it exits, with the installed folder's `node\node.exe` if there is one, else the system's Node.js.
 - Puts the station, ssh and the jobs' processes in one job object, so they all end when it quits.
-- When `.tools\remote\elevate` exists (以管理员身份运行 is on), a start without administrator rights runs the Task Scheduler task `RenderStation` instead and opens the window of the station it starts. The task runs `渲染站.exe /quiet --task`, without a time limit and at normal priority.
-- `渲染站.exe --uninstall` uninstalls a copy the installer installed, together with the `RenderStation` task; Windows' Installed apps runs it.
+- Started without administrator rights, it asks for them through User Account Control (`runas`) and leaves the rest to the copy so started, unless `.tools\remote\no-elevate` exists (以管理员身份运行 turned off); if the answer is no, it goes on with normal rights. A restart after an update keeps the rights it had without asking again. Run as administrator, it still takes the messages of processes without those rights: a second start opening the window, the installer asking it to quit, and Explorer's.
+- The window's position, size and maximized state are kept in the registry under `HKCU\Software\render-station`; uninstalling removes them.
+- `渲染站.exe --uninstall` uninstalls a copy the installer installed; Windows' Installed apps runs it.
 
 ## Running without the tray program
 
@@ -320,7 +324,7 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 | `release/` | Release scripts: `build.mjs` packs and signs, `publish.mjs` uploads to the update server. |
 | `*.test.mjs` | Tests. |
 | `release.json` | Only in an installed copy: the signed manifest of its version. |
-| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/elevate`, `remote/jobs/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
+| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/no-elevate`, `remote/jobs/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
 
 ## License
 

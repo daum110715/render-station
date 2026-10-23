@@ -208,7 +208,7 @@ A job's own exit status can coincide with 1, 2 or 3. When the difference matters
 
 ## Compatibility
 
-The command and the station on the device must speak the same protocol version; otherwise every command reports `protocol mismatch`. Within a version, the station lists its features in `status --json`. A command that needs a feature the device lacks, such as `ls` or `--create`, reports that the station is too old; it updates itself, or the owner can click 立即检查 (Check now) in its Settings page.
+The command and the station on the device must speak the same protocol version; otherwise every command reports `protocol mismatch`. Within a version, the station lists its features in `status --json`. A command that needs a feature the device lacks, such as `ls` or `--create`, reports that the station is too old; it updates itself, or the owner can click 立即检查 (Check now) in its Settings → Updates and about page.
 
 ## Typical tasks
 

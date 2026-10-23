@@ -14,10 +14,9 @@
 // when the station has updated it, the copy starts the checkout's again (--after) and goes. In a
 // copy the installer put in place (release.json beside it) it runs the Node.js that came with it
 // (node\node.exe), and --uninstall removes that copy and all the station told Windows.
-// 以管理员身份运行 (the settings' switch, by the page's word): a task in Task Scheduler that starts it
-// with the highest rights, made once with Windows' User Account Control asking, and the file
-// .tools\remote\elevate in the checkout to say so; started without those rights, it starts that task
-// instead, so nothing asks again.
+// It asks Windows' User Account Control at each start to run as administrator (unless the overview
+// page's switch said not to: .tools\remote\no-elevate in the checkout), and runs as it is if the
+// owner says no; the page can have it start again as administrator later.
 // Built on Linux with mingw-w64: node exe/build.mjs
 // (-municode defines them too)
 #ifndef UNICODE
@@ -39,6 +38,7 @@
 #include <dwmapi.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include "WebView2.h"
@@ -47,13 +47,17 @@
 #define UI_PORT 7799
 #define WM_TRAY (WM_APP + 1)
 #define TITLE L"渲染站"
-// the task in Task Scheduler that starts it as administrator
+// the task in Task Scheduler that 0.5.0 made to start it as administrator, removed
 #define ELEVATE_TASK L"RenderStation"
+// where the window was, and whether maximized: it opens there again
+#define PLACE_KEY L"Software\\render-station"
+// a closed window is hidden, and let go five minutes on: opened again before, it shows at once
+#define DISPOSE_MS (5 * 60 * 1000)
 enum { CMD_OPEN = 1, CMD_TOGGLE, CMD_RECONNECT, CMD_BROWSER, CMD_LOG, CMD_QUIT };
-// the window's timers, and its word to itself to give up on WebView2
-enum { TIMER_RETRY = 2, TIMER_WATCH };
+// the window's timers (the last, to let a closed window go), and its word to itself to give up on WebView2
+enum { TIMER_RETRY = 2, TIMER_WATCH, TIMER_DISPOSE };
 #define WM_GIVE_UP (WM_APP + 2)
-// the page's word to run as administrator, or not (wParam 1 or 0)
+// the page's word to start again as administrator
 #define WM_ELEVATE (WM_APP + 3)
 // the icons, as station.rc numbers them less one
 enum { ICON_BUSY, ICON_IDLE, ICON_WAIT, ICON_BAD, ICON_OFF, ICONS };
@@ -70,7 +74,6 @@ static wchar_t exePath[MAX_PATH], exeDir[MAX_PATH], repo[MAX_PATH], nodePath[MAX
 // the checkout's 渲染站.exe: what the shortcuts and starting with Windows start
 static wchar_t launcher[MAX_PATH];
 static void again(void);
-static void setElevated(int on);
 
 static HANDLE job, node;
 static ULONGLONG startedAt, shownAt;
@@ -85,6 +88,8 @@ static CreateEnv createEnv;
 static int dpi = 96, dark;
 static ICoreWebView2Environment *wenv;
 static int navTries, crashes;
+// the page loaded; the window closed and hidden; maximized, as the page was last told; to open maximized
+static int loaded, hidden, toldZoom = -1, openZoomed;
 static wchar_t logPath[MAX_PATH + 64];
 // a line in the station's log (station.log, beside station.mjs's own): how the window went
 static void say(const wchar_t *fmt, ...) {
@@ -220,7 +225,30 @@ static void openEdge(void) {
 }
 
 // ——— the window of its own ———
+// where it is, kept for the next: its place unmaximized, and whether maximized
+static void savePlace(void) {
+  WINDOWPLACEMENT wp = { sizeof wp };
+  if (!frame || hidden || !GetWindowPlacement(frame, &wp)) return;
+  int zoomed = wp.showCmd == SW_SHOWMAXIMIZED || (wp.showCmd == SW_SHOWMINIMIZED && (wp.flags & WPF_RESTORETOMAXIMIZED));
+  wp.showCmd = zoomed ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+  wp.flags = 0;
+  RegSetKeyValueW(HKEY_CURRENT_USER, PLACE_KEY, L"window", REG_BINARY, &wp, sizeof wp);
+}
+// …and put back, if a screen still shows it (hidden yet: the page shows it once loaded)
+static void restorePlace(void) {
+  WINDOWPLACEMENT wp;
+  DWORD size = sizeof wp;
+  openZoomed = 0;
+  if (RegGetValueW(HKEY_CURRENT_USER, PLACE_KEY, L"window", RRF_RT_REG_BINARY, NULL, &wp, &size) != ERROR_SUCCESS || size != sizeof wp || wp.length != sizeof wp) return;
+  if (!MonitorFromRect(&wp.rcNormalPosition, MONITOR_DEFAULTTONULL)) return;
+  openZoomed = wp.showCmd == SW_SHOWMAXIMIZED;
+  wp.showCmd = SW_HIDE;
+  wp.flags = 0;
+  SetWindowPlacement(frame, &wp);
+}
 static void closeFrame(void) {
+  savePlace();
+  hidden = 0;
   if (ctl) {
     ICoreWebView2Controller_Close(ctl);
     ICoreWebView2Controller_Release(ctl);
@@ -235,6 +263,24 @@ static void closeFrame(void) {
     frame = NULL;
     DestroyWindow(h);
   }
+}
+// closed: hidden while it may be opened again soon, the page still running behind it; one not yet
+// showing its page, let go at once
+static void hideFrame(void) {
+  if (!frame) return;
+  if (!ctl || !loaded) return closeFrame();
+  savePlace();
+  hidden = 1;
+  ShowWindow(frame, SW_HIDE);
+  ICoreWebView2Controller_put_IsVisible(ctl, FALSE);
+  SetTimer(frame, TIMER_DISPOSE, DISPOSE_MS, NULL);
+}
+// the page told whether the window is maximized, for its button
+static void tellZoom(int always) {
+  int z = frame && IsZoomed(frame);
+  if (!wv || (!always && z == toldZoom)) return;
+  toldZoom = z;
+  ICoreWebView2_PostWebMessageAsString(wv, z ? L"window\tmax" : L"window\tnormal");
 }
 // it could not be made, or shows nothing: a browser's, as before
 static void fallBack(void) {
@@ -265,20 +311,37 @@ static ULONG STDMETHODCALLTYPE oneRef(IUnknown *self) {
   (void)self;
   return 1;
 }
-// the page's word: drag, min, close, or open/show and a path
+// the page's word: drag, min, max, close, or open/show and a path
 static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventHandler *self, ICoreWebView2 *sender, ICoreWebView2WebMessageReceivedEventArgs *args) {
   (void)self;
   (void)sender;
+  static ULONGLONG dragAt;
+  static POINT dragPt;
   LPWSTR s = NULL;
   if (FAILED(ICoreWebView2WebMessageReceivedEventArgs_TryGetWebMessageAsString(args, &s)) || !s) return S_OK;
   if (frame && !wcscmp(s, L"drag")) {
-    // as if its title bar had been pressed: moved, snapped to the screen's sides
+    // as if its title bar had been pressed: moved, snapped to the screen's sides; pressed twice, as
+    // a double click, maximized or restored
     POINT pt;
     GetCursorPos(&pt);
-    ReleaseCapture();
-    PostMessageW(frame, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+    ULONGLONG now = GetTickCount64();
+    if (now - dragAt <= GetDoubleClickTime() && labs(pt.x - dragPt.x) <= GetSystemMetrics(SM_CXDOUBLECLK) && labs(pt.y - dragPt.y) <= GetSystemMetrics(SM_CYDOUBLECLK)) {
+      dragAt = 0;
+      ShowWindow(frame, IsZoomed(frame) ? SW_RESTORE : SW_MAXIMIZE);
+    } else {
+      dragAt = now;
+      dragPt = pt;
+      ReleaseCapture();
+      PostMessageW(frame, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+    }
   } else if (frame && !wcscmp(s, L"min"))
     ShowWindow(frame, SW_MINIMIZE);
+  else if (frame && !wcscmp(s, L"max"))
+    ShowWindow(frame, IsZoomed(frame) ? SW_RESTORE : SW_MAXIMIZE);
+  else if (!wcscmp(s, L"ready"))
+    tellZoom(1);
+  else if (!wcscmp(s, L"log"))
+    openLog();
   else if (frame && !wcscmp(s, L"close"))
     PostMessageW(frame, WM_CLOSE, 0, 0);
   else if (!wcsncmp(s, L"open\t", 5))
@@ -287,9 +350,9 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
     reveal(s + 5, 1);
   else if (!wcscmp(s, L"browser"))
     ShellExecuteW(NULL, L"open", L"http://127.0.0.1:7799/", NULL, NULL, SW_SHOWNORMAL);
-  else if (!wcsncmp(s, L"elevate\t", 8))
-    // once this has returned: it may wait for User Account Control, and close the window
-    PostMessageW(hwnd, WM_ELEVATE, s[8] == L'1', 0);
+  else if (!wcscmp(s, L"elevate"))
+    // once this has returned: it waits for User Account Control, and closes the window
+    PostMessageW(hwnd, WM_ELEVATE, 0, 0);
   CoTaskMemFree(s);
   return S_OK;
 }
@@ -307,6 +370,7 @@ static HRESULT STDMETHODCALLTYPE onNavigated(ICoreWebView2NavigationCompletedEve
   if (!frame) return S_OK;
   if (ok) {
     KillTimer(frame, TIMER_WATCH);
+    loaded = 1;
     say(L"窗口：页面已加载");
     return S_OK;
   }
@@ -346,7 +410,7 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   // the page's own paper behind it while it loads
   ICoreWebView2Controller2 *c2;
   if (SUCCEEDED(ICoreWebView2Controller_QueryInterface(ctl, &IID_ICoreWebView2Controller2, (void **)&c2))) {
-    COREWEBVIEW2_COLOR bg = dark ? (COREWEBVIEW2_COLOR){ 255, 0x17, 0x12, 0x16 } : (COREWEBVIEW2_COLOR){ 255, 0xf8, 0xf6, 0xf5 };
+    COREWEBVIEW2_COLOR bg = dark ? (COREWEBVIEW2_COLOR){ 255, 0x12, 0x10, 0x19 } : (COREWEBVIEW2_COLOR){ 255, 0xf3, 0xf2, 0xf7 };
     ICoreWebView2Controller2_put_DefaultBackgroundColor(c2, bg);
     ICoreWebView2Controller2_Release(c2);
   }
@@ -367,7 +431,7 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   ICoreWebView2_add_WebMessageReceived(wv, &messageHandler, &token);
   ICoreWebView2_add_NavigationCompleted(wv, &navigatedHandler, &token);
   ICoreWebView2_add_ProcessFailed(wv, &failedHandler, &token);
-  ShowWindow(frame, SW_SHOWNORMAL);
+  ShowWindow(frame, openZoomed ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
   SetForegroundWindow(frame);
   RECT rc;
   GetClientRect(frame, &rc);
@@ -376,6 +440,8 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   say(L"窗口：WebView2 已创建（%ldx%ld），正在加载页面", rc.right - rc.left, rc.bottom - rc.top);
   navTries = 0;
   crashes = 0;
+  loaded = 0;
+  toldZoom = -1;
   ICoreWebView2_Navigate(wv, L"http://127.0.0.1:7799/");
   // nothing to show for it in twelve seconds: a browser's window instead
   SetTimer(frame, TIMER_WATCH, 12000, NULL);
@@ -421,6 +487,7 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       GetClientRect(h, &rc);
       ICoreWebView2Controller_put_Bounds(ctl, rc);
     }
+    tellZoom(0);
     return 0;
   case WM_ACTIVATE:
     if (ctl && LOWORD(wp) != WA_INACTIVE) ICoreWebView2Controller_MoveFocus(ctl, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
@@ -438,12 +505,15 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       say(L"窗口：页面 12 秒内未加载完成");
       fallBack();
     }
+    if (wp == TIMER_DISPOSE && hidden) closeFrame();
     return 0;
   case WM_GIVE_UP:
-    fallBack();
+    // closed already: nothing to show it in instead
+    if (hidden) closeFrame();
+    else fallBack();
     return 0;
   case WM_CLOSE:
-    closeFrame();
+    hideFrame();
     return 0;
   }
   return DefWindowProcW(h, msg, wp, lp);
@@ -453,9 +523,10 @@ static int makeFrame(void) {
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
   int w = DIP(840), h = DIP(940);
   if (h > work.bottom - work.top - DIP(32)) h = work.bottom - work.top - DIP(32);
-  frame = CreateWindowExW(0, L"RenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+  frame = CreateWindowExW(0, L"RenderStationWindow", TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN,
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
+  restorePlace();
   // the edge dark with the page, the corners round (Windows 11)
   BOOL on = dark;
   DwmSetWindowAttribute(frame, 20, &on, sizeof on);
@@ -468,6 +539,11 @@ static void openWindow(void) {
   if (frame) {
     // still being made: it shows itself
     if (!ctl) return;
+    if (hidden) {
+      hidden = 0;
+      KillTimer(frame, TIMER_DISPOSE);
+      ICoreWebView2Controller_put_IsVisible(ctl, TRUE);
+    }
     ShowWindow(frame, IsIconic(frame) ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(frame);
     return;
@@ -537,7 +613,7 @@ static void keep(int autostart, int shortcut) {
   }
 }
 
-// ——— as administrator: the task that starts it so, and the mark that says to use it ———
+// ——— as administrator: asked for at each start; the task 0.5.0 made instead, and its mark, removed ———
 static int elevated(void) {
   HANDLE t;
   TOKEN_ELEVATION e = { 0 };
@@ -550,6 +626,12 @@ static int elevated(void) {
 static int elevateMarked(const wchar_t *dir) {
   wchar_t mark[MAX_PATH + 48];
   FMT(mark, L"%ls\\.tools\\remote\\elevate", dir);
+  return isFile(mark);
+}
+/** whether the overview page's switch said not to ask for administrator rights at each start */
+static int noElevate(const wchar_t *dir) {
+  wchar_t mark[MAX_PATH + 48];
+  FMT(mark, L"%ls\\.tools\\remote\\no-elevate", dir);
   return isFile(mark);
 }
 static void schtasksPath(wchar_t *file) {
@@ -595,99 +677,34 @@ static int schtasksAdmin(const wchar_t *args) {
   }
   return (int)code;
 }
-/** text as XML has it */
-static void xmlText(wchar_t *out, int cap, const wchar_t *s) {
-  int n = 0;
-  for (; *s && n < cap - 7; s++) {
-    const wchar_t *as = *s == L'&' ? L"&amp;" : *s == L'<' ? L"&lt;" : *s == L'>' ? L"&gt;" : *s == L'"' ? L"&quot;" : NULL;
-    if (as)
-      for (; *as; as++) out[n++] = *as;
-    else
-      out[n++] = *s;
-  }
-  out[n] = 0;
-}
-/** the task, as Task Scheduler takes it (UTF-16): this account, the highest rights it has, no time
- *  limit, a normal priority (a task's is lower), 渲染站.exe of the checkout quiet */
-static int writeTask(const wchar_t *path) {
-  wchar_t domain[128] = L"", name[128] = L"", user[260], who[600], command[MAX_PATH * 2], dir[MAX_PATH * 2];
-  GetEnvironmentVariableW(L"USERDOMAIN", domain, 128);
-  GetEnvironmentVariableW(L"USERNAME", name, 128);
-  FMT(user, L"%ls%ls%ls", domain, domain[0] ? L"\\" : L"", name);
-  xmlText(who, 600, user);
-  xmlText(command, MAX_PATH * 2, launcher);
-  xmlText(dir, MAX_PATH * 2, repo);
-  static wchar_t xml[8192];
-  FMT(xml,
-      L"\xfeff<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n"
-      L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
-      L"  <RegistrationInfo><Description>以管理员身份启动渲染站。由渲染站设置中的「以管理员身份运行」创建，关闭该设置时删除。</Description></RegistrationInfo>\r\n"
-      L"  <Principals><Principal id=\"Author\"><UserId>%ls</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n"
-      L"  <Settings><MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"
-      L"<AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>4</Priority></Settings>\r\n"
-      L"  <Actions Context=\"Author\"><Exec><Command>%ls</Command><Arguments>/quiet --task</Arguments><WorkingDirectory>%ls</WorkingDirectory></Exec></Actions>\r\n"
-      L"</Task>\r\n",
-      who, command, dir);
-  HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (f == INVALID_HANDLE_VALUE) return 0;
-  DWORD size = (DWORD)(wcslen(xml) * sizeof(wchar_t)), wrote = 0;
-  int ok = WriteFile(f, xml, size, &wrote, NULL) && wrote == size;
-  CloseHandle(f);
-  return ok;
-}
 static void toPage(const wchar_t *text) {
   if (wv) ICoreWebView2_PostWebMessageAsString(wv, text);
 }
-/** the switch turned on: the task made, the mark left, and this started again through the task;
- *  turned off: both gone (it runs as it is until it is next started). The page is told how it went
- *  (elevate on, off, cancelled, busy, error <code>) */
-static void setElevated(int on) {
-  wchar_t mark[MAX_PATH + 48], args[MAX_PATH + 96], reply[64];
-  FMT(mark, L"%ls\\.tools\\remote\\elevate", repo);
-  int code;
-  if (on) {
-    if (!wcscmp(lastMode, L"busy")) return toPage(L"elevate\tbusy");
-    wchar_t xml[MAX_PATH + 48];
-    FMT(xml, L"%ls\\.tools\\remote\\elevate.xml", repo);
-    if (!writeTask(xml)) return toPage(L"elevate\terror\t-1");
-    FMT(args, L"/create /tn %ls /xml \"%ls\" /f", ELEVATE_TASK, xml);
-    code = schtasksAdmin(args);
-    DeleteFileW(xml);
-    if (!code) {
-      HANDLE f = CreateFileW(mark, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-      if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
-      say(L"已开启以管理员身份运行：已在任务计划程序中创建任务 %ls", ELEVATE_TASK);
-      if (!elevated()) return again();
-      return toPage(L"elevate\ton");
-    }
-  } else {
-    FMT(args, L"/delete /tn %ls /f", ELEVATE_TASK);
-    code = schtasks(args);
-    if (code) code = schtasksAdmin(args);
-    // the task not there any more is as good as removed; only the owner's no keeps the mark
-    if (code != 1223) {
-      DeleteFileW(mark);
-      say(L"已关闭以管理员身份运行%ls", code ? L"（未能删除任务计划程序中的任务）" : L"：已删除任务计划程序中的任务");
-      return toPage(L"elevate\toff");
-    }
-  }
-  if (code == 1223) return toPage(L"elevate\tcancelled");
+/** `file` started as administrator, once User Account Control has asked (over `parent`, if any): 0,
+ *  or ERROR_CANCELLED (1223) if the owner said no, or another error */
+static int askAdmin(const wchar_t *file, const wchar_t *params, HWND parent) {
+  SHELLEXECUTEINFOW se = { sizeof se };
+  se.fMask = SEE_MASK_NOASYNC;
+  se.hwnd = parent;
+  se.lpVerb = L"runas";
+  se.lpFile = file;
+  se.lpParameters = params;
+  se.nShow = SW_SHOWNORMAL;
+  return ShellExecuteExW(&se) ? 0 : (int)GetLastError();
+}
+static void leave(void);
+/** the page's 以管理员身份重新启动: this station started again as administrator, once User Account
+ *  Control has asked over the window (the new one waits for this to go); the page told if not
+ *  (elevate busy, cancelled, error <code>) */
+static void restartAsAdmin(void) {
+  if (!wcscmp(lastMode, L"busy")) return toPage(L"elevate\tbusy");
+  wchar_t params[64], reply[64];
+  FMT(params, L"--asked --after %lu", GetCurrentProcessId());
+  int code = askAdmin(launcher, params, frame ? frame : hwnd);
+  if (!code) return leave();
+  if (code == ERROR_CANCELLED) return toPage(L"elevate\tcancelled");
   FMT(reply, L"elevate\terror\t%d", code);
   toPage(reply);
-}
-/** a station started through the task: its window opened once its tray icon is there (its word
- *  taken: it lets this, without its rights, say so) */
-static void openWhenUp(void) {
-  for (int i = 0; i < 150; i++) {
-    HWND other = FindWindowW(TRAY_CLASS, NULL);
-    if (other) {
-      DWORD pid = 0;
-      GetWindowThreadProcessId(other, &pid);
-      AllowSetForegroundWindow(pid);
-      if (PostMessageW(other, WM_COMMAND, CMD_OPEN, 0)) return;
-    }
-    Sleep(100);
-  }
 }
 
 // ——— station.mjs, kept running ———
@@ -783,18 +800,10 @@ static void tick(void) {
   }
 }
 
-// updated: the checkout's 渲染站.exe, the new one, starts once this has gone, and the station with it
-static void again(void) {
+/** this gone, and the station with all it started */
+static void leave(void) {
   quitting = 1;
   KillTimer(hwnd, 1);
-  wchar_t cmd[MAX_PATH * 2 + 64];
-  FMT(cmd, L"\"%ls\" --after %lu%ls", launcher, GetCurrentProcessId(), frame ? L"" : L" /quiet");
-  STARTUPINFOW si = { sizeof si };
-  PROCESS_INFORMATION pi;
-  if (CreateProcessW(launcher, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-  }
   post("/quit");
   if (node) WaitForSingleObject(node, 2000);
   if (job) TerminateJobObject(job, 0);
@@ -802,18 +811,24 @@ static void again(void) {
   Shell_NotifyIconW(NIM_DELETE, &nid);
   DestroyWindow(hwnd);
 }
+// updated: the checkout's 渲染站.exe, the new one, starts once this has gone, and the station with it
+// (with the rights this has: User Account Control is not asked again)
+static void again(void) {
+  quitting = 1;
+  wchar_t cmd[MAX_PATH * 2 + 64];
+  FMT(cmd, L"\"%ls\" --asked --after %lu%ls", launcher, GetCurrentProcessId(), frame ? L"" : L" /quiet");
+  STARTUPINFOW si = { sizeof si };
+  PROCESS_INFORMATION pi;
+  if (CreateProcessW(launcher, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  }
+  leave();
+}
 
 static void quit(void) {
   if (!wcscmp(lastMode, L"busy") && MessageBoxW(hwnd, L"有任务正在运行。现在退出将中止该任务。", TITLE, MB_OKCANCEL | MB_ICONWARNING) != IDOK) return;
-  quitting = 1;
-  KillTimer(hwnd, 1);
-  post("/quit");
-  if (node) WaitForSingleObject(node, 2000);
-  // and whatever it started
-  if (job) TerminateJobObject(job, 0);
-  closeFrame();
-  Shell_NotifyIconW(NIM_DELETE, &nid);
-  DestroyWindow(hwnd);
+  leave();
 }
 
 static void menu(int x, int y) {
@@ -851,7 +866,7 @@ static LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     tick();
     return 0;
   case WM_ELEVATE:
-    setElevated((int)wp);
+    restartAsAdmin();
     return 0;
   case WM_COMMAND:
     switch (LOWORD(wp)) {
@@ -949,6 +964,7 @@ static int uninstall(void) {
   link(CSIDL_DESKTOPDIRECTORY, 0);
   link(CSIDL_PROGRAMS, 0);
   RegDeleteTreeW(HKEY_CURRENT_USER, UNINSTALL_KEY);
+  RegDeleteTreeW(HKEY_CURRENT_USER, PLACE_KEY);
   // the task that started it as administrator (removing it may need User Account Control too)
   if (elevateMarked(exeDir)) {
     wchar_t args[64];
@@ -1021,7 +1037,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   (void)how;
   inst = hi;
   (void)args;
-  int argc = 0, quiet = 0, removing = 0, keepData = 0, fromTask = 0;
+  int argc = 0, quiet = 0, removing = 0, keepData = 0, asked = 0;
   DWORD after = 0, finishAfter = 0;
   const wchar_t *from = NULL, *finishing = NULL;
   wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -1030,9 +1046,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     else if (!wcscmp(argv[i], L"--after") && i + 1 < argc) after = wcstoul(argv[++i], NULL, 10);
     else if (!wcscmp(argv[i], L"--from") && i + 1 < argc) from = argv[++i];
     else if (!wcscmp(argv[i], L"--uninstall")) removing = 1;
-    // started by the task: as it is, even if the task gave it no more rights (an account that is
-    // not an administrator's), rather than start the task again
-    else if (!wcscmp(argv[i], L"--task")) fromTask = 1;
+    // User Account Control asked already (or not to be: started again after an update)
+    else if (!wcscmp(argv[i], L"--asked")) asked = 1;
     else if (!wcscmp(argv[i], L"--uninstall-finish") && i + 3 < argc) {
       finishing = argv[++i];
       keepData = argv[++i][0] == L'1';
@@ -1066,15 +1081,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, TRAY_MUTEX);
   // one running as administrator lets this see it is there, but no more
   int there = running || GetLastError() == ERROR_ACCESS_DENIED;
-  // to run as administrator: through the task, which asks nothing (and its window opened, unless
-  // this was to be quiet); if the task will not start, as before
-  if (!isCopy && !there && !fromTask && elevateMarked(exeDir) && !elevated()) {
-    wchar_t args[64];
-    FMT(args, L"/run /tn %ls", ELEVATE_TASK);
-    if (schtasks(args) == 0) {
-      if (!quiet) openWhenUp();
-      return 0;
-    }
+  // as administrator, unless the settings say not to: User Account Control asks, and this goes for
+  // the one it starts; said no, this runs as it is
+  if (!isCopy && !there && !asked && !elevated() && !noElevate(exeDir)) {
+    wchar_t params[32];
+    FMT(params, L"--asked%ls", quiet ? L" /quiet" : L"");
+    if (!askAdmin(exePath, params, NULL)) return 0;
   }
   if (!isCopy && home[0] && !there) {
     wchar_t dll[MAX_PATH + 32], dllCopy[MAX_PATH + 32];
@@ -1121,6 +1133,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     return 1;
   }
   FMT(logPath, L"%ls\\.tools\\remote\\station.log", repo);
+  // the task 0.5.0 made to start it as administrator, and its mark: asked at each start instead now
+  if (elevateMarked(repo) && elevated()) {
+    wchar_t args[64], mark[MAX_PATH + 48];
+    FMT(args, L"/delete /tn %ls /f", ELEVATE_TASK);
+    schtasks(args);
+    FMT(mark, L"%ls\\.tools\\remote\\elevate", repo);
+    DeleteFileW(mark);
+  }
   if (!findNode()) {
     MessageBoxW(NULL, L"未找到 Node.js。请先安装 Node.js（nodejs.org，LTS 版本），再启动渲染站。", TITLE, MB_ICONERROR);
     return 1;
