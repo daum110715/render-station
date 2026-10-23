@@ -22,11 +22,15 @@ The name comes from its first use: rendering a promotional video for qiqi.help. 
 1. On the device, the station starts the worker and opens a reverse tunnel to the server: `ssh -N -R 77xx:127.0.0.1:7700 -p <port> <user>@<server>`. The server-side port starts at 7700. If a port is still held by a dead connection, the station tries the next one, up to 7709.
 2. On the server, `cli.mjs` probes these ports and submits the job to the worker that answers.
 3. There are two kinds of job:
-   - **Preset jobs.** The caller brings the files the preset allows (for example a script and its input). The device runs the preset's command in the job folder `.tools/remote/job/` and, on success, sends back the files in the preset's output folder.
+   - **Preset jobs.** The caller brings the files the preset allows (for example a script and its input). The device runs the preset's command in a job folder of its own, `.tools/remote/jobs/<number>/`, and, on success, sends back the files in the preset's output folder.
    - **Shell jobs.** A command runs in a workspace, subject to local authorization on the device (see "Shell permissions").
 4. The device also keeps a copy of each job's output in `.tools/remote/out/<time>/`, for the latest 30 jobs.
 
-The worker runs one job at a time.
+The worker can run several jobs at once:
+
+- How many run at once is set on the device under 设置 → 本机 → 同时运行的任务数 (Settings → This computer → Jobs at once): 2 by default, 1–16.
+- A workspace's presets run one at a time by default, since they may use the same files; the workspace file can allow more with `parallel`. Shell jobs count only toward the total.
+- Jobs beyond the limit wait in the order they came; `cli.mjs` waits with them and says how many are ahead. A waiting job is cancelled if its submitter disconnects. At most 16 jobs can wait; beyond that, new jobs are refused.
 
 ## Requirements
 
@@ -58,7 +62,7 @@ Cloning this repository is enough: `cli.mjs` has no package dependencies.
 
 ### Migrating from the old location
 
-The station used to live in qiqi.help's `promo/remote/`. Running the installer migrates it: the installer closes the old instance and, while the new copy has no settings, copies the old checkout's `.tools\remote\config.json`, so the server address, the Shell allowlist and the other settings carry over; the old `PROMO_*` settings become a workspace on first start. The new instance recreates the shortcuts and the autostart entry and removes the old autostart entry. The old `%LOCALAPPDATA%\qiqi-render-station\` folder can be deleted by hand.
+The station used to live in qiqi.help's `promo/remote/`. Running the installer migrates it: the installer closes the old instance and, while the new copy has no settings, copies the old checkout's `.tools\remote\config.json`, so the server address, the Shell allowlist and the other settings carry over. The old `PROMO_*` settings are imported when the qiqi.help checkout is registered as a workspace (see "Workspaces"). The new instance recreates the shortcuts and the autostart entry and removes the old autostart entry. The old `%LOCALAPPDATA%\qiqi-render-station\` folder can be deleted by hand.
 
 ## Configuration
 
@@ -81,9 +85,16 @@ Each workspace has:
 
 Each workspace's presets are listed below it. The station rereads a workspace file when it changes; no restart is needed.
 
+When a workspace is added, in the Settings page or by the server, and its folder still holds an old station's `.tools\remote\config.json`, the settings there that the workspace file's `env` declares and that are not yet filled in are imported.
+
+The server can also add, change and remove workspaces with `cli.mjs workspace`, as far as 服务器管理工作区 (Server manages workspaces) under "This computer" allows (see "Managing workspaces").
+
 **Registering a workspace trusts its presets.** Presets run without approval. If a preset lets the caller upload a script and runs it, the caller can run any code on the device with the rights of the account the station runs under.
 
 ### This computer
+
+- 同时运行的任务数 (Jobs at once): see "How it works".
+- 服务器管理工作区 (Server manages workspaces): 关闭 (Off), the server cannot change workspaces; 需要审批 (Ask, the default), each change must be approved in the device's window; 无需审批 (Allow), the server changes them directly.
 
 These switches are on by default; turning one off undoes its effect:
 
@@ -116,6 +127,8 @@ The `render-station.json` file in a workspace's root declares the settings the w
 
 The `render-station.json` at the root of the qiqi.help repository is a real-world example.
 
+The top-level `parallel` (1–16, default 1) sets how many of the workspace's preset jobs may run at once. Raise it only when they cannot contend for the same files.
+
 ### `env`: required settings
 
 | Field | Description |
@@ -142,7 +155,7 @@ The `render-station.json` at the root of the qiqi.help repository is a real-worl
 | `timeout` | Time limit in seconds, 1–86400; no limit when omitted. |
 | `description` | Shown in the Settings page and in `cli.mjs status`. |
 
-`command`, `cwd`, `env` and `collect` may use two placeholders: `{job}`, the job folder (`.tools/remote/job/` on the device, emptied before each job), and `{workspace}`, the workspace's path.
+`command`, `cwd`, `env` and `collect` may use two placeholders: `{job}`, the job folder (`.tools/remote/jobs/<number>/` on the device, one per job, removed when it ends), and `{workspace}`, the workspace's path.
 
 ## Using the station
 
@@ -153,7 +166,7 @@ The tray icon's color shows the state:
 | Color | State |
 |---|---|
 | Green | Idle, waiting for jobs |
-| Purple | Running a job |
+| Purple | Running jobs |
 | Yellow | Connecting |
 | Red | Cannot log in to the server, or the station cannot start |
 | Gray | Paused, or no server set |
@@ -164,14 +177,14 @@ Click the icon to open the window. The right-click menu has 打开渲染站 (Ope
 
 The window is `station.html` in WebView2, without a system title bar; the minimize, close and drag controls are at the top of the page. The sidebar has four pages:
 
-- 总览 (Overview): the state, today's counts, the last two minutes of CPU, memory and GPU load, and the recent jobs with their output.
+- 总览 (Overview): the state, today's counts, the last two minutes of CPU, memory and GPU load, and the recent jobs with their output. While more than one job runs or waits, 运行中 (Running) lists each with its progress.
 - 输出 (Output): the files the jobs produced, kept on this device. Images and videos can be previewed (videos play on hover, click to enlarge, arrow keys to browse); other files open in their default program.
-- 动态 (Activity): the connection's progress and the live output of ssh and the jobs.
+- 动态 (Activity): the connection's progress and the live output of ssh and the jobs, each line of a job's output marked with its number.
 - 设置 (Settings): see "Configuration" and "Shell permissions".
 
 The same page is available in a browser at `http://127.0.0.1:7799`; append `#gallery`, `#feed` or `#settings` to open a page directly.
 
-Lines of the form `frame 12/300` in a job's output are read as progress and shown on the Overview page's ring.
+Lines of the form `frame 12/300` in a job's output are read as progress: shown on the Overview page's ring while one job runs, and in the Running list while several do.
 
 ### State and logs
 
@@ -181,17 +194,20 @@ While the tunnel is open, anyone who can log in to the server can run the device
 
 ## Submitting jobs
 
-Run these on the server. `cli.mjs` finds the tunnel's port on its own; set `RENDER_STATION_PORT` to use only that port. Options must come before the target (the preset or the command).
+Run these on the server. `cli.mjs` finds the tunnel's port on its own; set `RENDER_STATION_PORT` to use only that port. For `run` and `shell`, options must come before the target (the preset or the command).
 
 ```sh
 node cli.mjs status [--json]
 node cli.mjs run [--json] [--src <dir>] [--out <dir>] <workspace>/<preset> [args…]
 node cli.mjs shell [--json] [--workspace <name>] [--cwd <dir>] [--timeout <s>] <command…>
+node cli.mjs workspace add [--json] <name> <path> [--env NAME=value …]
+node cli.mjs workspace set [--json] <name> [--path <path>] [--env NAME=value …] [--unset NAME …]
+node cli.mjs workspace remove [--json] <name>
 ```
 
 ### Device status
 
-`status` shows whether the device is online and idle, and each workspace's presets and missing settings.
+`status` shows whether the device is online, the jobs running and waiting, the Shell mode, whether the server may manage workspaces, and each workspace's presets and missing settings.
 
 ### Preset jobs
 
@@ -219,6 +235,22 @@ On Windows the command runs in a non-interactive PowerShell that loads no profil
 
 While the command runs, its output appears live on the Activity page. When it ends, the last 256 KiB of output and the exit code go back to the server. Commands are shown in the approval dialog and written to the log, so never put keys or passwords in them.
 
+### Managing workspaces
+
+```sh
+node cli.mjs workspace add video D:/projects/video --env FFMPEG=C:/ffmpeg/bin/ffmpeg.exe
+node cli.mjs workspace set video --env FFMPEG=D:/tools/ffmpeg.exe --unset OLD_SETTING
+node cli.mjs workspace remove video
+```
+
+- `<path>` is a full path on the device, such as `D:/projects/video`; quote it when it uses backslashes. `add` and `set --path` need the folder to exist.
+- `--env` and `--unset` may be repeated. In `set`, `--env NAME=` (an empty value) clears the setting, as `--unset NAME` does.
+- When a workspace is added, an old station's settings are imported (see "Workspaces").
+- While the device's 服务器管理工作区 is 需要审批 (Ask, the default), the change waits up to 5 minutes for approval in the device's window; while it is 关闭 (Off), the command is refused.
+- With `--json`, the output has `ok`, `action`, `workspace` (its `name`, `path`, `missing` and `presets` after the change; `null` after a removal), `imported` (the settings imported) and, on failure, `error`.
+
+Settings are shown in the approval dialog and written to the log, so never pass keys or passwords with `--env`.
+
 ### JSON output
 
 With `--json`, `cli.mjs` prints one JSON object to standard output:
@@ -235,16 +267,16 @@ With `--json`, `cli.mjs` prints one JSON object to standard output:
 | `log` | The command's output (the last 256 KiB). |
 | `error` | Why the job failed; `null` on success. |
 
-`status --json` prints the device's details: `online`, `platform`, `busy`, `accepting`, `shell` (the Shell mode) and `workspaces` (each with `name`, `path`, `missing`, `presets`, and `error` if its file is invalid).
+`status --json` prints the device's details: `online`, `platform`, `accepting`, `limit` (jobs at once), `running` (the jobs running), `queued` (how many wait), `shell` (the Shell mode), `manage` (`"off"`, `"ask"` or `"allow"`) and `workspaces` (each with `name`, `path`, `missing`, `parallel`, `presets`, and `error` if its file is invalid).
 
 ### Exit status
 
 | Exit status | Meaning |
 |---|---|
 | The command's own | The command ran; 0 on success. |
-| 1 | The job failed before running, for example an argument the preset does not accept, or a denied approval. |
+| 1 | The job failed before running, for example an argument the preset does not accept, or a denied approval; or a workspace change was refused. |
 | 2 | `cli.mjs` was used incorrectly. |
-| 3 | No worker answered, or it is busy or paused. |
+| 3 | No worker answered, or it is paused, or its queue is full. |
 
 A command's own exit status can coincide with 1, 2 or 3; use `exitCode` in the `--json` output when the difference matters.
 
@@ -256,7 +288,7 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 - The actual working directory, after resolving symbolic links, must be inside the chosen workspace.
 - A command runs automatically when the full command and the working directory exactly match an allowlist entry. Nothing is allowed by interpreter or command prefix.
-- Otherwise the request waits for approval in the station's window (a dialog appears while the window is open), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). A request not approved within 5 minutes fails.
+- Otherwise the request waits for approval in the station's window (a dialog appears while the window is open), with the choices 拒绝 (Deny), 仅本次允许 (Allow once) and 允许并加入白名单 (Allow and add to the allowlist). Several requests are shown one after another, in the order they came. A request not approved within 5 minutes fails.
 - The allowlist is stored in the device's `.tools/remote/config.json`; entries can be removed in the Settings page.
 
 ### YOLO mode
@@ -267,17 +299,18 @@ The station refuses Shell jobs by default. Enable them on the device under 设�
 
 ### Security boundaries
 
-- The job protocol has no way to change the allowlist, switch modes or register workspaces. These happen only in the device's Settings page; the server cannot turn on YOLO mode through job parameters.
+- The job protocol has no way to change the allowlist or switch the Shell mode. These happen only in the device's Settings page; the server cannot turn on YOLO mode.
+- Whether the server may register, change or remove workspaces is up to 服务器管理工作区 on the device, which only the device can change. By default each change must be approved there. Set to 无需审批 (Allow), anyone who can log in to the server can register any folder and run its presets, which amounts to running any code.
 - This is an authorization mechanism, not an operating-system sandbox. An approved command can read and write files with all the rights of the station's account; the directory check constrains only the initial working directory.
 - The allowlist records command text and does not pin the content of scripts the command uses. If a script changes, the same command still runs automatically.
 - Presets do not go through the Shell allowlist; for the trust they carry, see "Workspaces".
-- A pending command never runs after a denial, an approval timeout, or the submitter disconnecting.
-- Turning off Shell permissions or pausing refuses further jobs and cancels pending requests and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
-- Mode changes, pending requests, manual decisions, executed commands, working directories and results are written to the device's `.tools/remote/station.log`.
+- A pending command or workspace change never takes effect after a denial, an approval timeout, or the submitter disconnecting.
+- Turning off Shell permissions or pausing refuses further jobs and cancels pending requests, waiting jobs and YOLO mode, but does not stop a command already running. When a command times out or its submitter disconnects, the station tries to end its process tree.
+- Mode changes, pending requests, manual decisions, executed commands, working directories, results and workspace changes are written to the device's `.tools/remote/station.log`.
 
 ## Automatic updates
 
-When enabled, the station checks one minute after starting and every 30 minutes after that; the 立即检查 (Check now) button in the Settings page checks immediately. If a job is running, the update waits for it to finish. When the station's own files change, it restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
+When enabled, the station checks one minute after starting and every 30 minutes after that; the 立即检查 (Check now) button in the Settings page checks immediately. While jobs run, wait or await approval, the update waits until all are over. When the station's own files change, it restarts itself; when `渲染站.exe` changes, the tray program replaces itself with the new version.
 
 **A copy installed by the installer** takes new versions from the update server, `https://8.137.206.169/assets/render-station/`:
 
@@ -305,7 +338,7 @@ node worker.mjs
 ssh -N -R 7700:127.0.0.1:7700 -p <port> <user>@<server>
 ```
 
-Run this way, there is no approval interface for Shell jobs, so only presets run.
+Run this way, there is no approval interface, so only presets run and the server cannot manage workspaces. How many jobs run at once is `parallel` in `config.json`, 2 by default.
 
 ## Known limitations
 
@@ -334,9 +367,9 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 |---|---|
 | `cli.mjs` | The command-line tool for submitting jobs from the server. |
 | `update.mjs` | Updates of an installed copy: checking a release's signature, and fetching, checking and replacing files. |
-| `worker.mjs` | The worker: receives jobs, runs them and returns the results. |
-| `workspace.mjs` | Reading and checking workspace files, globs, and presets' commands and output. |
-| `shell.mjs` | Approval, allowlist and execution of Shell jobs. |
+| `worker.mjs` | The worker: receives jobs, queues and runs them and returns the results; passes on the server's workspace changes. |
+| `workspace.mjs` | Reading and checking workspace files, globs, presets' commands and output, checking workspace changes, and importing old settings. |
+| `shell.mjs` | Approval, allowlist and execution of Shell jobs, and the approval queue. |
 | `station.mjs` | The station's background process: manages the worker, the tunnel and the settings, and serves the window at `127.0.0.1:7799`. |
 | `station.html` | The station's window. |
 | `渲染站.exe` | The built tray program. |
@@ -345,7 +378,7 @@ The release key's private half is `.tools/release/key.pem`, outside version cont
 | `release/` | Release scripts: `build.mjs` packs and signs, `publish.mjs` uploads to the update server. |
 | `*.test.mjs` | Tests. |
 | `release.json` | Only in an installed copy: the signed manifest of its version. |
-| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/job/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
+| `.tools/` | Runtime data (`remote/config.json`, `remote/station.log`, `remote/jobs/`, `remote/out/`, `results/`, `update/`), the WebView2 SDK (`webview2/`) and release files (`release/`); not under version control. |
 
 ## License
 

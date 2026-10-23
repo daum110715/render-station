@@ -4,8 +4,8 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { HEADER, serve } from './worker.mjs';
-import { FILE, commandOf, gather, globRe, resolveWorkspaces, safeRel } from './workspace.mjs';
+import { HEADER, PROTOCOL, serve } from './worker.mjs';
+import { FILE, changeWorkspaces, commandOf, gather, globRe, resolveWorkspaces, safeRel } from './workspace.mjs';
 
 const repo = resolve(import.meta.dirname);
 const scratch = join(repo, '.tools/.scratch');
@@ -28,6 +28,11 @@ const SPEC = {
       collect: '{job}/out',
       exclude: ['*.tmp'],
     },
+    nap: {
+      command: ['node', '{job}/tool/nap.mjs'],
+      upload: ['tool/*.mjs'],
+      collect: '{job}/out',
+    },
   },
 };
 const MAKE = `import { mkdirSync, writeFileSync } from 'node:fs';
@@ -37,8 +42,15 @@ writeFileSync(new URL('result.txt', out), JSON.stringify({ args: process.argv.sl
 writeFileSync(new URL('skip.tmp', out), 'x');
 console.log('made it');
 `;
+// when it ran: a little while, to be seen beside another or not
+const NAP = `import { mkdirSync, writeFileSync } from 'node:fs';
+const start = Date.now();
+await new Promise((done) => setTimeout(done, 400));
+mkdirSync(new URL('../out/', import.meta.url), { recursive: true });
+writeFileSync(new URL('../out/times.json', import.meta.url), JSON.stringify({ start, end: Date.now() }));
+`;
 
-function fixture() {
+function fixture({ manage = null } = {}) {
   const base = mkdtempSync(join(scratch, 'worker-test-'));
   const workspace = join(base, 'workspace');
   const src = join(base, 'src');
@@ -49,16 +61,20 @@ function fixture() {
   writeFileSync(join(src, 'tool/notes.txt'), 'not brought');
   const settings = [{ name: '', path: workspace, env: {} }];
   const keep = join(base, 'keep');
-  const server = serve({ port: 0, workspaces: () => resolveWorkspaces(settings), keep });
+  const limits = { all: 2 };
+  const server = serve({ port: 0, workspaces: () => resolveWorkspaces(settings), keep, jobs: join(base, 'jobs'), limit: () => limits.all, manage });
   const ready = new Promise((done) => server.once('listening', done));
+  // the steps the worker told of, and the reply (fetch undoes the gzip itself)
   const post = async (payload) => {
     await ready;
-    const res = await fetch(`http://127.0.0.1:${server.address().port}/job`, { method: 'POST', headers: { [HEADER]: '1' }, body: gzipSync(JSON.stringify(payload)) });
-    return { status: res.status, reply: res.status === 200 ? JSON.parse(Buffer.from(await res.arrayBuffer()).toString()) : null };
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/job`, { method: 'POST', headers: { [HEADER]: String(PROTOCOL) }, body: gzipSync(JSON.stringify(payload)) });
+    if (res.status !== 200) return { status: res.status, reply: null, events: [] };
+    const events = (await res.text()).trim().split('\n').map((line) => JSON.parse(line));
+    return { status: res.status, reply: events.at(-1).reply, events: events.slice(0, -1) };
   };
-  const files = (rel = 'tool/make.mjs') => ({ [rel]: Buffer.from(MAKE).toString('base64') });
+  const files = (rel = 'tool/make.mjs', text = MAKE) => ({ [rel]: Buffer.from(text).toString('base64') });
   return {
-    base, workspace, src, settings, keep, server, ready, post, files,
+    base, workspace, src, settings, keep, limits, server, ready, post, files,
     async close() {
       server.closeAllConnections();
       await new Promise((done) => server.close(done));
@@ -153,7 +169,7 @@ test('cli.mjs run --json hands a preset over and writes back what it made', asyn
       );
     const status = await run(['status', '--json']);
     assert.equal(status.code, 0);
-    assert.deepEqual(Object.keys(status.json.workspaces[0].presets), ['make']);
+    assert.deepEqual(Object.keys(status.json.workspaces[0].presets), ['make', 'nap']);
     const ran = await run(['run', '--json', '--src', f.src, '--out', out, 'demo/make', '--n', '4']);
     assert.equal(ran.code, 0, ran.json.log);
     assert.equal(ran.json.ok, true);
@@ -166,5 +182,75 @@ test('cli.mjs run --json hands a preset over and writes back what it made', asyn
     const unknown = await run(['run', '--json', 'demo/none']);
     assert.equal(unknown.code, 1);
     assert.match(unknown.json.error, /no preset "none"/);
+  } finally { f.close(); }
+});
+
+test('jobs past the limit wait their turn, as do a workspace\'s past its parallel', async () => {
+  const f = fixture();
+  f.settings[0].env = { DEMO_NEED: 'given' };
+  // two at once, the times each ran, the earlier first; and whether one waited
+  const two = async () => {
+    const replies = await Promise.all([0, 1].map(() => f.post({ type: 'preset', workspace: 'demo', preset: 'nap', args: [], files: f.files('tool/nap.mjs', NAP) })));
+    for (const r of replies) assert.equal(r.reply.ok, true, r.reply.log);
+    const times = replies.map((r) => JSON.parse(Buffer.from(r.reply.files['times.json'], 'base64'))).sort((a, b) => a.start - b.start);
+    return { apart: times[1].start >= times[0].end, waited: replies.filter((r) => r.events.some((e) => e.event === 'queued')).length };
+  };
+  try {
+    f.limits.all = 1;
+    assert.deepEqual(await two(), { apart: true, waited: 1 });
+    // room for two, but one workspace's presets one at a time
+    f.limits.all = 2;
+    assert.deepEqual(await two(), { apart: true, waited: 1 });
+    writeFileSync(join(f.workspace, FILE), JSON.stringify({ ...SPEC, parallel: 2 }));
+    assert.deepEqual(await two(), { apart: false, waited: 0 });
+    // each job's folder is gone once it is over
+    assert.deepEqual(readdirSync(join(f.base, 'jobs')), []);
+  } finally { f.close(); }
+});
+
+test('a change to the workspaces is checked, and a workspace added takes an old station\'s settings', () => {
+  const f = fixture();
+  try {
+    // a checkout a station from before workspaces ran from
+    mkdirSync(join(f.workspace, '.tools/remote'), { recursive: true });
+    writeFileSync(join(f.workspace, '.tools/remote/config.json'), JSON.stringify({ env: { DEMO_NEED: 'kept', OTHER: 'not asked for' } }));
+    const added = changeWorkspaces([], { action: 'add', name: 'mine', path: f.workspace, env: { EXTRA: '1' } });
+    assert.deepEqual(added.list, [{ name: 'mine', path: resolve(f.workspace), env: { EXTRA: '1', DEMO_NEED: 'kept' } }]);
+    assert.deepEqual(added.imported, ['DEMO_NEED']);
+    assert.deepEqual(added.presets, ['make', 'nap']);
+    assert.throws(() => changeWorkspaces(added.list, { action: 'add', name: 'mine', path: f.workspace }), /already registered/);
+    assert.throws(() => changeWorkspaces([], { action: 'add', name: 'x', path: join(f.base, 'gone') }), /folder not found/);
+    assert.throws(() => changeWorkspaces([], { action: 'add', name: 'x', path: 'relative/path' }), /full path/);
+    assert.throws(() => changeWorkspaces([], { action: 'add', name: 'a b', path: f.workspace }), /name/);
+    const set = changeWorkspaces(added.list, { action: 'set', name: 'mine', env: { DEMO_NEED: 'new' }, unset: ['EXTRA'] });
+    assert.deepEqual(set.list[0].env, { DEMO_NEED: 'new' });
+    assert.equal(set.lines.length, 2);
+    assert.deepEqual(added.list[0].env.EXTRA, '1');
+    assert.throws(() => changeWorkspaces(set.list, { action: 'set', name: 'mine', env: { DEMO_NEED: 'new' } }), /nothing to change/);
+    assert.deepEqual(changeWorkspaces(set.list, { action: 'remove', name: 'mine' }).list, []);
+    assert.throws(() => changeWorkspaces([], { action: 'remove', name: 'mine' }), /no workspace "mine"/);
+  } finally { f.close(); }
+});
+
+test('cli.mjs workspace hands a change over, as far as the station lets it', async () => {
+  const asked = [];
+  const manage = { mode: () => 'allow', change: async (input) => (asked.push(input), { action: input.action, workspace: { name: input.name, path: input.path, missing: [], presets: ['make'] }, imported: [] }) };
+  const f = fixture({ manage });
+  try {
+    await f.ready;
+    const cli = (args) =>
+      new Promise((done) =>
+        execFile(process.execPath, [join(repo, 'cli.mjs'), ...args], { env: { ...process.env, RENDER_STATION_PORT: String(f.server.address().port) } }, (e, stdout) => done({ code: e?.code ?? 0, json: JSON.parse(stdout) })),
+      );
+    const added = await cli(['workspace', 'add', 'mine', 'D:/sites/mine', '--env', 'A=1', '--env', 'B=x=y', '--json']);
+    assert.equal(added.code, 0);
+    assert.equal(added.json.ok, true);
+    assert.deepEqual(asked[0], { action: 'add', name: 'mine', path: 'D:/sites/mine', env: { A: '1', B: 'x=y' } });
+    const bad = await cli(['workspace', 'remove', '--json', 'mine', '--path', 'x']);
+    assert.equal(bad.code, 2);
+    manage.mode = () => 'off';
+    const off = await cli(['workspace', 'remove', '--json', 'mine']);
+    assert.equal(off.code, 1);
+    assert.match(off.json.error, /does not let the server manage/);
   } finally { f.close(); }
 });

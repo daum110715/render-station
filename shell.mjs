@@ -1,4 +1,5 @@
-// Local-owner approvals for remote shell jobs. This is an authorization gate, not an OS sandbox.
+// Local-owner approvals for remote shell jobs (and the queue of requests awaiting the owner, which
+// the station's workspace changes use too). This is an authorization gate, not an OS sandbox.
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
@@ -28,13 +29,58 @@ export function shellRequest(input, workspace, unrestricted = false) {
 
 export const matchesRule = (rule, request) => rule?.command === request.command && rule?.cwd === request.cwd;
 
+/** requests awaiting the owner's decision, shown one at a time in the order they came: `ask(item,
+ *  signal)` settles with the owner's action, or null once `timeout` ms pass, the request disconnects
+ *  or `clear()` cancels all; past `max` waiting, a request is refused at once */
+export function createApprovals({ timeout = 300000, max = 8, changed = () => {} } = {}) {
+  const waiting = [];
+  const settle = (entry, action) => {
+    const i = waiting.indexOf(entry);
+    if (i < 0) return;
+    waiting.splice(i, 1);
+    entry.end(action);
+    changed();
+  };
+  const shown = ({ end, ...item }) => item;
+  return {
+    /** the one shown now, and how many wait behind it */
+    head: () => (waiting[0] ? shown(waiting[0]) : null),
+    behind: () => Math.max(0, waiting.length - 1),
+    find: (id) => {
+      const entry = waiting.find((e) => e.id === id);
+      return entry ? shown(entry) : null;
+    },
+    ask(item, signal) {
+      if (waiting.length >= max) throw new Error(`${max} requests already await the owner's approval`);
+      return new Promise((done) => {
+        const entry = { ...item, id: randomUUID(), at: Date.now() };
+        const timer = setTimeout(() => settle(entry, null), timeout);
+        const aborted = () => settle(entry, null);
+        entry.end = (action) => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', aborted);
+          done(action);
+        };
+        signal?.addEventListener('abort', aborted, { once: true });
+        waiting.push(entry);
+        changed();
+      });
+    },
+    decide(id, action) {
+      const entry = waiting.find((e) => e.id === id);
+      if (!entry) throw new Error('approval expired or invalid');
+      settle(entry, action);
+    },
+    clear: () => [...waiting].forEach((e) => settle(e, null)),
+  };
+}
+
 /** the gate for Shell jobs: `workspaces()`, the registered ones ([{ name, path }]); a job names one,
  *  or gets the first (in YOLO, with none registered, the home folder) */
 export function createShellGate({ workspaces, policy, save, admin = false, changed = () => {}, audit = () => {}, reviewTimeout = 300000 }) {
   let yolo = false;
-  let pending = null;
-  let settle = null;
-  const state = () => ({ mode: !policy().enabled ? 'disabled' : yolo ? 'yolo' : 'auto', admin, workspaces: workspaces().map((w) => w.name), pending, rules: policy().rules ?? [] });
+  const approvals = createApprovals({ timeout: reviewTimeout, changed });
+  const state = () => ({ mode: !policy().enabled ? 'disabled' : yolo ? 'yolo' : 'auto', admin, workspaces: workspaces().map((w) => w.name), pending: approvals.head(), behind: approvals.behind(), rules: policy().rules ?? [] });
   function rootOf(name) {
     if (name != null && typeof name !== 'string') throw new Error('workspace must be a name');
     const list = workspaces();
@@ -42,7 +88,7 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
     if (name && !w) throw new Error(`no workspace "${name}" on this machine`);
     return w ? { name: w.name, path: w.path } : { name: null, path: yolo ? homedir() : null };
   }
-  const revoke = () => { yolo = false; settle?.(false); changed(); };
+  const revoke = () => { yolo = false; approvals.clear(); changed(); };
   return {
     state,
     revoke,
@@ -61,14 +107,15 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
       changed();
     },
     decide(id, action) {
-      if (!pending || pending.id !== id || !['once', 'remember', 'deny'].includes(action)) throw new Error('approval expired or invalid');
+      const pending = approvals.find(id);
+      if (!pending || !['once', 'remember', 'deny'].includes(action)) throw new Error('approval expired or invalid');
       if (action === 'remember') {
         policy().rules ??= [];
         if (!policy().rules.some((r) => matchesRule(r, pending))) policy().rules.push({ command: pending.command, cwd: pending.cwd });
         save();
       }
       audit(`Shell 审批结果（${{ once: '仅本次允许', remember: '允许并加入白名单', deny: '拒绝' }[action]}）：${JSON.stringify(pending)}`);
-      settle(action !== 'deny');
+      approvals.decide(id, action);
     },
     async authorize(input, signal) {
       if (!policy().enabled) throw new Error('Shell is disabled; enable it in the local station settings');
@@ -77,24 +124,9 @@ export function createShellGate({ workspaces, policy, save, admin = false, chang
       const request = { ...shellRequest(input, root.path, yolo), workspace: root.name };
       let approval = yolo ? 'yolo' : (policy().rules ?? []).some((r) => matchesRule(r, request)) ? 'allowlist' : null;
       if (!approval) {
-        if (pending) throw new Error('another shell approval is pending');
-        const allowed = await new Promise((done) => {
-          pending = { ...request, id: randomUUID(), at: Date.now() };
-          const timer = setTimeout(() => settle(false), reviewTimeout);
-          const aborted = () => settle?.(false);
-          settle = (ok) => {
-            clearTimeout(timer);
-            signal?.removeEventListener('abort', aborted);
-            pending = null;
-            settle = null;
-            changed();
-            done(ok);
-          };
-          signal?.addEventListener('abort', aborted, { once: true });
-          audit(`Shell 请求等待审批：${JSON.stringify(pending)}`);
-          changed();
-        });
-        if (!allowed) throw new Error('Shell approval denied, expired or cancelled');
+        audit(`Shell 请求等待审批：${JSON.stringify(request)}`);
+        const action = await approvals.ask(request, signal);
+        if (!action || action === 'deny') throw new Error('Shell approval denied, expired or cancelled');
         approval = 'manual';
       }
       if (!policy().enabled || signal?.aborted || (approval === 'yolo' && !yolo)) throw new Error('Shell authorization revoked');

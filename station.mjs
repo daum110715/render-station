@@ -15,8 +15,8 @@ import { cpus, freemem, totalmem } from 'node:os';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORTS, WORKER, serve } from './worker.mjs';
-import { createShellGate, isAdministrator } from './shell.mjs';
-import { NAME, missingEnv, resolveWorkspaces } from './workspace.mjs';
+import { createApprovals, createShellGate, isAdministrator } from './shell.mjs';
+import { NAME, adopt, changeWorkspaces, missingEnv, resolveWorkspaces, samePath } from './workspace.mjs';
 import { RELEASE, SERVER, applyRelease, clearOld, fetchRelease, newer, openRelease } from './update.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -37,7 +37,9 @@ const took = (ms) => {
 const clients = new Set();
 let pending = null;
 let tunnel = { state: 'off' };
-let job = null;
+/** the jobs running, and those waiting their turn, by id */
+const running = new Map();
+const queued = new Map();
 const jobs = [];
 let today = { day: new Date().toDateString(), done: 0, failed: 0 };
 let workerError = null;
@@ -52,12 +54,12 @@ process.on('uncaughtException', (e) => {
   process.exit(1);
 });
 /** the window's feed, the latest 600 lines: what the station says ('station', 'tunnel', 'job', 'shell')
- *  and what ssh and render.mjs print ('ssh', 'out') */
+ *  and what ssh and the jobs print ('ssh', 'out'), a job's lines with its id */
 const feed = [];
 let fresh = [];
 let seq = 0;
-function say(kind, text) {
-  const item = { n: ++seq, t: Date.now(), kind, text };
+function say(kind, text, job) {
+  const item = { n: ++seq, t: Date.now(), kind, text, ...(job ? { job } : {}) };
   feed.push(item);
   fresh.push(item);
   if (feed.length > 600) feed.splice(0, feed.length - 600);
@@ -87,6 +89,11 @@ let config = {
   workspaces: [],
   paused: false,
   shell: { enabled: false, rules: [] },
+  // how many jobs may run at once
+  parallel: 2,
+  // what the server may do to the workspaces: 'off', 'ask' (each change waits for the owner's
+  // approval in the window) or 'allow'
+  manage: 'ask',
 };
 try {
   const saved = JSON.parse(readFileSync(CONFIG, 'utf8'));
@@ -94,16 +101,20 @@ try {
 } catch {}
 const save = () => writeFileSync(CONFIG, JSON.stringify(config, null, 2));
 // settings from before workspaces, the checkout render.mjs ran in (PROMO_ROOT) and the rest of its
-// environment, become one
-if (config.env) {
+// environment, become one. Those of a station that ran from the checkout itself say no PROMO_ROOT:
+// they stay, for the workspace registered at that checkout to start from (adopt)
+if (config.env?.PROMO_ROOT) {
   const { PROMO_ROOT: path, ...env } = config.env;
-  if (path && !config.workspaces.length) config.workspaces = [{ name: '', path, env: Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')) }];
+  if (!config.workspaces.length) config.workspaces = [{ name: '', path, env: Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')) }];
   delete config.env;
   save();
 }
 config.shell = { enabled: false, rules: [], ...config.shell };
 /** the workspaces, as jobs see them */
 const workspaces = () => resolveWorkspaces(config.workspaces);
+/** how many jobs may run at once */
+const limit = () => (Number.isInteger(config.parallel) && config.parallel >= 1 && config.parallel <= 16 ? config.parallel : 2);
+const manageMode = () => (['off', 'ask', 'allow'].includes(config.manage) ? config.manage : 'ask');
 /** what the settings still lack: the server, and what each workspace's file asks for */
 const lacking = () => [
   ...(config.ssh.target ? [] : ['服务器的 SSH 地址']),
@@ -138,6 +149,40 @@ const shellGate = createShellGate({
   changed: push,
   audit: (text) => note('shell', text),
 });
+
+// ——— the server's changes to the workspaces (worker.mjs's /workspace, from cli.mjs workspace):
+// made as config.manage lets them, each shown to the owner first unless it is 'allow' ———
+const wsApprovals = createApprovals({ changed: () => (push(), idle()) });
+/** a change the server asks, against the settings as they are (workspace.mjs) */
+const planChange = (input) => changeWorkspaces(config.workspaces, input, config.env);
+const CHANGE = { add: '添加工作区', set: '修改工作区', remove: '移除工作区' };
+/** a change the server asks, made once the owner allows it: what the workspace is now */
+async function serverChange(input, signal) {
+  const plan = planChange(input);
+  const what = `${CHANGE[input.action]} ${input.name}`;
+  if (manageMode() === 'ask') {
+    note('station', `服务器请求${what}，等待本机审批`);
+    const action = await wsApprovals.ask({ action: input.action, name: input.name, lines: plan.lines, presets: plan.presets }, signal);
+    if (action !== 'allow') {
+      note('station', `服务器的请求未获批准（${action === 'deny' ? '已拒绝' : '已超时或已取消'}）：${what}`);
+      throw new Error(action === 'deny' ? 'the owner denied the change' : 'the change was not approved within 5 minutes, or was cancelled');
+    }
+  }
+  if (manageMode() === 'off') throw new Error('the owner does not let the server manage workspaces: allow it in the local station settings');
+  // the settings may have changed meanwhile: made only if the change is still the one shown
+  const now = planChange(input);
+  if (JSON.stringify(now.lines) !== JSON.stringify(plan.lines)) throw new Error('the workspaces changed while the change awaited approval: send it again');
+  config.workspaces = now.list;
+  save();
+  note('station', `${manageMode() === 'allow' ? '已按服务器的请求' : '已批准服务器的请求，'}${what}${now.lines.length ? `：${now.lines.join('；')}` : ''}`);
+  const w = workspaces().find((x) => x.name === input.name);
+  push();
+  return {
+    action: input.action,
+    workspace: w ? { name: w.name, path: w.path, ...(w.spec.error ? { error: w.spec.error } : {}), missing: missingEnv(w), presets: Object.keys(w.spec.presets) } : null,
+    imported: now.imported,
+  };
+}
 
 // ——— this machine, every 2 s, the last two minutes: the processor, the memory, the graphics card
 // (NVIDIA's own tool where there is one, else Windows' counters) ———
@@ -191,9 +236,9 @@ function sample() {
 
 // ——— keeping up to date. An installed copy (release.json here) follows the releases published on
 // the update server (update.mjs); a checkout, its branch's new commits, fast-forward only, and only
-// into a checkout with nothing of its own in it. Never in the middle of a job. When the station's
-// code changed it starts again (exit 75: the tray icon starts it at once); when the tray icon's did,
-// the tray icon starts itself again ———
+// into a checkout with nothing of its own in it. Never while a job runs, waits its turn or awaits the
+// owner's approval. When the station's code changed it starts again (exit 75: the tray icon starts
+// it at once); when the tray icon's did, the tray icon starts itself again ———
 const installed = existsSync(join(repo, RELEASE));
 const STAGE = join(repo, '.tools/update');
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
@@ -234,7 +279,13 @@ function restartFor(changed, ours) {
     }, 500);
   }
 }
-const busyNow = () => job || shellGate.state().pending;
+const busyNow = () => running.size || queued.size || shellGate.state().pending || wsApprovals.head();
+/** once nothing is running or waiting: the update put off until then */
+function idle() {
+  if (!updateAfterJob || busyNow()) return;
+  updateAfterJob = false;
+  setTimeout(checkUpdate, 1000);
+}
 async function checkUpdate() {
   if (['checking', 'downloading'].includes(update.state)) return;
   const done = (state, message) => {
@@ -255,7 +306,7 @@ async function checkUpdate() {
   if (ahead.out !== '0' || dirty.out) return done('blocked', `有 ${behind.out} 个新提交，但仓库中存在${dirty.out ? '未提交的改动' : '未推送的提交'}，未自动更新`);
   if (busyNow()) {
     updateAfterJob = true;
-    return done('waiting', '发现新版本，将在当前任务完成后更新');
+    return done('waiting', '发现新版本，将在所有任务完成后更新');
   }
   const changed = (await git(['diff', '--name-only', 'HEAD', up.out])).out.split(/\r?\n/);
   const merged = await git(['merge', '--ff-only', '--quiet', up.out]);
@@ -287,7 +338,7 @@ async function checkRelease(done) {
   if (!newer(next.version, now.version)) return done('current', '已是最新版本');
   if (busyNow()) {
     updateAfterJob = true;
-    return done('waiting', `发现新版本 ${next.version}，将在当前任务完成后更新`);
+    return done('waiting', `发现新版本 ${next.version}，将在所有任务完成后更新`);
   }
   try {
     await fetchRelease({
@@ -304,7 +355,7 @@ async function checkRelease(done) {
     // a job may have come in meanwhile: what was fetched stays staged
     if (busyNow()) {
       updateAfterJob = true;
-      return done('waiting', `新版本 ${next.version} 已下载，将在当前任务完成后更新`);
+      return done('waiting', `新版本 ${next.version} 已下载，将在所有任务完成后更新`);
     }
     const changed = applyRelease({ root: repo, stage: STAGE, now, next, text });
     await readVersion();
@@ -350,7 +401,10 @@ function restock() {
 
 const view = () => ({
   tunnel,
-  job,
+  running: [...running.values()],
+  queued: [...queued.values()],
+  parallel: limit(),
+  manage: { mode: manageMode(), pending: wsApprovals.head(), behind: wsApprovals.behind() },
   jobs,
   today: today.day === new Date().toDateString() ? today : { done: 0, failed: 0 },
   workerError,
@@ -382,8 +436,10 @@ const view = () => ({
  *  say of it, starting with Windows and the shortcuts (1 or 0), and whether to start itself again
  *  (1: it was updated) */
 function trayView() {
-  const mode = job ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
-  const tip = { busy: `执行中：${job?.what}`, idle: `空闲，已连接服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '无法连接服务器，将自动重试', auth: '无法登录服务器，请打开渲染站查看', off: '已暂停接收任务', unset: '尚未配置服务器，请在设置中填写' }[mode] ?? mode;
+  const mode = running.size ? 'busy' : tunnel.state === 'up' ? 'idle' : tunnel.state;
+  const waiting = queued.size ? `，另有 ${queued.size} 个任务排队` : '';
+  const busy = running.size === 1 ? `执行中：${running.values().next().value.what}${waiting}` : `正在执行 ${running.size} 个任务${waiting}`;
+  const tip = { busy, idle: `空闲，已连接服务器（端口 ${tunnel.port}）`, connecting: '正在连接服务器', retry: '无法连接服务器，将自动重试', auth: '无法登录服务器，请打开渲染站查看', off: '已暂停接收任务', unset: '尚未配置服务器，请在设置中填写' }[mode] ?? mode;
   const last = jobs[0];
   const tell = !last ? ['', ''] : last.ok ? ['任务已完成', `${last.what}，耗时 ${took(last.ms)}，结果已返回服务器。`] : ['任务失败', `${last.what}。详细输出见渲染站的「动态」页。`];
   const v = view();
@@ -407,47 +463,57 @@ function push() {
 const KEEP = join(repo, '.tools/remote/out');
 /** what a job is, in a few words */
 const label = (e) => (e.kind === 'shell' ? `Shell：${e.command}` : `${e.workspace}/${e.preset}${e.args?.length ? ` ${e.args.join(' ')}` : ''}`);
+let worker = null;
 function startWorker() {
-  let out = null;
+  // each running job's output, line by line
+  const outs = new Map();
   const server = serve({
     workspaces,
+    limit,
     keep: KEEP,
     shell: shellGate,
+    manage: { mode: manageMode, change: serverChange },
     accepting: () => !config.paused && !quitting,
     on: (e) => {
-      if (e.type === 'start') {
+      if (e.type === 'queued') {
+        queued.set(e.id, { id: e.id, kind: e.kind, what: label(e), at: Date.now() });
+        note(e.kind === 'shell' ? 'shell' : 'job', `任务 #${e.id} 正在排队：${label(e)}`);
+      } else if (e.type === 'start') {
         const isShell = e.kind === 'shell';
-        job = { id: e.id, kind: e.kind, what: label(e), started: Date.now(), n: 0, total: null, ms: null, frames: false };
-        note(isShell ? 'shell' : 'job', `收到任务 #${e.id}：${job.what}`);
-        say('out', isShell ? `> [${e.cwd}] ${e.command} (${e.approval})` : `> ${e.command.join(' ')}`);
-        out = liner((line) => say('out', line));
-      } else if (e.type === 'log' && job) {
+        const job = { id: e.id, kind: e.kind, what: label(e), started: Date.now(), n: 0, total: null, ms: null, frames: false };
+        queued.delete(e.id);
+        running.set(e.id, job);
+        note(isShell ? 'shell' : 'job', `开始执行任务 #${e.id}：${job.what}`);
+        say('out', isShell ? `> [${e.cwd}] ${e.command} (${e.approval})` : `> ${e.command.join(' ')}`, e.id);
+        outs.set(e.id, liner((line) => say('out', line, e.id)));
+      } else if (e.type === 'log' && running.has(e.id)) {
         // progress, as a job prints it: "frame n/total", and after it "T=…  ms ms/frame" (render.mjs)
         const frames = [...e.text.matchAll(/frame (\d+)\/(\d+)(?:\s+T=[\d.]+\s+(\d+) ms\/frame)?/g)].at(-1);
-        if (frames) Object.assign(job, { n: Number(frames[1]), total: Number(frames[2]), ms: frames[3] ? Number(frames[3]) : null, frames: true });
-        out?.(e.text);
+        if (frames) Object.assign(running.get(e.id), { n: Number(frames[1]), total: Number(frames[2]), ms: frames[3] ? Number(frames[3]) : null, frames: true });
+        outs.get(e.id)?.(e.text);
       } else if (e.type === 'end') {
+        const job = running.get(e.id);
+        const waited = queued.get(e.id);
+        running.delete(e.id);
+        queued.delete(e.id);
         if (e.kind === 'shell') note('shell', `Shell 任务 #${e.id} 执行${e.ok ? '成功' : '失败'}，退出码：${e.code ?? '无'}`);
-        out?.('', true);
-        out = null;
+        outs.get(e.id)?.('', true);
+        outs.delete(e.id);
         // turned away before it started: why
-        if (!job) say('out', e.tail.trim());
-        const what = job?.what ?? '（未开始执行即被拒绝）';
+        if (!job) say('out', e.tail.trim(), e.id);
+        const what = job?.what ?? waited?.what ?? '（未开始执行即被拒绝）';
         jobs.unshift({ id: e.id, what, started: job?.started ?? Date.now(), ms: e.ms, ok: e.ok, files: e.files, paths: e.paths, tail: e.tail, rate: job?.ms ?? null });
         jobs.length = Math.min(jobs.length, 20);
         if (today.day !== new Date().toDateString()) today = { day: new Date().toDateString(), done: 0, failed: 0 };
         today[e.ok ? 'done' : 'failed']++;
         restock();
-        if (updateAfterJob) {
-          updateAfterJob = false;
-          setTimeout(checkUpdate, 1000);
-        }
         note('job', e.ok ? `任务 #${e.id} 已完成：${what}，耗时 ${took(e.ms)}${e.files.length ? `，${e.files.length} 个文件已返回服务器` : ''}` : `任务 #${e.id} 失败：${what}，耗时 ${took(e.ms)}`);
-        job = null;
+        idle();
       }
       push();
     },
   });
+  worker = server;
   server.on('listening', () => {
     workerError = null;
     note('station', `任务服务已就绪，监听 127.0.0.1:${WORKER}`);
@@ -551,6 +617,9 @@ function connect() {
 }
 function stop() {
   shellGate.revoke();
+  wsApprovals.clear();
+  // those waiting their turn: turned away, if the station no longer takes jobs
+  worker?.schedule();
   const p = ssh;
   ssh = null;
   clearTimeout(timer);
@@ -647,7 +716,7 @@ const ui = createServer(async (req, res) => {
   // changes only from the window or the tray: another page cannot send this header without asking
   // first, and is not answered when it asks
   if (req.method !== 'POST' || req.headers['x-station'] !== '1') return res.writeHead(403).end();
-  if (path.startsWith('/shell/') && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
+  if ((path.startsWith('/shell/') || path.startsWith('/manage')) && req.headers['x-shell-local'] !== shellToken) return res.writeHead(403).end();
   let data;
   try {
     const text = await body(req);
@@ -668,6 +737,21 @@ const ui = createServer(async (req, res) => {
       shellGate.decide(data.id, data.action);
     } else if (path === '/shell/remove') {
       shellGate.remove(data.index);
+    } else if (path === '/manage') {
+      if (!['off', 'ask', 'allow'].includes(data.mode)) throw new Error('mode must be off, ask or allow');
+      config.manage = data.mode;
+      save();
+      if (data.mode !== 'ask') wsApprovals.clear();
+      note('station', `服务器管理工作区：${{ off: '已关闭', ask: '需要本机审批', allow: '无需审批' }[data.mode]}`);
+    } else if (path === '/manage/decide') {
+      if (!['allow', 'deny'].includes(data.action)) throw new Error('action must be allow or deny');
+      wsApprovals.decide(data.id, data.action);
+    } else if (path === '/parallel') {
+      if (!Number.isInteger(data.n) || data.n < 1 || data.n > 16) throw new Error('同时运行的任务数须为 1 到 16 之间的整数');
+      config.parallel = data.n;
+      save();
+      note('station', `同时运行的任务数：${data.n}`);
+      worker?.schedule();
     } else if (path === '/pause') {
       config.paused = true;
       save();
@@ -691,7 +775,17 @@ const ui = createServer(async (req, res) => {
         reconnect = ssh.target !== config.ssh.target || ssh.port !== config.ssh.port;
         config.ssh = ssh;
       }
-      if (data.workspaces) config.workspaces = checkWorkspaces(data.workspaces);
+      if (data.workspaces) {
+        const list = checkWorkspaces(data.workspaces);
+        // one added here: its settings may start from a station's from before workspaces
+        const known = new Set(config.workspaces.map((w) => samePath(w.path)));
+        for (const w of list) {
+          if (known.has(samePath(w.path))) continue;
+          const taken = adopt(w, config.env);
+          if (taken.length) note('station', `已从旧版渲染站的设置中导入工作区 ${resolveWorkspaces([w])[0].name} 的 ${taken.length} 项设置：${taken.join('、')}`);
+        }
+        config.workspaces = list;
+      }
       save();
       note('station', '设置已保存');
       if (reconnect) restart();
@@ -732,6 +826,8 @@ ui.on('error', (e) => {
 ui.listen(UI, '127.0.0.1', () => {
   note('station', `渲染站已启动，窗口地址：http://127.0.0.1:${UI}`);
   if (installed) clearOld(STAGE);
+  // the one job folder of versions before jobs ran side by side
+  rmSync(join(dir, 'job'), { recursive: true, force: true });
   restock();
   readVersion();
   startWorker();

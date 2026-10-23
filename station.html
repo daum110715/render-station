@@ -695,6 +695,37 @@
         color: var(--bad);
         background: color-mix(in srgb, var(--bad) 12%, transparent);
       }
+      .tag.run {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+      .tag.wait {
+        color: var(--wait);
+        background: color-mix(in srgb, var(--wait) 12%, transparent);
+      }
+      /* the jobs running and waiting, each with how far it is */
+      .job.live {
+        grid-template-columns: 3.2em 1fr auto auto;
+        cursor: default;
+      }
+      .job.live:hover {
+        background: none;
+      }
+      .prog {
+        display: block;
+        height: 3px;
+        margin-top: 6px;
+        border-radius: 2px;
+        background: var(--well);
+        overflow: hidden;
+      }
+      .prog b {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.6s var(--out);
+      }
       .job .open,
       .acts button {
         padding: 2px 12px;
@@ -1037,6 +1068,11 @@
       .ln.raw i {
         visibility: hidden;
       }
+      /* what a job printed: its number */
+      .ln.raw.of-job i {
+        visibility: visible;
+        font-variant-numeric: tabular-nums;
+      }
       .ln.raw span {
         font: 11.5px/1.6 var(--mono);
         color: var(--ink-3);
@@ -1104,8 +1140,41 @@
       .shell-actions button { border-radius: 0; background: transparent; }
       #shell-rules li { padding: 10px 0; font-size: 13px; }
       #shell-error { color: var(--bad); white-space: pre-wrap; }
-      #shell-review { width: 680px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-      #shell-review::backdrop { background: rgb(0 0 0 / 40%); }
+      #shell-review, #ws-review { width: 680px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 18px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+      #shell-review::backdrop, #ws-review::backdrop { background: rgb(0 0 0 / 40%); }
+      /* a choice of a few, and a number to step */
+      .seg {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+      }
+      .seg button {
+        padding: 3px 12px;
+        border: 0;
+        border-radius: 999px;
+        background: none;
+        font: 13px var(--ui);
+        color: var(--ink-2);
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--accent);
+        color: var(--paper);
+      }
+      .seg b {
+        min-width: 2em;
+        font: 500 13px var(--ui);
+        text-align: center;
+      }
+      div.switch {
+        cursor: default;
+      }
+      #manage-error {
+        font-size: 12.5px;
+        color: var(--bad);
+      }
       input.missing {
         border-color: var(--wait);
       }
@@ -1373,6 +1442,11 @@
             <div class="stat card"><span>速度</span><b id="s-rate">—</b><small>毫秒 / 帧</small></div>
           </div>
 
+          <section class="recent" id="active-sec" hidden>
+            <div class="head"><h3>运行中</h3><span class="sub" id="active-sub"></span></div>
+            <div class="card"><ol id="active"></ol></div>
+          </section>
+
           <section class="machine">
             <div class="head"><h3>本机</h3><span class="sub" id="m-sub"></span></div>
             <div class="charts">
@@ -1444,12 +1518,20 @@
               <label>端口<input type="text" name="port" inputmode="numeric" placeholder="22" /></label>
             </div>
             <h4>工作区</h4>
-            <p class="hint">任务只在已登记的工作区中运行。工作区根目录下的 render-station.json 规定该工作区所需的设置和提供的预设任务；登记工作区，即表示信任其预设任务。填写路径并保存后，此处将列出该工作区所需的设置。</p>
+            <p class="hint">任务只在已登记的工作区中运行。工作区根目录下的 render-station.json 规定该工作区所需的设置和提供的预设任务；登记工作区，即表示信任其预设任务。填写路径并保存后，此处将列出该工作区所需的设置；如果该文件夹中留有旧版渲染站的设置，将自动导入。</p>
             <div id="ws-list"></div>
             <button type="button" id="ws-add">添加工作区</button>
             <div class="save"><button type="submit" class="primary">保存</button><span id="saved">已保存</span><span id="save-error" role="alert"></span></div>
             <div class="group-set">
               <h4>本机</h4>
+              <div class="switch">
+                <span>同时运行的任务数<small>超出的任务排队等候。同一工作区的预设任务默认一次只运行一个，工作区可在 render-station.json 中用 parallel 放宽</small></span>
+                <span class="seg"><button type="button" id="par-dec" aria-label="减少">−</button><b class="num" id="par-n">2</b><button type="button" id="par-inc" aria-label="增加">+</button></span>
+              </div>
+              <div class="switch">
+                <span>服务器管理工作区<small id="manage-hint"></small><small id="manage-error" role="alert"></small></span>
+                <span class="seg" id="manage"><button type="button" data-manage="off">关闭</button><button type="button" data-manage="ask">需要审批</button><button type="button" data-manage="allow">无需审批</button></span>
+              </div>
               <label class="switch"><span>自动更新<small id="u-hint">有新版本时自动下载并安装</small></span><input type="checkbox" id="autoupdate" role="switch" /></label>
               <div class="update"><span id="u-state">尚未检查</span><button type="button" class="link" id="u-check">立即检查</button></div>
               <div class="version" id="version"></div>
@@ -1470,10 +1552,26 @@
         <pre id="shell-review-command"></pre>
         <p id="shell-review-timeout"></p>
         <p>请只批准你信任的完整命令。加入白名单后，同一工作目录中的同一命令将自动执行；命令所引用脚本的内容此后仍可能变化。</p>
+        <p id="shell-review-more" hidden></p>
         <div class="shell-actions">
           <button type="button" data-shell-decision="deny">拒绝</button>
           <button type="button" data-shell-decision="once">仅本次允许</button>
           <button type="button" data-shell-decision="remember">允许并加入白名单</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="ws-review" aria-labelledby="ws-review-title">
+      <div class="shell-panel">
+        <h4 id="ws-review-title">工作区变更待审批</h4>
+        <p id="ws-review-what"></p>
+        <pre id="ws-review-lines"></pre>
+        <p id="ws-review-presets"></p>
+        <p id="ws-review-note"></p>
+        <p id="ws-review-more" hidden></p>
+        <div class="shell-actions">
+          <button type="button" data-ws-decision="deny">拒绝</button>
+          <button type="button" data-ws-decision="allow">批准</button>
         </div>
       </div>
     </dialog>
@@ -1563,15 +1661,25 @@
           .catch(() => {});
 
       const shellToken = '__SHELL_LOCAL_TOKEN__';
-      async function shellPost(path, body) {
+      // what only this window may ask: the Shell's settings and approvals, and the workspace changes'
+      async function guarded(path, body, error) {
         try {
-          $('#shell-error').textContent = '';
-          const response = await fetch(`/shell/${path}`, { method: 'POST', headers: { 'x-station': '1', 'x-shell-local': shellToken, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+          error.textContent = '';
+          const response = await fetch(path, { method: 'POST', headers: { 'x-station': '1', 'x-shell-local': shellToken, 'content-type': 'application/json' }, body: JSON.stringify(body) });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
           render(data);
-        } catch (error) { $('#shell-error').textContent = error.message; }
+        } catch (e) { error.textContent = e.message; }
       }
+      const shellPost = (path, body) => guarded(`/shell/${path}`, body, $('#shell-error'));
+      const managePost = (path, body) => guarded(path, body, $('#manage-error'));
+      // a request newly shown: its buttons wait a moment, so a click meant for the one before is not taken for it
+      function hold(dialog) {
+        const buttons = dialog.querySelectorAll('.shell-actions button');
+        for (const b of buttons) b.disabled = true;
+        setTimeout(() => buttons.forEach((b) => (b.disabled = false)), 600);
+      }
+      let shellShown = null;
       let shellRulesKey = '';
       function renderShell() {
         if (!S.shell) return;
@@ -1604,9 +1712,64 @@
           $('#shell-review-cwd').textContent = `工作区：${shell.pending.workspace ?? '（无）'} · 工作目录：${shell.pending.cwd}`;
           $('#shell-review-command').textContent = shell.pending.command;
           $('#shell-review-timeout').textContent = `执行时限 ${shell.pending.timeout} 秒；请在 5 分钟内审批。`;
+          $('#shell-review-more').hidden = !shell.behind;
+          $('#shell-review-more').textContent = `另有 ${shell.behind} 个 Shell 请求等待审批，将依次显示。`;
+          if (shellShown !== shell.pending.id) {
+            shellShown = shell.pending.id;
+            hold(dialog);
+          }
           if (!dialog.open) dialog.showModal();
         } else if (dialog.open) dialog.close();
       }
+
+      // ——— the server's changes to the workspaces: how far it may go, and each change awaiting approval ———
+      const MANAGE = {
+        off: '服务器无法添加、修改或移除工作区。',
+        ask: '服务器可通过 cli.mjs workspace 添加、修改或移除工作区，每项变更须在本机批准。',
+        allow: '服务器可直接添加、修改或移除工作区，无需批准。登记工作区即表示信任其预设任务。',
+      };
+      let wsShown = null;
+      function renderManage() {
+        const m = S.manage;
+        for (const b of document.querySelectorAll('[data-manage]')) b.setAttribute('aria-pressed', b.dataset.manage === m.mode);
+        set('manage-hint', MANAGE[m.mode]);
+        set('par-n', String(S.parallel));
+        $('#par-dec').disabled = S.parallel <= 1;
+        $('#par-inc').disabled = S.parallel >= 16;
+        const dialog = $('#ws-review');
+        const p = m.pending;
+        if (!p) {
+          if (dialog.open) dialog.close();
+          return;
+        }
+        set('ws-review-title', { add: '服务器请求添加工作区', set: '服务器请求修改工作区', remove: '服务器请求移除工作区' }[p.action]);
+        set('ws-review-what', `工作区：${p.name}`);
+        set('ws-review-lines', p.lines.join('\n'));
+        $('#ws-review-presets').hidden = p.action === 'remove';
+        set('ws-review-presets', p.presets.length ? `该文件夹的 render-station.json 提供的预设任务：${p.presets.join('、')}` : '该文件夹中没有预设任务。');
+        set('ws-review-note', p.action === 'remove' ? '移除后，服务器将无法再在该工作区中运行任务。' : '批准后，服务器可随时运行该工作区的预设任务，这些任务以渲染站运行账户的权限执行。请只批准你认可的变更；请在 5 分钟内审批。');
+        $('#ws-review-more').hidden = !m.behind;
+        set('ws-review-more', `另有 ${m.behind} 项工作区变更等待审批，将依次显示。`);
+        if (wsShown !== p.id) {
+          wsShown = p.id;
+          hold(dialog);
+        }
+        if (!dialog.open) dialog.showModal();
+      }
+      for (const button of document.querySelectorAll('[data-ws-decision]')) button.onclick = () => managePost('/manage/decide', { id: S.manage.pending?.id, action: button.dataset.wsDecision });
+      $('#ws-review').addEventListener('cancel', (event) => {
+        event.preventDefault();
+        managePost('/manage/decide', { id: S.manage.pending?.id, action: 'deny' });
+      });
+      for (const b of document.querySelectorAll('[data-manage]'))
+        b.addEventListener('click', () => {
+          const mode = b.dataset.manage;
+          if (mode === S.manage.mode) return;
+          if (mode === 'allow' && !confirm('开启后，服务器无需本机批准即可登记工作区，并可运行其中的预设任务，这些任务以渲染站运行账户的权限执行。确定允许吗？')) return;
+          managePost('/manage', { mode });
+        });
+      $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
+      $('#par-inc').addEventListener('click', () => post('/parallel', { n: S.parallel + 1 }));
       $('#shell-enabled').onchange = (event) => shellPost('enabled', { on: event.target.checked });
       $('#shell-yolo').onclick = () => {
         const on = S.shell.mode !== 'yolo';
@@ -1628,21 +1791,25 @@
         if (s) S = s;
         if (!S) return;
         renderShell();
+        renderManage();
         // the page changed on disk (an update): this one again, as it is now
         if (page0 == null) page0 = S.page;
         else if (S.page && S.page !== page0) return location.reload();
         const t = S.tunnel;
-        const j = S.job;
+        // the job running, if it is the only one
+        const many = S.running.length;
+        const j = many === 1 ? S.running[0] : null;
         const shellJob = j?.kind === 'shell';
+        const waiting = S.queued.length ? `；另有 ${S.queued.length} 个任务排队` : '';
         const now = Date.now();
-        const mode = gone ? 'gone' : j ? 'busy' : t.state === 'up' ? 'idle' : t.state;
+        const mode = gone ? 'gone' : many ? 'busy' : t.state === 'up' ? 'idle' : t.state;
         document.body.dataset.mode = mode;
         paint(COLORS[mode] ?? '#9a8a9d');
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
           gone: ['未运行', '渲染站未运行', '后台进程已停止，托盘程序将在几秒内自动重启。如果托盘中也没有渲染站，请双击桌面上的「渲染站」。'],
-          busy: ['执行中', `正在执行：${j?.what}`, j ? `${clock(j.started)} 开始，已运行 ${took(now - j.started)}` : ''],
+          busy: j ? ['执行中', `正在执行：${j.what}`, `${clock(j.started)} 开始，已运行 ${took(now - j.started)}${waiting}`] : ['执行中', `正在执行 ${many} 个任务`, `各任务的进度见下方「运行中」${waiting}`],
           idle: ['在线', '空闲，等待服务器提交任务', `隧道于 ${t.since ? clock(t.since) : ''} 建立。服务器通过 cli.mjs 提交的任务将在本机运行。`],
           connecting: ['连接中', '正在连接服务器…', `ssh ${target}`],
           retry: ['重连中', '无法连接服务器，即将重试', t.message || '网络中断或本机刚从睡眠中唤醒，渲染站将自动重新连接。'],
@@ -1660,11 +1827,16 @@
         let spin = false;
         let small = '';
         const big = $('#big');
-        if (mode === 'busy' && j.total > 0) {
+        if (mode === 'busy' && j?.total > 0) {
           p = Math.min(1, j.n / j.total);
           big.className = '';
           count(big, Math.floor(p * 100), (v) => `${Math.round(v)}%`);
           small = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}`;
+        } else if (mode === 'busy' && !j) {
+          spin = true;
+          big.className = '';
+          count(big, many);
+          small = '个任务运行中';
         } else if (mode === 'retry') {
           p = t.wait ? Math.min(1, (secs * 1000) / t.wait) : 0;
           big.className = '';
@@ -1719,7 +1891,7 @@
         const last = S.jobs[0];
         set('s-last', last ? took(last.ms) : '—');
         set('s-last-sub', last ? `${ago(last.started + last.ms)} · ${last.ok ? '成功' : '失败'}` : '暂无');
-        const rate = j?.ms ?? S.jobs.find((x) => x.rate)?.rate;
+        const rate = S.running.find((x) => x.ms)?.ms ?? S.jobs.find((x) => x.rate)?.rate;
         if (rate) count($('#s-rate'), rate);
         else word($('#s-rate'), '—');
 
@@ -1730,6 +1902,7 @@
         set('jobs-sub', S.jobs.length ? `共 ${S.jobs.length} 个，按时间倒序排列` : '');
 
         charts();
+        renderActive();
         renderJobs();
         renderShelf();
         if (!filled) fill();
@@ -1806,6 +1979,41 @@
         chart($('#c-mem'), m.mem, `已用 ${gb((m.memTotal * (m.mem.at(-1) ?? 0)) / 100)}`);
         $('#c-gpu').hidden = !m.gpu;
         if (m.gpu) chart($('#c-gpu'), m.gpu, m.gpuName ?? '');
+      }
+
+      // ——— the jobs running and waiting, when more than one: each with how far it is ———
+      function renderActive() {
+        const all = [...S.running, ...S.queued.map((q) => ({ ...q, queued: true }))];
+        $('#active-sec').hidden = all.length < 2;
+        if (all.length < 2) return;
+        const now = Date.now();
+        set('active-sub', `${S.running.length} 个运行中${S.queued.length ? `，${S.queued.length} 个排队` : ''}，最多同时运行 ${S.parallel} 个`);
+        const list = $('#active');
+        const key = all.map((x) => `${x.queued ? 'q' : 'r'}${x.id}`).join();
+        if (list.dataset.key !== key) {
+          list.dataset.key = key;
+          list.replaceChildren(
+            ...all.map(() => {
+              const li = document.createElement('li');
+              li.className = 'job live';
+              li.innerHTML = '<span class="at num"></span><span class="what"><span></span><i class="prog"><b></b></i></span><span class="took num"></span><span class="tag"></span>';
+              return li;
+            }),
+          );
+        }
+        all.forEach((x, i) => {
+          const [id, what, detail, tag] = list.children[i].children;
+          set(id, `#${x.id}`);
+          set(what.firstChild, x.what);
+          const bar = what.lastChild;
+          bar.hidden = !(x.total > 0);
+          if (x.total > 0) bar.firstChild.style.width = `${Math.min(100, (x.n / x.total) * 100)}%`;
+          if (x.queued) set(detail, `已等待 ${took(now - x.at)}`);
+          else if (x.total > 0) set(detail, `${x.n} / ${x.total} ${x.frames ? '帧' : '张'} · 已运行 ${took(now - x.started)}`);
+          else set(detail, `已运行 ${took(now - x.started)}`);
+          tag.className = `tag ${x.queued ? 'wait' : 'run'}`;
+          set(tag, x.queued ? '排队中' : '运行中');
+        });
       }
 
       // ——— the jobs ———
@@ -2163,11 +2371,11 @@
       function line(item) {
         const el = document.createElement('div');
         const raw = item.kind === 'out' || item.kind === 'ssh';
-        el.className = `ln k-${item.kind}${raw ? ' raw' : ''}`;
+        el.className = `ln k-${item.kind}${raw ? ' raw' : ''}${raw && item.job ? ' of-job' : ''}`;
         const time = document.createElement('time');
         time.textContent = raw ? '' : stamp(item.t);
         const tag = document.createElement('i');
-        tag.textContent = TAGS[item.kind] ?? '';
+        tag.textContent = raw && item.job ? `#${item.job}` : TAGS[item.kind] ?? '';
         const text = document.createElement('span');
         text.textContent = item.text;
         el.append(time, tag, text);
@@ -2175,16 +2383,19 @@
         return el;
       }
       const atEnd = () => term.scrollTop + term.clientHeight >= term.scrollHeight - 16;
+      // each job's last line: its progress is rewritten there, whatever other jobs printed since
+      const lastOf = new Map();
       function add(items) {
         const stick = atEnd();
         for (const item of items) {
-          const prev = lines.at(-1);
-          if (progress(item) && progress(prev)) {
+          const prev = item.job ? lastOf.get(item.job) : lines.at(-1);
+          if (progress(item) && progress(prev) && lines.includes(prev)) {
             prev.text = item.text;
             if (prev.el) prev.el.lastChild.textContent = item.text;
             continue;
           }
           lines.push(item);
+          if (item.job) lastOf.set(item.job, item);
           if (shows(item)) term.append(line(item));
         }
         while (lines.length > 600) lines.shift().el?.remove();
@@ -2311,6 +2522,7 @@
       // the station sends its whole feed on each connection
       events.onopen = () => {
         lines.length = 0;
+        lastOf.clear();
         term.replaceChildren();
       };
       events.onmessage = (e) => {

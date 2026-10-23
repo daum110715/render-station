@@ -5,6 +5,8 @@
 //            ([{ key, label, required: true | '<platform>', placeholder, hint, type: 'switch', default }])
 //   presets  the jobs the server may run in it without asking each time
 //            ({ <name>: { description, command, cwd, env, upload, args, collect, exclude, timeout } })
+//   parallel how many of its preset jobs may run at once (1 unless it says more: jobs of one
+//            workspace may well use the same files)
 // A preset's command is an argument list (no shell): '{args}' stands for the job's arguments, each of
 // which must match one of `args` (regular expressions, whole), and '{job}' and '{workspace}' in any
 // part, in cwd, env and collect, for the job's folder and the workspace's. `upload`: the files a job
@@ -13,7 +15,7 @@
 // but not those `exclude` names (a glob with no '/' in it names a file in any folder). Registering a
 // workspace trusts its presets: what a job brings and runs has the account's rights.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export const FILE = 'render-station.json';
 /** what a workspace and a preset may be called */
@@ -48,6 +50,7 @@ const strings = (v) => Array.isArray(v) && v.every((s) => typeof s === 'string')
 function check(spec) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) throw new Error('not an object');
   if (spec.name != null && !(typeof spec.name === 'string' && NAME.test(spec.name))) throw new Error('name: letters, digits, ".", "_" and "-" only');
+  if (spec.parallel != null && !(Number.isInteger(spec.parallel) && spec.parallel >= 1 && spec.parallel <= 16)) throw new Error('parallel: 1–16');
   const env = spec.env ?? [];
   if (!Array.isArray(env)) throw new Error('env: a list');
   for (const e of env) {
@@ -78,7 +81,7 @@ function check(spec) {
     if (p.env != null && (typeof p.env !== 'object' || Object.entries(p.env).some(([k, v]) => !KEY.test(k) || typeof v !== 'string'))) throw bad('env: { NAME: text }');
     if (p.timeout != null && !(Number.isInteger(p.timeout) && p.timeout >= 1 && p.timeout <= 86400)) throw bad('timeout: 1–86400 seconds');
   }
-  return { name: spec.name ?? null, env, presets };
+  return { name: spec.name ?? null, env, presets, ...(spec.parallel ? { parallel: spec.parallel } : {}) };
 }
 
 // read again only when the file changed
@@ -116,6 +119,93 @@ export function resolveWorkspaces(list) {
     for (const [k, v] of Object.entries(w.env ?? {})) if (v !== '') env[k] = v;
     return { name, path: w.path, env, given: w.env ?? {}, spec };
   });
+}
+
+/** what a render station from before workspaces, run from a checkout of the folder, kept there of
+ *  its jobs' environment (its .tools/remote/config.json's env) */
+export function legacyEnv(path) {
+  try {
+    const { env } = JSON.parse(readFileSync(join(path, '.tools/remote/config.json'), 'utf8'));
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return {};
+    return Object.fromEntries(Object.entries(env).filter(([k, v]) => KEY.test(k) && typeof v === 'string' && v.trim()));
+  } catch {
+    return {};
+  }
+}
+/** a workspace newly registered (a settings entry, { name, path, env }): what its file asks for and
+ *  it was not given, taken from the settings of a station from before workspaces, those kept in its
+ *  folder or else `fallback` (brought along by the installer); the keys taken */
+export function adopt(entry, fallback = {}) {
+  const old = { ...fallback, ...legacyEnv(entry.path) };
+  const taken = readSpec(entry.path)
+    .env.map((e) => e.key)
+    .filter((k) => !entry.env[k] && typeof old[k] === 'string' && old[k].trim());
+  for (const k of taken) entry.env[k] = old[k].trim();
+  return taken;
+}
+
+/** a path, as two of the same folder compare equal */
+export const samePath = (p, platform = process.platform) => (platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+/** a folder of this machine's, as the server names it: in full, and there */
+function folder(path) {
+  if (typeof path !== 'string' || !path.trim() || !isAbsolute(path.trim())) throw new Error(`path: a full path on this machine${process.platform === 'win32' ? ', such as D:/projects/site' : ''}`);
+  const p = resolve(path.trim());
+  if (!existsSync(p) || !statSync(p).isDirectory()) throw new Error(`folder not found on this machine: ${p}`);
+  return p;
+}
+/** a change the server asks of the workspaces (cli.mjs workspace: { action: 'add' | 'set' | 'remove',
+ *  name, path, env, unset }), made to `list`, the settings' (left as it is): the list it leaves; the
+ *  lines that say what it changes, for the owner; the keys a workspace added took from a station
+ *  from before workspaces (adopt, with `fallback`); and the presets of the workspace's folder */
+export function changeWorkspaces(list, input, fallback = {}) {
+  const { action, name } = input ?? {};
+  if (!['add', 'set', 'remove'].includes(action)) throw new Error('action: add, set or remove');
+  if (typeof name !== 'string' || !NAME.test(name)) throw new Error('name: letters, digits, ".", "_" and "-" only');
+  const env = input.env ?? {};
+  if (typeof env !== 'object' || Array.isArray(env) || Object.entries(env).some(([k, v]) => !KEY.test(k) || typeof v !== 'string' || v.length > 4096)) throw new Error('env: { NAME: text }');
+  const unset = input.unset ?? [];
+  if (!Array.isArray(unset) || unset.some((k) => typeof k !== 'string' || !KEY.test(k))) throw new Error('unset: a list of names');
+  const after = list.map((w) => ({ ...w, env: { ...w.env } }));
+  const at = resolveWorkspaces(list).findIndex((w) => w.name === name);
+  const lines = [];
+  let imported = [];
+  let entry = null;
+  if (action === 'add') {
+    if (at >= 0) throw new Error(`a workspace "${name}" is already registered`);
+    entry = { name, path: folder(input.path), env: Object.fromEntries(Object.entries(env).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()])) };
+    imported = adopt(entry, fallback);
+    after.push(entry);
+    lines.push(`路径：${entry.path}`, ...Object.entries(entry.env).map(([k, v]) => `${k}：${v}${imported.includes(k) ? '（从旧版渲染站的设置中导入）' : ''}`));
+  } else if (at < 0) throw new Error(`no workspace "${name}" on this machine`);
+  else if (action === 'remove') {
+    lines.push(`路径：${after[at].path}`);
+    after.splice(at, 1);
+  } else {
+    entry = after[at];
+    if (input.path != null) {
+      const path = folder(input.path);
+      if (samePath(path) !== samePath(entry.path)) lines.push(`路径：${entry.path} → ${path}`);
+      entry.path = path;
+    }
+    for (const [k, v] of Object.entries(env)) {
+      const was = entry.env[k];
+      const now = v.trim();
+      if ((was ?? '') === now) continue;
+      lines.push(`${k}：${was ?? '（未设置）'} → ${now || '（清除）'}`);
+      if (now) entry.env[k] = now;
+      else delete entry.env[k];
+    }
+    for (const k of unset)
+      if (Object.hasOwn(entry.env, k)) {
+        lines.push(`${k}：${entry.env[k]} → （清除）`);
+        delete entry.env[k];
+      }
+    if (!lines.length) throw new Error('nothing to change: the workspace already has these settings');
+  }
+  const names = resolveWorkspaces(after).map((w) => w.name);
+  const twice = names.find((n, i) => names.indexOf(n) !== i);
+  if (twice) throw new Error(`two workspaces would be named "${twice}"`);
+  return { list: after, lines, imported, presets: entry ? Object.keys(readSpec(entry.path).presets) : [] };
 }
 
 /** the settings a workspace's file asks for on this platform that it has not been given */

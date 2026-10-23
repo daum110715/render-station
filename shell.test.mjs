@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { resolve, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createShellGate, executeShell, shellRequest } from './shell.mjs';
-import { HEADER, serve } from './worker.mjs';
+import { HEADER, PROTOCOL, serve } from './worker.mjs';
 
 const repo = resolve(import.meta.dirname);
 const scratch = join(repo, '.tools/.scratch');
@@ -72,6 +72,23 @@ test('disabled, expired, revoked and disconnected requests do not receive execut
   } finally { f.close(); }
 });
 
+test('requests awaiting approval wait in turn, shown in the order they came', async () => {
+  const f = fixture();
+  try {
+    const a = f.gate.authorize({ command: 'echo a' });
+    const b = f.gate.authorize({ command: 'echo b' });
+    assert.equal(f.gate.state().pending.command, 'echo a');
+    assert.equal(f.gate.state().behind, 1);
+    f.gate.decide(f.gate.state().pending.id, 'deny');
+    await assert.rejects(a, /denied/);
+    assert.equal(f.gate.state().pending.command, 'echo b');
+    assert.equal(f.gate.state().behind, 0);
+    f.gate.decide(f.gate.state().pending.id, 'once');
+    assert.equal((await b).approval, 'manual');
+    assert.equal(f.gate.state().pending, null);
+  } finally { f.close(); }
+});
+
 test('YOLO requires local administrator, permits outside cwd, and resets on revocation and recreation', async () => {
   const f = fixture();
   try {
@@ -117,14 +134,14 @@ test('worker protocol runs an allowlisted shell, blocks while paused, and refuse
   const f = fixture();
   let accepting = true;
   const events = [];
-  const server = serve({ port: 0, workspaces: () => [{ name: 'test', path: f.workspace, env: {}, spec: { env: [], presets: {} } }], shell: f.gate, accepting: () => accepting, on: (e) => events.push(e) });
+  const server = serve({ port: 0, jobs: join(f.workspace, '.jobs'), workspaces: () => [{ name: 'test', path: f.workspace, env: {}, spec: { env: [], presets: {} } }], shell: f.gate, accepting: () => accepting, on: (e) => events.push(e) });
   await new Promise((done) => server.once('listening', done));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = async (payload) => {
-    const res = await fetch(`${base}/job`, { method: 'POST', headers: { [HEADER]: '1' }, body: gzipSync(JSON.stringify(payload)) });
-    const bytes = Buffer.from(await res.arrayBuffer());
-    // fetch transparently decompresses gzip responses; ask.mjs uses node:http instead.
-    return { status: res.status, reply: res.status === 200 ? JSON.parse(bytes.toString()) : null };
+    const res = await fetch(`${base}/job`, { method: 'POST', headers: { [HEADER]: String(PROTOCOL) }, body: gzipSync(JSON.stringify(payload)) });
+    // fetch undoes the gzip itself (cli.mjs reads it with node:http); the reply is the last line
+    const text = await res.text();
+    return { status: res.status, reply: res.status === 200 ? JSON.parse(text.trim().split('\n').at(-1)).reply : null };
   };
   try {
     f.policy.rules.push({ command: 'echo protocol-ok', cwd: realpathSync(f.workspace) });
