@@ -136,6 +136,35 @@
         font: 13.5px/1.65 var(--ui);
         -webkit-font-smoothing: antialiased;
         --state: var(--off);
+        /* an app's window: its labels are not text to select, only what may be worth copying is */
+        user-select: none;
+      }
+      :is(pre, .term, input, textarea, .state-detail, .review dd, .wsc-head small, .presets code, .lede, .hint, #log-path, #version, #tun-detail) {
+        user-select: text;
+      }
+      img,
+      svg {
+        -webkit-user-drag: none;
+      }
+      /* scrollbars: a slim thumb, nothing under it; the page's starting below the title bar */
+      ::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+      }
+      ::-webkit-scrollbar-track,
+      ::-webkit-scrollbar-corner {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        border: 4px solid transparent;
+        border-radius: 999px;
+        background: var(--line) padding-box;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--ink-3);
+      }
+      .framed .main::-webkit-scrollbar-track {
+        margin-top: 34px;
       }
       body[data-mode='idle'] {
         --state: var(--ok);
@@ -371,9 +400,16 @@
         z-index: 30;
         display: flex;
         height: 34px;
-        background: color-mix(in srgb, var(--ground) 84%, transparent);
-        backdrop-filter: blur(12px);
         user-select: none;
+        transition:
+          background-color 0.25s,
+          box-shadow 0.25s;
+      }
+      /* nothing of its own over the page, till the page goes under it */
+      .scrolled .titlebar {
+        background: color-mix(in srgb, var(--ground) 82%, transparent);
+        backdrop-filter: blur(14px) saturate(1.2);
+        box-shadow: 0 1px 0 var(--line-2);
       }
       .titlebar .drag {
         flex: 1;
@@ -399,6 +435,10 @@
       .tb.close:hover {
         background: #c42b1c;
         color: #fff;
+      }
+      /* another window in front: dimmed, as a frame's buttons are */
+      .inactive .tb:not(:hover) {
+        color: var(--ink-3);
       }
       .tb svg {
         width: 10px;
@@ -655,8 +695,6 @@
       .main {
         position: relative;
         overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: var(--line) transparent;
       }
       .page {
         max-width: 860px;
@@ -665,6 +703,10 @@
       }
       .framed .page {
         padding-top: 44px;
+      }
+      /* the state's large words: clear of the title bar */
+      .framed #page-home {
+        padding-top: 56px;
       }
       .page.enter {
         animation: enter 0.35s var(--out) both;
@@ -782,6 +824,7 @@
       }
       /* the frames: a cell each (or each so many), filled as they are made */
       .strip {
+        --track: color-mix(in srgb, var(--state) 15%, transparent);
         display: grid;
         grid-template-columns: repeat(var(--segs, 48), minmax(0, 1fr));
         gap: 3px;
@@ -789,7 +832,7 @@
       }
       .strip i {
         border-radius: 2px;
-        background: var(--sunk);
+        background: var(--track);
         transition: background-color 0.5s;
       }
       .strip i.on {
@@ -800,7 +843,7 @@
       }
       @keyframes now {
         to {
-          background: color-mix(in srgb, var(--state) 55%, var(--sunk));
+          background: color-mix(in srgb, var(--state) 55%, transparent);
         }
       }
       /* no telling how far: a light passing along */
@@ -812,10 +855,10 @@
         0%,
         60%,
         100% {
-          background: var(--sunk);
+          background: var(--track);
         }
         25% {
-          background: color-mix(in srgb, var(--state) 60%, var(--sunk));
+          background: color-mix(in srgb, var(--state) 60%, transparent);
         }
       }
       .strip-meta {
@@ -924,7 +967,7 @@
       }
       .charts {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 4px 28px;
       }
       .chart {
@@ -943,12 +986,10 @@
         font: 500 22px/1.35 var(--ui);
         font-variant-numeric: tabular-nums;
       }
+      /* what it is: the processor's, the card's name, the memory used */
       .chart small {
-        position: absolute;
-        right: 0;
-        top: 13px;
-        max-width: 58%;
-        font-size: 11px;
+        display: block;
+        font-size: 11.5px;
         color: var(--ink-3);
         white-space: nowrap;
         overflow: hidden;
@@ -1331,17 +1372,22 @@
           transform 0.4s var(--out),
           width 0.4s var(--out);
       }
+      /* the log, as tall as the window leaves it */
+      #page-feed {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding-bottom: 28px;
+      }
       .term {
-        height: calc(100vh - 200px);
-        min-height: 300px;
+        flex: 1;
+        min-height: 260px;
         overflow: auto;
         padding: 14px 18px;
         border-radius: var(--r-panel);
         background: var(--sunk);
         font-size: 13px;
         line-height: 1.65;
-        scrollbar-width: thin;
-        scrollbar-color: var(--line) transparent;
       }
       .term:empty::before {
         content: '暂无动态。';
@@ -1432,6 +1478,10 @@
       }
       .row .text small.err {
         color: var(--bad);
+      }
+      .row .text code {
+        font: 11.5px var(--mono);
+        white-space: nowrap;
       }
       .row .ctl {
         display: flex;
@@ -1999,7 +2049,7 @@
               </div>
             </div>
             <label class="row">
-              <span class="text"><b>同步剪贴板</b><small>开启后，在这台电脑上复制的文字和图片会自动同步到服务器的 ~/.render-station/clipboard/，服务器也可以写入这台电脑的剪贴板。不同步密码管理器标记为敏感的内容和超过 20 MB 的内容。不弹出通知，只在「动态」和日志中记录方向、类型和大小。</small><small id="clip-last"></small><small class="err" id="clip-error" role="alert"></small></span>
+              <span class="text"><b>同步剪贴板</b><small>在这台电脑上复制的文字和图片，约 1 秒内同步到服务器的 <code>~/.render-station/clipboard/</code>；服务器也可以写入这台电脑的剪贴板。密码管理器标记为敏感的内容和超过 20 MB 的内容不同步。不弹出通知，只在「动态」和日志中记录。</small><small id="clip-last"></small><small class="err" id="clip-error" role="alert"></small></span>
               <input type="checkbox" id="clipboard" role="switch" />
             </label>
           </div>
@@ -3192,19 +3242,46 @@
         shellPost('decide', { id: S.shell.pending?.id, action: 'deny' });
       });
 
-      /** the look the settings name, kept for the next time the page is drawn */
+      /** the look the settings name, kept for the next time the page is drawn; changed, faded into */
       function applyTheme() {
         const theme = S.theme === 'cream' ? 'cream' : 'plum';
         if (document.documentElement.dataset.theme === theme) return;
-        document.documentElement.dataset.theme = theme;
+        const apply = () => {
+          document.documentElement.dataset.theme = theme;
+          tellLook();
+        };
+        if (document.startViewTransition && !still && S0) document.startViewTransition(apply);
+        else apply();
         try {
           localStorage.setItem('station-theme', theme);
         } catch {}
       }
+      // a colour of the page's as rrggbb
+      const probe = el('i');
+      probe.hidden = true;
+      function hex(color) {
+        probe.style.color = color;
+        document.body.append(probe);
+        const said = getComputedStyle(probe).color;
+        probe.remove();
+        const n = said.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];
+        return n.slice(0, 3).map((v) => Math.round(said.startsWith('color(') ? v * 255 : v).toString(16).padStart(2, '0')).join('');
+      }
+      /** 渲染站.exe told the look, for the window round the page: its ground (under it while it loads
+       *  and is sized), its edge, light or dark */
+      function tellLook() {
+        if (!host) return;
+        const dark = getComputedStyle(document.documentElement).colorScheme === 'dark' ? 1 : 0;
+        host.postMessage(`look\t${hex('var(--ground)')}\t${hex('var(--line)')}\t${dark}`);
+      }
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', tellLook);
+      // the first state yet to come: the look is applied as it is, not faded into
+      let S0 = false;
       function render(s) {
         if (s) S = s;
         if (!S) return;
         applyTheme();
+        S0 = true;
         // the page changed on disk (an update): this one again, as it is now
         if (page0 == null) page0 = S.page;
         else if (S.page && S.page !== page0) return location.reload();
@@ -3259,6 +3336,8 @@
             $('#tb-max').setAttribute('aria-label', how === 'max' ? '向下还原' : '最大化');
             $('#grip').hidden = how === 'max';
             $('#tb-max-icon').setAttribute('d', how === 'max' ? 'M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z' : 'M0.5 0.5h9v9h-9z');
+          } else if (what === 'active') {
+            document.documentElement.classList.toggle('inactive', how === '0');
           } else if (what === 'elevate') {
             // why it did not start again as administrator
             const text = {
@@ -3271,7 +3350,17 @@
           }
         });
         host.postMessage('ready');
+        tellLook();
+        // the browser's own menu (back, reload, print…) not in an app's window: only where text is
+        // typed or selected, to copy and paste
+        addEventListener('contextmenu', (e) => {
+          if (!e.target.closest('input, textarea') && !String(getSelection())) e.preventDefault();
+        });
       }
+      // a file dropped on the window is not opened in it, in place of the page
+      for (const type of ['dragover', 'drop']) addEventListener(type, (e) => e.target.closest?.('input, textarea') || e.preventDefault());
+      // the title bar shows itself once the page goes under it
+      $('#main').addEventListener('scroll', () => document.documentElement.classList.toggle('scrolled', $('#main').scrollTop > 2), { passive: true });
 
       let first = fromHash() || 'home';
       try {

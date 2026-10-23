@@ -103,6 +103,12 @@ static ICoreWebView2Environment *wenv;
 static int navTries, crashes;
 // the page loaded; the window closed and hidden; maximized, as the page was last told; to open maximized
 static int loaded, hidden, toldZoom = -1, openZoomed;
+// the page's look, as it last told (kept for the next window, so it opens in its colours): its ground,
+// under it as it loads and is sized; its edge, Windows 11's border round it; and whether it is dark
+static struct {
+  COLORREF ground, edge;
+  DWORD dark, edged;
+} look;
 static wchar_t logPath[MAX_PATH + 64];
 // a line in the station's log (station.log, beside station.mjs's own): how the window went
 static void say(const wchar_t *fmt, ...) {
@@ -509,6 +515,20 @@ static void tellZoom(int always) {
   toldZoom = z;
   ICoreWebView2_PostWebMessageAsString(wv, z ? L"window\tmax" : L"window\tnormal");
 }
+// the window in the page's colours: its ground, WebView2's under the page, the edge's darkness and colour
+static void applyLook(void) {
+  if (!frame) return;
+  BOOL on = look.dark;
+  DwmSetWindowAttribute(frame, 20, &on, sizeof on);
+  if (look.edged) DwmSetWindowAttribute(frame, 34, &look.edge, sizeof look.edge);
+  InvalidateRect(frame, NULL, TRUE);
+  ICoreWebView2Controller2 *c2;
+  if (ctl && SUCCEEDED(ICoreWebView2Controller_QueryInterface(ctl, &IID_ICoreWebView2Controller2, (void **)&c2))) {
+    COREWEBVIEW2_COLOR bg = { 255, GetRValue(look.ground), GetGValue(look.ground), GetBValue(look.ground) };
+    ICoreWebView2Controller2_put_DefaultBackgroundColor(c2, bg);
+    ICoreWebView2Controller2_Release(c2);
+  }
+}
 // it could not be made, or shows nothing: a browser's, as before (a trial, which is to show the
 // window, says so instead)
 static void fallBack(void) {
@@ -581,6 +601,18 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
   }
   else if (!wcscmp(s, L"ready"))
     tellZoom(1);
+  else if (!wcsncmp(s, L"look\t", 5)) {
+    // look\t<ground>\t<edge>\t<dark>: colours as rrggbb
+    unsigned g, e, d;
+    if (swscanf(s + 5, L"%6x\t%6x\t%u", &g, &e, &d) == 3) {
+      look.ground = RGB(g >> 16, (g >> 8) & 255, g & 255);
+      look.edge = RGB(e >> 16, (e >> 8) & 255, e & 255);
+      look.dark = d != 0;
+      look.edged = 1;
+      RegSetKeyValueW(HKEY_CURRENT_USER, PLACE_KEY, L"look", REG_BINARY, &look, sizeof look);
+      applyLook();
+    }
+  }
   else if (!wcscmp(s, L"log"))
     openLog();
   else if (frame && !wcscmp(s, L"close"))
@@ -648,13 +680,8 @@ static HRESULT STDMETHODCALLTYPE onController(ICoreWebView2CreateCoreWebView2Con
   ctl = made;
   ICoreWebView2Controller_AddRef(ctl);
   ICoreWebView2Controller_get_CoreWebView2(ctl, &wv);
-  // the page's own paper behind it while it loads
-  ICoreWebView2Controller2 *c2;
-  if (SUCCEEDED(ICoreWebView2Controller_QueryInterface(ctl, &IID_ICoreWebView2Controller2, (void **)&c2))) {
-    COREWEBVIEW2_COLOR bg = dark ? (COREWEBVIEW2_COLOR){ 255, 0x12, 0x10, 0x19 } : (COREWEBVIEW2_COLOR){ 255, 0xf3, 0xf2, 0xf7 };
-    ICoreWebView2Controller2_put_DefaultBackgroundColor(c2, bg);
-    ICoreWebView2Controller2_Release(c2);
-  }
+  // the page's own ground behind it while it loads
+  applyLook();
   // an app's window, not a browser's
   ICoreWebView2Settings *st;
   if (SUCCEEDED(ICoreWebView2_get_Settings(wv, &st))) {
@@ -732,7 +759,18 @@ static LRESULT CALLBACK frameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
   case WM_ACTIVATE:
     if (ctl && LOWORD(wp) != WA_INACTIVE) ICoreWebView2Controller_MoveFocus(ctl, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+    // the title bar's buttons dimmed while another window is in front, as a frame's are
+    if (wv) ICoreWebView2_PostWebMessageAsString(wv, LOWORD(wp) == WA_INACTIVE ? L"active\t0" : L"active\t1");
     break;
+  case WM_ERASEBKGND: {
+    // what WebView2 has not drawn yet, sized larger: the page's ground
+    RECT rc;
+    GetClientRect(h, &rc);
+    HBRUSH b = CreateSolidBrush(look.ground);
+    FillRect((HDC)wp, &rc, b);
+    DeleteObject(b);
+    return 1;
+  }
   case WM_GETMINMAXINFO: {
     MINMAXINFO *m = (MINMAXINFO *)lp;
     m->ptMinTrackSize.x = DIP(520);
@@ -772,9 +810,8 @@ static int makeFrame(void) {
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
   restorePlace();
-  // the edge dark with the page, the corners round (Windows 11)
-  BOOL on = dark;
-  DwmSetWindowAttribute(frame, 20, &on, sizeof on);
+  // the edge in the page's colours, the corners round (Windows 11)
+  applyLook();
   int round = 2;
   DwmSetWindowAttribute(frame, 33, &round, sizeof round);
   SetWindowPos(frame, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1460,6 +1497,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   DWORD light = 1, size = sizeof light;
   RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &light, &size);
   dark = light == 0;
+  // the page's look as it last told; till it has, 梅紫's, light or dark as Windows is
+  size = sizeof look;
+  if (RegGetValueW(HKEY_CURRENT_USER, PLACE_KEY, L"look", RRF_RT_REG_BINARY, NULL, &look, &size) != ERROR_SUCCESS || size != sizeof look) {
+    memset(&look, 0, sizeof look);
+    look.ground = dark ? RGB(0x17, 0x12, 0x16) : RGB(0xf9, 0xf6, 0xf3);
+    look.dark = dark;
+  }
   // WebView2's loader, beside this
   wchar_t loader[MAX_PATH + 32];
   FMT(loader, L"%ls\\WebView2Loader.dll", exeDir);
@@ -1470,7 +1514,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   fc.lpfnWndProc = frameProc;
   fc.hInstance = inst;
   fc.hCursor = LoadCursorW(NULL, IDC_ARROW);
-  fc.hbrBackground = CreateSolidBrush(dark ? RGB(0x12, 0x10, 0x19) : RGB(0xf3, 0xf2, 0xf7));
+  fc.hbrBackground = NULL;
   fc.hIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
   fc.hIconSm = icons[ICON_BUSY];
   fc.lpszClassName = L"RenderStationWindow";
