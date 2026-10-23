@@ -262,6 +262,7 @@ With 同步剪贴板 (Sync clipboard) on in 设置 → 权限与审批 (Settings
 - On the server, `rs clip` prints the newest (for a picture, its path) and `rs clip ls` lists the history. Both read the files on the server and do not need the device.
 - What a password manager or similar program marks as not to be recorded, and anything over 20 MB, is not synced.
 - Syncing shows no notification; the feed and the log record its direction, type and size, never the content.
+- With `rs` linked as `xclip`, programs on the server that use xclip for the clipboard use the device's: Claude Code there pastes a picture copied on the device, for example. See "clip" in [docs/cli.md](docs/cli.md).
 
 ```sh
 rs clip

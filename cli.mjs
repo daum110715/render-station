@@ -9,7 +9,7 @@
 import { request } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGunzip, gzipSync } from 'node:zlib';
 import { HEADER, PORTS, PROTOCOL } from './worker.mjs';
@@ -135,6 +135,11 @@ rs clip set puts something on the device's clipboard: the text given, what is pi
 A PNG, JPEG, GIF, BMP or TIFF goes there as a picture, anything else as text (UTF-8); up to 20 MB.
 Text that starts with -- goes after --.
 
+Linked as xclip, ahead of any other on the PATH (ln -s "$(command -v rs)" ~/.local/bin/xclip), rs
+is the clipboard of this server to the programs that use xclip: what they read is what came from the
+device, what they write goes there. So a picture copied on the device is pasted into Claude Code
+here. Not on a machine with a desktop of its own, whose xclip it would hide.
+
 examples: rs clip
           git diff | rs clip set
           rs clip set --file shot.png`,
@@ -143,7 +148,59 @@ examples: rs clip
 What the commands do, or what one does.`,
 };
 
-const argv = process.argv.slice(2);
+// ——— by the name xclip (a link to this): the clipboard of this server, as programs here ask it with
+// xclip (Claude Code, for a picture to paste), is the device's. Read, it is what came from there
+// (in ~/.render-station/clipboard/); written, it goes there as rs clip set puts it ———
+const CLIP_DIR = join(homedir(), '.render-station/clipboard');
+const XCLIP = ['out', 'in', 'target', 'selection', 'display', 'loops', 'filter', 'rmlastnl', 'quiet', 'silent', 'verbose', 'noutf8', 'sensitive', 'version', 'help'];
+/** what was written to xclip, for rs clip set */
+let xclipData = null;
+if (basename(process.argv[1] ?? '') === 'xclip') {
+  const x = { files: [] };
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    // its options are named with one dash, or any start of their names (-o, -sel, -t)
+    const a = args[i].replace(/^--?/, '');
+    const name = args[i].startsWith('-') && a ? XCLIP.find((o) => o.startsWith(a)) : null;
+    if (!name) x.files.push(args[i]);
+    else if (['target', 'selection', 'display', 'loops'].includes(name)) x[name] = args[++i];
+    else x[name] = true;
+  }
+  if (x.version || x.help) {
+    console.log('xclip of render-station: the device\'s clipboard (rs help clip)');
+    process.exit(0);
+  }
+  if (x.out) {
+    const has = { png: existsSync(join(CLIP_DIR, 'latest.png')), txt: existsSync(join(CLIP_DIR, 'latest.txt')) };
+    const target = x.target ?? 'UTF8_STRING';
+    const TEXT = ['UTF8_STRING', 'STRING', 'TEXT', 'text/plain', 'text/plain;charset=utf-8'];
+    if (target === 'TARGETS') {
+      const list = [...(has.png ? ['image/png'] : []), ...(has.txt ? TEXT : [])];
+      if (!list.length) process.exit(1);
+      writeFileSync(1, `TARGETS\n${list.join('\n')}\n`);
+      process.exit(0);
+    }
+    const text = TEXT.some((t) => t.toLowerCase() === target.toLowerCase());
+    const file = target === 'image/png' && has.png ? 'latest.png' : text && has.txt ? 'latest.txt' : null;
+    if (!file) {
+      if (!x.quiet && !x.silent) console.error(`Error: target ${target} not available`);
+      process.exit(1);
+    }
+    let data = readFileSync(join(CLIP_DIR, file));
+    if (x.rmlastnl && data.at(-1) === 10) data = data.subarray(0, data.at(-2) === 13 ? -2 : -1);
+    writeFileSync(1, data);
+    process.exit(0);
+  }
+  try {
+    xclipData = x.files.length ? Buffer.concat(x.files.map((f) => readFileSync(resolve(f)))) : readFileSync(0);
+  } catch (e) {
+    console.error(`xclip: ${e.message}`);
+    process.exit(1);
+  }
+  if (x.filter) writeFileSync(1, xclipData);
+}
+
+const argv = xclipData ? ['clip', 'set'] : process.argv.slice(2);
 const what = ALIAS[argv[0]] ?? argv[0];
 if (what == null || what === '-h' || what === '--help') {
   console.log(HELP['']);
@@ -258,7 +315,6 @@ const stream = (port, path, body, extra, step) =>
   });
 
 // ——— what was copied on the device: here already, the device not needed ———
-const CLIP_DIR = join(homedir(), '.render-station/clipboard');
 const CLIP_MAX = 20 * 1024 * 1024;
 const bytes = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 /** a file of the clipboard's, as listed: its path, what it is, its size, when it came */
@@ -434,12 +490,12 @@ const isPicture = (b) =>
 if (what === 'clip') {
   const given = words.slice(1);
   if (opts.file && given.length) usage('clip set: the text or --file, not both');
-  if (!opts.file && !given.length && process.stdin.isTTY) usage('clip set: the text, --file <path>, or something piped in');
+  if (!xclipData && !opts.file && !given.length && process.stdin.isTTY) usage('clip set: the text, --file <path>, or something piped in');
   need('clip', 'clip set');
   if (!hello.clipboard) finish({ ok: false, error: 'the owner of the device has not turned on 同步剪贴板 (clipboard sync) in the render station\'s settings there' }, 1);
   let data;
   try {
-    data = opts.file ? readFileSync(resolve(opts.file)) : given.length ? Buffer.from(given.join(' '), 'utf8') : readFileSync(0);
+    data = xclipData ?? (opts.file ? readFileSync(resolve(opts.file)) : given.length ? Buffer.from(given.join(' '), 'utf8') : readFileSync(0));
   } catch (e) {
     finish({ ok: false, error: `could not read ${opts.file ?? 'what was piped in'}: ${e.message}` }, 1);
   }
@@ -452,6 +508,7 @@ if (what === 'clip') {
   if (res.status !== 200) finish({ ok: false, error: `the worker answered ${res.status}: ${res.body.toString().slice(0, 500)}` }, 1);
   const reply = JSON.parse(res.body);
   if (opts.json || !reply.ok) finish(reply, reply.ok ? 0 : 1);
+  if (xclipData) process.exit(0);
   console.log(`put on the device's clipboard: ${type === 'image' ? 'a picture' : 'text'}, ${bytes(reply.size ?? data.length)}`);
   process.exit(0);
 }

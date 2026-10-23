@@ -196,6 +196,16 @@ git diff | rs clip set
 rs clip set --file shot.png
 ```
 
+### As xclip
+
+Programs on the server read and write the clipboard with `xclip` (Claude Code, for one, when pasting a picture). Link `rs` as `xclip` in a folder early on the PATH:
+
+```sh
+ln -s "$(command -v rs)" ~/.local/bin/xclip
+```
+
+Then what they read is what was last copied on the device (as `rs clip` gives it), and what they write goes onto the device's clipboard as with `rs clip set`. So a picture copied on the device is pasted into Claude Code on the server (Alt+V in a Windows terminal). It takes xclip's `-selection`, `-target` (`TARGETS` too), `-out`, `-in`, `-filter` and `-rmlastnl`, and their abbreviations. Do not do this on a machine with a desktop of its own: it would hide the real xclip.
+
 With `--json`, `rs clip` prints `ok`, `path`, `type` (`"text"` or `"image"`), `size` in bytes and `at` in milliseconds since 1970, and `text` for text; `rs clip ls` prints `ok` and `entries`, each with the same fields but `text`; `rs clip set` prints `ok`, `type` and `size`.
 
 ## help

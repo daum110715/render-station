@@ -196,6 +196,16 @@ git diff | rs clip set
 rs clip set --file shot.png
 ```
 
+### 作为 xclip 使用
+
+服务器上的程序（例如 Claude Code 粘贴图片时）通过 `xclip` 读写剪贴板。把 `rs` 链接为 `xclip`，并放在 PATH 中靠前的文件夹里：
+
+```sh
+ln -s "$(command -v rs)" ~/.local/bin/xclip
+```
+
+此后，这些程序读到的是设备上最近复制的内容（与 `rs clip` 相同），写入的内容则通过 `rs clip set` 写入设备的剪贴板。这样，在设备上复制的图片可以直接粘贴到服务器上的 Claude Code 中（Windows 终端中按 Alt+V）。支持 xclip 的 `-selection`、`-target`（含 `TARGETS`）、`-out`、`-in`、`-filter` 和 `-rmlastnl` 选项，以及它们的缩写。不要在有图形界面的机器上这样做，否则会盖住真正的 xclip。
+
 加 `--json` 时，`rs clip` 输出 `ok`、`path`、`type`（`"text"` 或 `"image"`）、以字节为单位的 `size`、以 1970 年起的毫秒数表示的 `at`，文字另有 `text`；`rs clip ls` 输出 `ok` 和 `entries`，各项字段同上（不含 `text`）；`rs clip set` 输出 `ok`、`type` 和 `size`。
 
 ## help

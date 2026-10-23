@@ -262,6 +262,7 @@ rs run video/transcode --crf 23
 - 在服务器上，`rs clip` 输出最新的一份（图片则输出其路径），`rs clip ls` 列出历史。这两个命令只读取服务器上的文件，不需要设备在线。
 - 密码管理器等程序标记为不记录的内容，以及超过 20 MB 的内容，不会同步。
 - 同步时不弹出通知，只在「动态」和日志中记录方向、类型和大小，不记录内容。
+- 把 `rs` 链接为 `xclip` 后，服务器上通过 xclip 读写剪贴板的程序用的就是设备的剪贴板，例如在 Claude Code 中可以直接粘贴设备上复制的图片。见 [docs/cli.zh-CN.md](docs/cli.zh-CN.md) 的「clip」。
 
 ```sh
 rs clip

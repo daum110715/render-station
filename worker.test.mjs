@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { HEADER, PROTOCOL, serve } from './worker.mjs';
@@ -351,5 +351,23 @@ test('cli.mjs clip puts text or a picture on the device\'s clipboard, and reads 
     const listed = JSON.parse((await cli(['clip', 'ls', '--json'])).stdout);
     assert.deepEqual(listed.entries.map((e) => [e.type, e.size]), [['text', 12]]);
     assert.equal((await cli(['clip', 'nope'])).code, 2);
+    // linked as xclip: read as Claude Code reads a picture, written onto the device's clipboard
+    const link = join(f.base, 'xclip');
+    symlinkSync(join(repo, 'cli.mjs'), link);
+    const xclip = (args, input) =>
+      new Promise((done) => {
+        const p = execFile(process.execPath, [link, ...args], { encoding: 'buffer', env: { ...process.env, HOME: f.base, RENDER_STATION_PORT: String(f.server.address().port) } }, (e, stdout) => done({ code: e?.code ?? 0, stdout }));
+        p.stdin.end(input);
+      });
+    assert.match((await xclip(['-selection', 'clipboard', '-t', 'TARGETS', '-o'])).stdout.toString(), /UTF8_STRING/);
+    assert.equal((await xclip(['-sel', 'c', '-t', 'image/png', '-o'])).code, 1);
+    writeFileSync(join(dir, 'latest.png'), png);
+    rmSync(join(dir, 'latest.txt'));
+    assert.match((await xclip(['-selection', 'clipboard', '-t', 'TARGETS', '-o'])).stdout.toString(), /image\/png/);
+    assert.deepEqual((await xclip(['-selection', 'clipboard', '-t', 'image/png', '-o'])).stdout, png);
+    assert.equal((await xclip(['-o'])).code, 1);
+    clip.on = () => true;
+    assert.equal((await xclip(['-selection', 'clipboard'], 'from xclip')).code, 0);
+    assert.deepEqual(sent.at(-1), { type: 'text', text: 'from xclip' });
   } finally { f.close(); }
 });
