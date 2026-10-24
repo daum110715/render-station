@@ -4013,11 +4013,13 @@
         return n.slice(0, 3).map((v) => Math.round(said.startsWith('color(') ? v * 255 : v).toString(16).padStart(2, '0')).join('');
       }
       /** 渲染站.exe told the look, for the window round the page: its ground (under it while it loads
-       *  and is sized), its edge, light or dark */
+       *  and is sized), its edge, light or dark; and the states' colours, for its icons (the tray's,
+       *  the window's) as the logo here */
       function tellLook() {
         if (!host) return;
         const dark = getComputedStyle(document.documentElement).colorScheme === 'dark' ? 1 : 0;
-        host.postMessage(`look\t${hex('var(--ground)')}\t${hex('var(--line)')}\t${dark}`);
+        const tones = ['busy', 'ok', 'wait', 'bad', 'off'].map((name) => hex(`var(--${name})`)).join('\t');
+        host.postMessage(`look\t${hex('var(--ground)')}\t${hex('var(--line)')}\t${dark}\t${tones}`);
       }
       matchMedia('(prefers-color-scheme: dark)').addEventListener('change', tellLook);
       // the first state yet to come: the look is applied as it is, not faded into; where the look

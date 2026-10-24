@@ -78,7 +78,9 @@ static HINSTANCE inst;
 static HWND hwnd;
 static UINT taskbarCreated;
 static NOTIFYICONDATAW nid;
-static HICON icons[ICONS];
+// by state: the tray's (small) and the window's (big), and the one shown
+static HICON icons[ICONS], bigIcons[ICONS];
+static int iconNow = ICON_OFF;
 static wchar_t exePath[MAX_PATH], exeDir[MAX_PATH], repo[MAX_PATH], nodePath[MAX_PATH];
 // the checkout's 渲染站.exe: what the shortcuts and starting with Windows start
 static wchar_t launcher[MAX_PATH];
@@ -104,10 +106,13 @@ static int navTries, crashes;
 // the page loaded; the window closed and hidden; maximized, as the page was last told; to open maximized
 static int loaded, hidden, toldZoom = -1, openZoomed;
 // the page's look, as it last told (kept for the next window, so it opens in its colours): its ground,
-// under it as it loads and is sized; its edge, Windows 11's border round it; and whether it is dark
+// under it as it loads and is sized; its edge, Windows 11's border round it; whether it is dark; and
+// its states' colours, the icons'
 static struct {
   COLORREF ground, edge;
   DWORD dark, edged;
+  COLORREF tone[ICONS];
+  DWORD toned;
 } look;
 static wchar_t logPath[MAX_PATH + 64];
 // a line in the station's log (station.log, beside station.mjs's own): how the window went
@@ -414,12 +419,95 @@ static void addIcon(void) {
   nid.uVersion = NOTIFYICON_VERSION_4;
   Shell_NotifyIconW(NIM_SETVERSION, &nid);
 }
+// the window's icon, the tray's: the state's
+static void windowIcon(void) {
+  if (!frame) return;
+  SendMessageW(frame, WM_SETICON, ICON_SMALL, (LPARAM)icons[iconNow]);
+  SendMessageW(frame, WM_SETICON, ICON_BIG, (LPARAM)bigIcons[iconNow]);
+}
 static void show(int icon, const wchar_t *tip) {
-  if (nid.hIcon == icons[icon] && !wcscmp(nid.szTip, tip)) return;
+  if (iconNow == icon && nid.hIcon == icons[icon] && !wcscmp(nid.szTip, tip)) return;
+  iconNow = icon;
   nid.hIcon = icons[icon];
   lstrcpynW(nid.szTip, tip, 128);
   nid.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
   Shell_NotifyIconW(NIM_MODIFY, &nid);
+  windowIcon();
+}
+// a dot in a colour with the play mark in white, as exe/build.mjs draws station.rc's: on a 32-unit
+// square, the circle (16, 16, r 15) and the mark, 8×8 samples a pixel
+static int inMark(double x, double y) {
+  static const double m[3][2] = { { 12.5, 9 }, { 23.5, 16 }, { 12.5, 23 } };
+  double d[3];
+  for (int k = 0; k < 3; k++) {
+    const double *a = m[k], *b = m[(k + 1) % 3];
+    d[k] = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+  }
+  return (d[0] >= 0 && d[1] >= 0 && d[2] >= 0) || (d[0] <= 0 && d[1] <= 0 && d[2] <= 0);
+}
+static HICON drawDot(COLORREF c, int size) {
+  BITMAPINFO bi = { { sizeof bi.bmiHeader, size, -size, 1, 32, BI_RGB, 0, 0, 0, 0, 0 }, { { 0 } } };
+  void *bits;
+  HBITMAP color = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+  if (!color) return NULL;
+  BYTE *px = bits;
+  memset(px, 0, (size_t)size * size * 4);
+  int r = GetRValue(c), g = GetGValue(c), b = GetBValue(c);
+  for (int y = 0; y < size; y++)
+    for (int x = 0; x < size; x++) {
+      int disc = 0, mark = 0;
+      for (int j = 0; j < 8; j++)
+        for (int i = 0; i < 8; i++) {
+          double u = (x + (i + 0.5) / 8) * 32 / size, v = (y + (j + 0.5) / 8) * 32 / size;
+          if ((u - 16) * (u - 16) + (v - 16) * (v - 16) > 15 * 15) continue;
+          disc++;
+          mark += inMark(u, v);
+        }
+      BYTE *o = px + (y * size + x) * 4;
+      if (!disc) continue;
+      double white = (double)mark / disc;
+      o[0] = (BYTE)(b + (255 - b) * white + 0.5);
+      o[1] = (BYTE)(g + (255 - g) * white + 0.5);
+      o[2] = (BYTE)(r + (255 - r) * white + 0.5);
+      o[3] = (BYTE)(disc * 255 / 64.0 + 0.5);
+    }
+  // the mask, all clear: the colours' own alpha says what shows
+  static const BYTE clear[32 * 256];
+  HBITMAP mask = CreateBitmap(size, size, 1, 1, clear);
+  ICONINFO ii = { TRUE, 0, 0, mask, color };
+  HICON icon = CreateIconIndirect(&ii);
+  DeleteObject(mask);
+  DeleteObject(color);
+  return icon;
+}
+// the icons in the page's colours, as it last told; the tray's and the window's put back in them
+static void paintIcons(void) {
+  if (!look.toned) return;
+  int small = GetSystemMetrics(SM_CXSMICON), big = GetSystemMetrics(SM_CXICON);
+  HICON was[2][ICONS];
+  memcpy(was[0], icons, sizeof icons);
+  memcpy(was[1], bigIcons, sizeof bigIcons);
+  for (int i = 0; i < ICONS; i++) {
+    HICON s = drawDot(look.tone[i], small), l = drawDot(look.tone[i], big);
+    if (s && l) {
+      icons[i] = s;
+      bigIcons[i] = l;
+    } else {
+      if (s) DestroyIcon(s);
+      if (l) DestroyIcon(l);
+      was[0][i] = was[1][i] = NULL;
+    }
+  }
+  if (nid.hIcon) {
+    nid.hIcon = icons[iconNow];
+    nid.uFlags = NIF_ICON;
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+  }
+  windowIcon();
+  for (int i = 0; i < ICONS; i++) {
+    if (was[0][i]) DestroyIcon(was[0][i]);
+    if (was[1][i]) DestroyIcon(was[1][i]);
+  }
 }
 static void balloon(const wchar_t *title, const wchar_t *text, DWORD kind) {
   nid.uFlags = NIF_INFO;
@@ -602,15 +690,26 @@ static HRESULT STDMETHODCALLTYPE onMessage(ICoreWebView2WebMessageReceivedEventH
   else if (!wcscmp(s, L"ready"))
     tellZoom(1);
   else if (!wcsncmp(s, L"look\t", 5)) {
-    // look\t<ground>\t<edge>\t<dark>: colours as rrggbb
-    unsigned g, e, d;
-    if (swscanf(s + 5, L"%6x\t%6x\t%u", &g, &e, &d) == 3) {
+    // look\t<ground>\t<edge>\t<dark>\t<busy>\t<idle>\t<wait>\t<bad>\t<off>: colours as rrggbb, the
+    // states' (as the icons are numbered) from 0.7.17 on
+    unsigned g, e, d, t[ICONS];
+    int n = swscanf(s + 5, L"%6x\t%6x\t%u\t%6x\t%6x\t%6x\t%6x\t%6x", &g, &e, &d, &t[0], &t[1], &t[2], &t[3], &t[4]);
+    if (n >= 3) {
       look.ground = RGB(g >> 16, (g >> 8) & 255, g & 255);
       look.edge = RGB(e >> 16, (e >> 8) & 255, e & 255);
       look.dark = d != 0;
       look.edged = 1;
+      int toned = 0;
+      if (n == 3 + ICONS)
+        for (int i = 0; i < ICONS; i++) {
+          COLORREF c = RGB(t[i] >> 16, (t[i] >> 8) & 255, t[i] & 255);
+          if (!look.toned || look.tone[i] != c) toned = 1;
+          look.tone[i] = c;
+        }
+      if (toned) look.toned = 1;
       RegSetKeyValueW(HKEY_CURRENT_USER, PLACE_KEY, L"look", REG_BINARY, &look, sizeof look);
       applyLook();
+      if (toned) paintIcons();
     }
   }
   else if (!wcscmp(s, L"log"))
@@ -810,8 +909,9 @@ static int makeFrame(void) {
                           work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h, NULL, NULL, inst, NULL);
   if (!frame) return 0;
   restorePlace();
-  // the edge in the page's colours, the corners round (Windows 11)
+  // the edge in the page's colours, the corners round (Windows 11); the state's icon
   applyLook();
+  windowIcon();
   int round = 2;
   DwmSetWindowAttribute(frame, 33, &round, sizeof round);
   SetWindowPos(frame, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1490,7 +1590,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
   darkMenus();
   int cx = GetSystemMetrics(SM_CXSMICON), cy = GetSystemMetrics(SM_CYSMICON);
-  for (int i = 0; i < ICONS; i++) icons[i] = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(i + 1), IMAGE_ICON, cx, cy, 0);
+  for (int i = 0; i < ICONS; i++) {
+    icons[i] = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(i + 1), IMAGE_ICON, cx, cy, 0);
+    bigIcons[i] = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(i + 1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+  }
   HDC screen = GetDC(NULL);
   dpi = GetDeviceCaps(screen, LOGPIXELSY);
   ReleaseDC(NULL, screen);
@@ -1504,6 +1607,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
     look.ground = dark ? RGB(0x17, 0x12, 0x16) : RGB(0xf9, 0xf6, 0xf3);
     look.dark = dark;
   }
+  // the icons in its colours, from the first: station.rc's are 梅紫's
+  paintIcons();
   // WebView2's loader, beside this
   wchar_t loader[MAX_PATH + 32];
   FMT(loader, L"%ls\\WebView2Loader.dll", exeDir);
@@ -1535,6 +1640,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE prev, PWSTR args, int how) {
   ChangeWindowMessageFilterEx(hwnd, WM_CLIPBOARDUPDATE, MSGFLT_ALLOW, NULL);
   if (trying) {
     // its window at once, on the station running here; an icon to open it again, and to end it
+    iconNow = ICON_BUSY;
     nid.hIcon = icons[ICON_BUSY];
     lstrcpynW(nid.szTip, L"渲染站 · 试运行", 128);
     addIcon();
