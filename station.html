@@ -25,11 +25,11 @@
         unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
       }
       /* three looks, chosen in 设置 → 本机: 梅紫, warm paper and plum ink as qiqi.help has them, the
-         states in the tray icon's colours, light or dark as the system is; 黄绿, 梅紫's frame in pale
-         green-tinged paper, a short run from yellow to green for what is chosen and for 执行中 (the
-         colour between 连接中's yellow and 空闲's green), light or dark too; and 奶白, daum.pw's
-         (pw/chat.html): the cream page with its amber wash, the wordmark's face for what matters,
-         flat layers of its long shadow under what is pressed, light only */
+         states in the tray icon's colours, light or dark as the system is; 青绿, 梅紫's frame in pale
+         paper with a breath of cyan, a short run from green to cyan for what is chosen and for 执行中
+         (its cyan end, 空闲 its green), light or dark too; and 奶白, daum.pw's: the cream page with its
+         amber wash, the wordmark's face for what matters, flat layers of its long shadow under what
+         is pressed, light only */
       :root {
         --page: #f9f6f3;
         --ground: #f9f6f3;
@@ -88,51 +88,51 @@
         }
       }
       :root[data-theme='lime'] {
-        --page: #f7f7f0;
-        --ground: #f7f7f0;
-        --rail: #eef0e2;
-        --surface: #fdfdf8;
-        --sunk: #eef0e4;
-        --ink: #262922;
-        --ink-2: #5e6455;
-        --ink-3: #8b9183;
-        --line: #dde1d0;
-        --line-2: #e8eadc;
-        --lime-a: #d8b437;
-        --lime-b: #6db35a;
-        --violet: #5b8424;
-        --on-violet: #1f2913;
+        --page: #f4f8f6;
+        --ground: #f4f8f6;
+        --rail: #e9f1ed;
+        --surface: #fbfdfc;
+        --sunk: #e9f1ee;
+        --ink: #1f2926;
+        --ink-2: #53635d;
+        --ink-3: #83928c;
+        --line: #d4e1dc;
+        --line-2: #e3ece8;
+        --lime-a: #5cc47e;
+        --lime-b: #2bb5c4;
+        --violet: #16806f;
+        --on-violet: #0e2925;
         --primary: linear-gradient(100deg, var(--lime-a), var(--lime-b));
         /* the run as words on the paper: deeper, to be read */
-        --run-text: linear-gradient(100deg, #bf9a1c, #43a05a);
-        --ok: #2f9d74;
+        --run-text: linear-gradient(100deg, #23955a, #0f8797);
+        --ok: #33a05e;
         --wait: #d99a1e;
         --bad: #d4563a;
-        --off: #9a9c8f;
-        --busy: #9aae2f;
+        --off: #95a19c;
+        --busy: #1fa3b6;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root[data-theme='lime'] {
-          --page: #151711;
-          --ground: #151711;
-          --rail: #11130e;
-          --surface: #1c1f17;
-          --sunk: #1a1d15;
-          --ink: #ecefe4;
-          --ink-2: #b4baa6;
-          --ink-3: #8f9585;
-          --line: #333928;
-          --line-2: #24281e;
-          --lime-a: #e4c45a;
-          --lime-b: #7cc477;
-          --violet: #b8d46a;
+          --page: #111614;
+          --ground: #111614;
+          --rail: #0d1210;
+          --surface: #18201d;
+          --sunk: #161d1a;
+          --ink: #e5eeea;
+          --ink-2: #a5b7b0;
+          --ink-3: #81928b;
+          --line: #2a3732;
+          --line-2: #1e2824;
+          --lime-a: #6dd391;
+          --lime-b: #45c8d4;
+          --violet: #74d6c3;
           --run-text: var(--primary);
-          --ok: #3dbb8a;
+          --ok: #45c27a;
           --wait: #f1b74a;
           --bad: #ec6a46;
-          --off: #7d8275;
-          --busy: #b7c84c;
+          --off: #74827c;
+          --busy: #45c4d6;
           color-scheme: dark;
         }
       }
@@ -2528,9 +2528,9 @@
           <p class="lede">这台电脑上的渲染站怎么运行。「以管理员身份运行」在「总览」页的「本机」中设置。</p>
           <div class="rows">
             <div class="row">
-              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。黄绿：浅黄绿的纸，选中处和「执行中」用一段黄到绿的渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
+              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。青绿：略带青色的浅色纸，选中处和「执行中」用一段绿到青的渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
               <div class="ctl">
-                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="lime">黄绿</button><button type="button" data-theme-name="cream">奶白</button></span>
+                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="lime">青绿</button><button type="button" data-theme-name="cream">奶白</button></span>
               </div>
             </div>
             <div class="row">
