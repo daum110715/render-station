@@ -2095,6 +2095,9 @@
         font-size: 12.5px;
         color: var(--ink-2);
       }
+      .review .err {
+        font-size: 12.5px;
+      }
       .review footer {
         display: flex;
         flex-wrap: wrap;
@@ -2538,6 +2541,7 @@
         </dl>
         <pre id="shell-review-command"></pre>
         <p class="note">请只批准你信任的完整命令。加入白名单后，同一工作目录中的同一命令将自动执行；命令引用的脚本此后仍可能被修改。请在 5 分钟内处理。</p>
+        <p class="err" id="shell-review-error" role="alert"></p>
       </div>
       <footer>
         <span class="more" id="shell-review-more" hidden></span>
@@ -2556,6 +2560,7 @@
         <pre id="ws-review-lines"></pre>
         <p class="note" id="ws-review-presets"></p>
         <p class="note" id="ws-review-note"></p>
+        <p class="err" id="ws-review-error" role="alert"></p>
       </div>
       <footer>
         <span class="more" id="ws-review-more" hidden></span>
@@ -2781,7 +2786,7 @@
       async function change(path, body, token = false) {
         const response = await fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json', ...(token ? { 'x-shell-local': shellToken } : {}) }, body: JSON.stringify(body) });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!response.ok) throw new Error(data.error ?? (response.status === 403 && token ? '渲染站拒绝了这个请求：窗口的授权已失效，请重新打开窗口后再试' : `HTTP ${response.status}`));
         render(data);
         return data;
       }
@@ -3919,6 +3924,7 @@
           set('shell-review-more', `另有 ${shell.behind} 个请求，将依次显示`);
           if (shellShown !== p.id) {
             shellShown = p.id;
+            set('shell-review-error', '');
             hold(dialog);
           }
           if (!dialog.open) dialog.showModal();
@@ -3949,19 +3955,23 @@
         set('ws-review-more', `另有 ${m.behind} 个请求，将依次显示`);
         if (wsShown !== q.id) {
           wsShown = q.id;
+          set('ws-review-error', '');
           hold(dialog);
         }
         if (!dialog.open) dialog.showModal();
       }
-      for (const b of document.querySelectorAll('[data-ws-decision]')) b.addEventListener('click', () => act(b, () => managePost('/manage/decide', { id: S.manage.pending?.id, action: b.dataset.wsDecision }), false));
+      // a decision refused: why, in the dialog it was made in
+      const decideWs = (action) => guarded('/manage/decide', { id: S.manage.pending?.id, action }, $('#ws-review-error'));
+      const decideShell = (action) => guarded('/shell/decide', { id: S.shell.pending?.id, action }, $('#shell-review-error'));
+      for (const b of document.querySelectorAll('[data-ws-decision]')) b.addEventListener('click', () => act(b, () => decideWs(b.dataset.wsDecision), false));
       $('#ws-review').addEventListener('cancel', (event) => {
         event.preventDefault();
-        managePost('/manage/decide', { id: S.manage.pending?.id, action: 'deny' });
+        decideWs('deny');
       });
-      for (const b of document.querySelectorAll('[data-shell-decision]')) b.addEventListener('click', () => act(b, () => shellPost('decide', { id: S.shell.pending?.id, action: b.dataset.shellDecision }), false));
+      for (const b of document.querySelectorAll('[data-shell-decision]')) b.addEventListener('click', () => act(b, () => decideShell(b.dataset.shellDecision), false));
       $('#shell-review').addEventListener('cancel', (event) => {
         event.preventDefault();
-        shellPost('decide', { id: S.shell.pending?.id, action: 'deny' });
+        decideShell('deny');
       });
 
       /** the look the settings name, kept for the next time the page is drawn; changed, faded into */
@@ -4019,9 +4029,11 @@
         if (!S) return;
         applyTheme();
         S0 = true;
-        // the page changed on disk (an update): this one again, as it is now
-        if (page0 == null) page0 = S.page;
-        else if (S.page && S.page !== page0) return location.reload();
+        // the page changed on disk (an update), or the station that served it started again (for
+        // administrator rights, say) and its token with it: this one again, as it is now
+        const served = `${S.page} ${S.boot}`;
+        if (page0 == null) page0 = served;
+        else if (served !== page0) return location.reload();
         renderState();
         renderReviews();
         renderShelf();

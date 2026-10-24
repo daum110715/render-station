@@ -145,6 +145,8 @@ function checkWorkspaces(list) {
   return out;
 }
 const shellToken = randomBytes(32).toString('hex');
+// this run of the station: a window served by an earlier run holds a token no longer good, and loads again
+const boot = randomBytes(8).toString('hex');
 /** whether this runs as administrator, and whether 渲染站.exe is not to ask for it at each start
  *  (the overview page's switch, turned off: exe/station.c reads this file) */
 const admin = isAdministrator();
@@ -503,6 +505,7 @@ const view = () => ({
   paths: { log: LOG },
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
+  boot,
 });
 // ——— what the tray icon tells of: the job that ended last, or a request newly awaiting the owner's
 // approval, whichever is newer. It shows each new one as a notification, which opens the window
