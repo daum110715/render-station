@@ -884,13 +884,12 @@
       .nav .sub:has(.plate) button[aria-current='page'] {
         background: none;
       }
-      /* the rail's foot: a card of how the station is (nothing to press), its colour the state's; in
-         奶白 raised as the page's plate is, on layers of its amber rather than a shadow */
+      /* the rail's foot: a card of how the station is (nothing to press), flat, in a tint of the
+         state's colour */
       .rail-foot {
         display: grid;
-        gap: 16px;
+        gap: 12px;
         margin-top: auto;
-        padding: 0 6px 0 0;
       }
       .status-card {
         display: grid;
@@ -900,11 +899,6 @@
         border-radius: var(--r-panel);
         background: color-mix(in srgb, var(--state) 7%, var(--surface));
         cursor: default;
-      }
-      [data-theme='cream'] .status-card {
-        border-color: var(--shade-1);
-        background: var(--cream);
-        box-shadow: var(--layers-2);
       }
       .standing {
         display: flex;
