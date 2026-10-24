@@ -721,9 +721,7 @@
         transform: none;
       }
       /* the rail's icons: one set on one grid (24, drawn within 3 to 21), its lines as heavy as the
-         names' strokes beside them (1.4 of 24 at 20px: some 1.2px); the page shown's with a face of
-         its own in its colour (the dial's, the picture's hills, the pulse's ground, the knobs), the
-         others lines alone, no grey under them */
+         names' strokes beside them (1.4 of 24 at 20px: some 1.2px), lines alone, nothing under them */
       .nav svg {
         flex: none;
         width: 20px;
@@ -734,24 +732,9 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .nav svg :is(.tone, .fill) {
-        fill: currentColor;
-        fill-opacity: 0;
-        transition: fill-opacity 0.3s;
-      }
-      .nav svg :is(.tone, .dot) {
-        stroke: none;
-      }
       .nav svg .dot {
         fill: currentColor;
-      }
-      .nav > button[aria-current='page'] svg :is(.tone, .fill) {
-        fill-opacity: 0.22;
-      }
-      /* on 黄绿's plate the lines are dark: the face a light on it, not a shade */
-      [data-theme='lime'] .nav > button[aria-current='page'] svg :is(.tone, .fill) {
-        fill: #fff;
-        fill-opacity: 0.45;
+        stroke: none;
       }
       [data-theme='cream'] .nav > button[aria-current='page'] svg {
         color: var(--amber);
@@ -884,108 +867,103 @@
       .nav .sub:has(.plate) button[aria-current='page'] {
         background: none;
       }
-      /* the rail's foot: a card of how the station is (nothing to press), flat, in a tint of the
-         state's colour */
+      /* the rail's foot: how the station is, as the rail's last line, set as its names are, its dot
+         in their icons' column; above it a rule that is also how far (the frames made, the wait
+         before trying again), a plain rule while there is no telling */
       .rail-foot {
         display: grid;
-        gap: 12px;
+        gap: 14px;
         margin-top: auto;
       }
-      .status-card {
-        display: grid;
-        gap: 9px;
-        padding: 10px 12px 11px;
-        border: var(--border-w) solid color-mix(in srgb, var(--state) 28%, var(--line));
-        border-radius: var(--r-panel);
-        background: color-mix(in srgb, var(--state) 7%, var(--surface));
-        cursor: default;
+      .gauge {
+        display: block;
+        height: var(--border-w);
+        overflow: hidden;
+        background: var(--line);
+      }
+      .gauge i {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: var(--state);
+        opacity: 0;
+        transition:
+          opacity 0.4s,
+          width 0s 0.4s;
+      }
+      .gauge.on i {
+        opacity: 1;
+        transition:
+          opacity 0.4s,
+          width 0.6s var(--out);
       }
       .standing {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
+        gap: 11px;
         min-width: 0;
+        padding: 0 2px 0 12px;
+        cursor: default;
       }
       .standing .dot {
-        margin-top: 6px;
+        flex: none;
+        width: 8px;
+        height: 8px;
+        margin: 6px 6px 0;
+        border-radius: 50%;
+        background: var(--state);
       }
       .standing > span {
+        flex: 1;
         min-width: 0;
       }
       .standing b {
         display: block;
+        font: var(--hand-w) 16px/20px var(--hand);
+        color: var(--ink);
+      }
+      [data-theme='cream'] .standing b {
+        font-size: 14.5px;
         font-weight: 500;
-        font-size: 13px;
-        line-height: 1.45;
       }
       .standing small {
         display: block;
-        font-size: 11.5px;
-        line-height: 1.45;
+        margin-top: 2px;
+        font: 12px/1.4 var(--ui);
         color: var(--ink-3);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      /* how far: the frames made, the wait before trying again, or a light passing while there is
-         no telling; nothing while there is nothing to wait for */
-      .status-bar {
-        height: 2px;
-        overflow: hidden;
-        border-radius: 2px;
-        background: color-mix(in srgb, var(--state) 16%, transparent);
-      }
-      .status-bar i {
-        display: block;
-        width: 0;
-        height: 100%;
-        border-radius: inherit;
-        background: var(--state);
-        transition: width 0.45s var(--out);
-      }
-      .status-bar.sweep i {
-        width: 30%;
-        transition: none;
-        animation: pass 1.5s ease-in-out infinite;
-      }
-      @keyframes pass {
-        from {
-          transform: translateX(-100%);
-        }
-        to {
-          transform: translateX(340%);
-        }
-      }
-      .dot {
-        position: relative;
+      /* the way out to a browser: an arrow leaving its box, beside the state, in the state's ink */
+      .standing .link {
+        display: grid;
+        place-items: center;
         flex: none;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--state);
+        width: 28px;
+        height: 28px;
+        margin-top: -4px;
+        padding: 0;
+        border-radius: var(--r-ctl);
+        color: var(--ink-3);
+        text-decoration: none;
       }
-      body[data-mode='busy'] .dot::after,
-      body[data-mode='connecting'] .dot::after {
-        content: '';
-        position: absolute;
-        inset: -4px;
-        border: 1px solid var(--state);
-        border-radius: 50%;
-        animation: ring 1.6s var(--out) infinite;
+      .standing .link:hover {
+        color: var(--ink);
+        text-decoration: none;
       }
-      @keyframes ring {
-        from {
-          opacity: 0.9;
-          transform: scale(0.6);
-        }
-        to {
-          opacity: 0;
-          transform: scale(1.6);
-        }
+      .standing .link svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: opacity 0.2s;
       }
-      .rail-foot .link {
-        justify-self: start;
-        font-size: 12.5px;
+      .standing .link.ticked svg {
+        opacity: 0;
       }
       .main {
         position: relative;
@@ -2193,13 +2171,11 @@
         .nav button > span,
         .nav .count,
         .sub,
-        .rail-foot .link,
         .standing > span,
-        .status-bar {
+        .standing .link {
           display: none;
         }
-        .brand,
-        .rail-foot {
+        .brand {
           justify-content: center;
           padding: 0;
         }
@@ -2214,9 +2190,7 @@
         }
         .standing {
           justify-content: center;
-        }
-        .status-card {
-          padding: 9px 0;
+          padding: 0;
         }
         .page {
           padding: 26px 20px 36px;
@@ -2328,16 +2302,16 @@
           <i class="hover" id="hover" aria-hidden="true"></i>
           <i class="slider" id="slider" aria-hidden="true"></i>
           <button type="button" data-page="home" title="总览">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="tone" d="M6 18A8.5 8.5 0 1 1 18 18Z" /><path d="M6 18A8.5 8.5 0 1 1 18 18" /><path d="M12 12l3.6-3.6" /><circle class="dot" cx="12" cy="12" r="1.4" /></svg><span>总览</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18A8.5 8.5 0 1 1 18 18" /><path d="M12 12l3.6-3.6" /><circle class="dot" cx="12" cy="12" r="1.4" /></svg><span>总览</span>
           </button>
           <button type="button" data-page="gallery" title="输出">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="tone" d="M3.5 15.6 9 11l3.6 3.1 2.8-2.2 5.1 4V16a3.5 3.5 0 0 1-3.5 3.5H7A3.5 3.5 0 0 1 3.5 16Z" /><rect x="3.5" y="4.5" width="17" height="15" rx="3.5" /><path d="M3.8 15.4 9 11l3.6 3.1 2.8-2.2 4.8 3.8" /><circle cx="15.6" cy="8.4" r="1.3" /></svg><span>输出</span><b class="count num" id="n-gallery"></b>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3.5" /><path d="M3.8 15.4 9 11l3.6 3.1 2.8-2.2 4.8 3.8" /><circle cx="15.6" cy="8.4" r="1.3" /></svg><span>输出</span><b class="count num" id="n-gallery"></b>
           </button>
           <button type="button" data-page="feed" title="动态">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="tone" cx="12" cy="12" r="8.5" /><path d="M3 12h3.8l2.3-5 4.6 10 2.5-5H21" /></svg><span>动态</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3.8l2.3-5 4.6 10 2.5-5H21" /></svg><span>动态</span>
           </button>
           <button type="button" data-page="connection" data-group="settings" title="设置">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h8.4M17.6 8H20M4 16h2.4M11.6 16H20" /><circle class="fill" cx="15" cy="8" r="2.6" /><circle class="fill" cx="9" cy="16" r="2.6" /></svg><span>设置</span><i class="badge" id="badge" hidden></i>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h8.4M17.6 8H20M4 16h2.4M11.6 16H20" /><circle cx="15" cy="8" r="2.6" /><circle cx="9" cy="16" r="2.6" /></svg><span>设置</span><i class="badge" id="badge" hidden></i>
           </button>
           <div class="sub" id="sub">
             <div>
@@ -2351,14 +2325,12 @@
           </div>
         </nav>
         <div class="rail-foot">
-          <div class="status-card">
-            <div class="standing" aria-live="polite">
-              <i class="dot"></i>
-              <span><b id="chip">正在启动</b><small id="chip-sub"></small></span>
-            </div>
-            <div class="status-bar" id="status-bar" hidden><i id="status-fill"></i></div>
+          <i class="gauge" id="gauge" aria-hidden="true"><i id="gauge-fill"></i></i>
+          <div class="standing">
+            <i class="dot"></i>
+            <span aria-live="polite"><b id="chip">正在启动</b><small id="chip-sub"></small></span>
+            <button type="button" class="link" id="in-browser" hidden aria-label="在浏览器中打开" title="在浏览器中打开"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M11.5 9.5V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V6A1.5 1.5 0 0 1 4 4.5h2.5" /></svg></button>
           </div>
-          <button type="button" class="link" id="in-browser" hidden>在浏览器中打开</button>
         </div>
       </aside>
 
@@ -2833,10 +2805,10 @@
       /** an icon of the rail drawn, stroke by stroke, as its page is shown */
       function draw(svg) {
         if (still || !svg) return;
-        // the lines drawn; the faces, with no line, faded in under them
+        // the lines drawn; the hub, with no line, faded in
         [...svg.children].forEach((part, i) =>
           part.animate(
-            part.matches('.tone, .dot') ? [{ opacity: 0 }, { opacity: 1 }] : [{ strokeDasharray: '1 1', strokeDashoffset: 1 }, { strokeDasharray: '1 1', strokeDashoffset: 0 }],
+            part.matches('.dot') ? [{ opacity: 0 }, { opacity: 1 }] : [{ strokeDasharray: '1 1', strokeDashoffset: 1 }, { strokeDasharray: '1 1', strokeDashoffset: 0 }],
             { duration: 700, delay: i * 80, easing: OUT, fill: 'backwards' },
           ),
         );
@@ -3044,7 +3016,7 @@
           off: ['已暂停', '不接收任务', '隧道已关闭，服务器无法提交任务。单击「恢复接收任务」即可重新连接。'],
           unset: ['未配置', '尚未填写服务器', '在「设置 → 连接」中填写服务器的 SSH 地址后，渲染站会自动连接。'],
         }[mode] ?? [mode, '', ''];
-        swap('chip', text[0]);
+        set('chip', text[0]);
         swap('state-word', text[0]);
         swap('state-what', text[1]);
         set('state-detail', text[2]);
@@ -3073,25 +3045,22 @@
         set('strip-left', left);
         set('strip-right', right);
 
-        // the rail's foot: the state, what it is about, and how far
+        // the rail's foot: the state, what it is about (the server, while there is one to name), and how far
         const about = {
           gone: '后台进程已停止',
           busy: j ? j.what : `${many} 个任务运行中`,
-          idle: t.since ? `已连接 ${uptime(now - t.since)}` : '已连接',
-          connecting: S.config.ssh.target ? `ssh ${target}` : '',
+          idle: S.config.ssh.target || '已连接',
+          connecting: S.config.ssh.target,
           retry: `${secs} 秒后重新连接`,
           auth: '无法用密钥登录服务器',
           off: '不接收任务',
           unset: '尚未填写服务器',
         }[mode] ?? '';
         set('chip-sub', about);
-        $('.standing').title = about;
-        const foot = $('#status-bar');
-        const passing = mode === 'connecting' || (mode === 'busy' && !(j?.total > 0));
+        $('.standing > span').title = about;
         const part = mode === 'busy' && j?.total > 0 ? j.n / j.total : mode === 'retry' && t.wait ? (secs * 1000) / t.wait : null;
-        foot.hidden = !passing && part == null;
-        foot.classList.toggle('sweep', passing);
-        $('#status-fill').style.width = passing ? '' : `${(part ?? 0) * 100}%`;
+        $('#gauge').classList.toggle('on', part != null);
+        $('#gauge-fill').style.width = `${(part ?? 0) * 100}%`;
 
         const toggle = $('#toggle');
         relabel(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
