@@ -52,6 +52,8 @@
         --ui: 'Q Outfit', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
         --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
         --out: cubic-bezier(0.22, 1, 0.36, 1);
+        /* let go: past where it rests, and back */
+        --spring: cubic-bezier(0.34, 1.45, 0.64, 1);
         --r-panel: 12px;
         --r-ctl: 8px;
         --rail-w: 208px;
@@ -207,6 +209,7 @@
         box-shadow: var(--layers);
         color: var(--ink);
         font: 13.5px/1.4 var(--ui);
+        position: relative;
         white-space: nowrap;
         cursor: pointer;
         transition:
@@ -214,13 +217,74 @@
           color 0.2s,
           background-color 0.2s,
           box-shadow 0.2s,
+          -webkit-text-fill-color 0.25s,
           transform 0.2s;
       }
       button:hover {
         border-color: color-mix(in srgb, var(--violet) 55%, var(--line));
       }
-      button:active {
-        transform: translateY(1px);
+      /* the pointer over a button: a soft light in it, where the pointer is (the script says where) */
+      button:not(.link, .tb, .tile, .wsc-head, .nav button, .seg button, .chips button)::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--violet) 18%, transparent), transparent 70%);
+        opacity: 0;
+        transition: opacity 0.35s;
+        pointer-events: none;
+      }
+      button.primary::after {
+        background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / 0.32), transparent 70%);
+      }
+      button:hover::after {
+        opacity: 1;
+      }
+      /* a request under way: an arc turning where the words were; done, a tick drawn there */
+      button.pending,
+      button.ticked {
+        -webkit-text-fill-color: transparent;
+      }
+      button.pending:disabled {
+        opacity: 1;
+      }
+      button.pending::before,
+      button.ticked::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+      }
+      button.pending::before {
+        width: 14px;
+        height: 14px;
+        margin: -7px 0 0 -7px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+      button.ticked::before {
+        width: 5px;
+        height: 10px;
+        margin: -7px 0 0 -3px;
+        border: solid currentColor;
+        border-width: 0 2px 2px 0;
+        animation: tick 0.5s var(--spring) both;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(1turn);
+        }
+      }
+      @keyframes tick {
+        from {
+          opacity: 0;
+          transform: rotate(45deg) scale(0.2);
+        }
+        to {
+          transform: rotate(45deg) scale(1);
+        }
       }
       button:disabled {
         opacity: 0.45;
@@ -234,7 +298,7 @@
         color: var(--on-violet);
       }
       /* pressed: its layers slide back under it */
-      [data-theme='cream'] button:not(.link, .tb, .tile, .lb-nav, .lb-close):active {
+      [data-theme='cream'] button:not(.link, .tb, .tile, .lb-nav, .lb-close, .wsc-head, .nav button, .seg button, .chips button):active {
         transform: translate(3px, 4px);
         box-shadow: none;
       }
@@ -344,7 +408,18 @@
         border-radius: 50%;
         background: #fff;
         box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
-        transition: transform 0.35s var(--out);
+        transition:
+          transform 0.5s var(--spring),
+          width 0.25s var(--out);
+      }
+      /* held: the thumb stretches toward where it will go */
+      input[type='checkbox']:active::before,
+      label:active input[type='checkbox']::before {
+        width: 23px;
+      }
+      input[type='checkbox']:checked:active::before,
+      label:active input[type='checkbox']:checked::before {
+        transform: translateX(11px);
       }
       input[type='checkbox']:checked {
         background: var(--primary);
@@ -404,7 +479,7 @@
         border-radius: 999px;
         background: var(--primary);
         transition:
-          transform 0.45s var(--out),
+          transform 0.55s var(--spring),
           width 0.45s var(--out);
       }
       .seg:has(.knob) button[aria-pressed='true'] {
@@ -650,6 +725,7 @@
         grid-template-rows: 1fr;
       }
       .sub > div {
+        position: relative;
         display: grid;
         gap: 1px;
         min-height: 0;
@@ -676,6 +752,25 @@
       [data-theme='cream'] .nav .sub button[aria-current='page'] {
         background: var(--shade-3);
         color: var(--ink);
+      }
+      /* the settings' page shown: a plate sliding under its name */
+      .sub .plate {
+        position: absolute;
+        left: 9px;
+        right: 0;
+        top: 0;
+        height: 32px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--violet) 12%, transparent);
+        transition:
+          transform 0.45s var(--out),
+          opacity 0.3s;
+      }
+      [data-theme='cream'] .sub .plate {
+        background: var(--shade-3);
+      }
+      .nav .sub:has(.plate) button[aria-current='page'] {
+        background: none;
       }
       .rail-foot {
         display: grid;
@@ -1100,6 +1195,9 @@
       .job:hover {
         background: var(--sunk);
       }
+      .job:active {
+        background: color-mix(in srgb, var(--ink) 7%, var(--sunk));
+      }
       /* a job just ended: in at the top, lit a moment in how it went */
       .arrive .job {
         animation:
@@ -1260,7 +1358,8 @@
       .tile:hover video {
         transform: scale(1.04);
       }
-      .group.arrive {
+      .group.arrive,
+      .wsc.arrive {
         animation: rise 0.5s var(--out) both;
       }
       .tile img {
@@ -1322,13 +1421,28 @@
         grid-template-rows: 1fr auto;
         place-items: center;
         padding: 52px 72px 18px;
+      }
+      .lightbox::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -1;
         background: rgb(14 11 19 / 0.86);
         backdrop-filter: blur(16px);
         opacity: 0;
+        transition: opacity 0.35s var(--out);
+      }
+      .lightbox > :not(.lb-stage) {
+        opacity: 0;
         transition: opacity 0.3s var(--out);
       }
-      .lightbox.on {
+      .lightbox.on::before,
+      .lightbox.on > * {
         opacity: 1;
+      }
+      /* one picture going as the next comes, in the same place */
+      .lb-stage > * {
+        grid-area: 1 / 1;
       }
       .lb-stage {
         display: grid;
@@ -1445,8 +1559,8 @@
         border-radius: 999px;
         background: var(--surface);
         transition:
-          transform 0.4s var(--out),
-          width 0.4s var(--out);
+          transform 0.55s var(--spring),
+          width 0.45s var(--out);
       }
       /* the log, as tall as the window leaves it */
       #page-feed {
@@ -1954,6 +2068,14 @@
           grid-template-columns: 1fr;
         }
       }
+      .reveal::view-transition-old(root),
+      .reveal::view-transition-new(root) {
+        animation: none;
+        mix-blend-mode: normal;
+      }
+      .reveal::view-transition-new(root) {
+        z-index: 1;
+      }
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -1997,6 +2119,7 @@
           </button>
           <div class="sub" id="sub">
             <div>
+              <i class="plate" id="plate" aria-hidden="true"></i>
               <button type="button" data-page="connection">连接<i class="badge" id="badge-connection" hidden></i></button>
               <button type="button" data-page="workspaces">工作区<i class="badge" id="badge-workspaces" hidden></i></button>
               <button type="button" data-page="access">权限与审批</button>
@@ -2384,12 +2507,103 @@
         for (const a of node.getAnimations()) a.cancel();
         if (still) return void (node.hidden = !on);
         node.hidden = false;
-        const cs = getComputedStyle(node);
-        const full = { height: `${node.offsetHeight}px`, opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom, overflow: 'hidden' };
-        const none = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px', overflow: 'hidden' };
+        const [full, none] = heights(node);
         const a = node.animate(on ? [none, full] : [full, none], { duration: on ? 420 : 320, easing: OUT });
         if (!on) a.onfinish = () => (node.hidden = true);
       }
+      // ——— touch: whatever is pressed gives under the finger at once, and springs back when let go,
+      // a wide row less than a button; a button's light follows the pointer ———
+      const SPRING = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
+      const GIVE = [
+        ['.tb', 1],
+        ['.job, .wsc-head', 0.985],
+        ['.nav button', 0.97],
+        ['.seg button, .chips button', 0.9],
+        ['.lb-nav, .lb-close', 0.88],
+        ['.tile', 0.96],
+        ['*', 0.95],
+      ];
+      let pressed = null;
+      addEventListener('pointerdown', (e) => {
+        const b = e.button === 0 && !still ? e.target.closest?.('button, [role="button"]') : null;
+        const give = b && !b.disabled ? GIVE.find(([what]) => b.matches(what))[1] : 1;
+        if (give === 1) return;
+        pressed = { b, a: b.animate([{ scale: give }], { duration: 90, easing: 'ease-out', fill: 'forwards' }) };
+      });
+      function letGo() {
+        if (!pressed) return;
+        const { b, a } = pressed;
+        pressed = null;
+        const now = getComputedStyle(b).scale;
+        a.cancel();
+        b.animate([{ scale: now }, { scale: 1 }], { duration: 560, easing: SPRING });
+      }
+      // let go anywhere, even outside the window
+      for (const type of ['pointerup', 'pointercancel', 'blur']) addEventListener(type, letGo);
+      addEventListener(
+        'pointermove',
+        (e) => {
+          const b = e.target.closest?.('button');
+          if (!b) return;
+          const r = b.getBoundingClientRect();
+          b.style.setProperty('--mx', `${e.clientX - r.left}px`);
+          b.style.setProperty('--my', `${e.clientY - r.top}px`);
+        },
+        { passive: true },
+      );
+      /** what a button asks, under way: after a moment, an arc turning in it; done, a tick drawn there
+       *  (unless what it changed shows that itself); refused, a shake */
+      async function act(button, run, tick = true) {
+        if (button.classList.contains('pending')) return;
+        const slow = setTimeout(() => button.classList.add('pending'), 150);
+        let ok = false;
+        try {
+          ok = (await run()) !== false;
+        } catch {}
+        clearTimeout(slow);
+        button.classList.remove('pending');
+        if (!ok) shook(button);
+        else if (tick) ticked(button);
+      }
+      /** done (or sent on, to be opened by Windows): a tick drawn in the button a moment */
+      function ticked(button) {
+        if (still) return;
+        button.classList.remove('ticked');
+        button.offsetWidth;
+        button.classList.add('ticked');
+        clearTimeout(button.tickTimer);
+        button.tickTimer = setTimeout(() => button.classList.remove('ticked'), 1100);
+      }
+      /** refused: shaken, as a head is */
+      function shook(node) {
+        if (still) return;
+        node.animate([{ translate: '0' }, { translate: '-6px' }, { translate: '5px' }, { translate: '-3px' }, { translate: '2px' }, { translate: '0' }], { duration: 440, easing: 'ease-out' });
+      }
+      /** a button that says what it will do next (暂停 / 恢复…): its new words faded in */
+      function relabel(node, text) {
+        const was = node.textContent;
+        if (was === text) return;
+        node.textContent = text;
+        if (!still && was) node.animate([{ webkitTextFillColor: 'transparent' }, { webkitTextFillColor: 'currentcolor' }], { duration: 380, easing: OUT });
+      }
+      /** its height, padding and margins, as they are and as nothing */
+      function heights(node) {
+        const cs = getComputedStyle(node);
+        return [
+          { height: `${node.offsetHeight}px`, opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom, overflow: 'hidden' },
+          { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px', overflow: 'hidden' },
+        ];
+      }
+      /** going: run down to nothing, and kept so till it is gone (or put back: cancel()) */
+      const collapse = (node) => node.animate(heights(node), { duration: still ? 0 : 340, easing: OUT, fill: 'forwards' });
+      /** an icon of the rail drawn, stroke by stroke, as its page is shown */
+      function draw(svg) {
+        if (still || !svg) return;
+        [...svg.children].forEach((part, i) =>
+          part.animate([{ strokeDasharray: '1 1', strokeDashoffset: 1 }, { strokeDasharray: '1 1', strokeDashoffset: 0 }], { duration: 700, delay: i * 80, easing: OUT, fill: 'backwards' }),
+        );
+      }
+      for (const part of document.querySelectorAll('.nav > button svg > *')) part.setAttribute('pathLength', '1');
       /** the plate of a choice of a few (.seg), slid under the one pressed */
       function knobUnder(group) {
         let knob = group.querySelector('.knob');
@@ -2410,11 +2624,12 @@
           knob.style.transition = '';
         }
       }
+      /** a change asked of the station: whether it was made */
       const post = (path, body) =>
         fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
-          .then((r) => r.json())
-          .then(render)
-          .catch(() => {});
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((data) => (render(data), true))
+          .catch(() => false);
       /** a change the page asks: the state it leaves, or why not (thrown) */
       async function change(path, body, token = false) {
         const response = await fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json', ...(token ? { 'x-shell-local': shellToken } : {}) }, body: JSON.stringify(body) });
@@ -2430,8 +2645,10 @@
         try {
           error.textContent = '';
           await change(path, body, true);
+          return true;
         } catch (e) {
           error.textContent = e.message;
+          return false;
         }
       }
       /** "已保存" beside what was saved, for a moment; or why it was not */
@@ -2460,7 +2677,20 @@
       function placeSlider() {
         const top = [...document.querySelectorAll('.nav > button')].find((b) => b.getAttribute('aria-current') === 'page');
         if (top) $('#slider').style.transform = `translateY(${top.offsetTop}px)`;
+        // under the settings' page shown: put there as the list opens, slid while it is open
+        const plate = $('#plate');
+        const sub = document.querySelector('.sub button[aria-current="page"]');
+        plate.style.opacity = sub ? '1' : '0';
+        if (!sub) return void (plate.dataset.on = '');
+        if (!plate.dataset.on) plate.style.transition = 'none';
+        plate.style.transform = `translateY(${sub.offsetTop}px)`;
+        if (!plate.dataset.on) {
+          plate.offsetWidth;
+          plate.style.transition = '';
+          plate.dataset.on = '1';
+        }
       }
+      let topShown = null;
       function show(name) {
         if (!PAGES.includes(name)) name = 'home';
         if (name === current) return;
@@ -2474,6 +2704,11 @@
         $('#sub').classList.toggle('open', inSettings);
         document.body.dataset.page = name;
         placeSlider();
+        const top = inSettings ? 'settings' : name;
+        if (top !== topShown) {
+          topShown = top;
+          draw(document.querySelector('.nav > button[aria-current="page"] svg'));
+        }
         // once the list under 设置 has opened or closed
         setTimeout(placeSlider, 360);
         for (const p of PAGES) {
@@ -2588,7 +2823,7 @@
         set('strip-right', right);
 
         const toggle = $('#toggle');
-        set(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
+        relabel(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
         toggle.classList.toggle('primary', t.state === 'off');
         toggle.hidden = gone;
         $('#reconnect').hidden = gone || !['retry', 'auth', 'connecting'].includes(t.state);
@@ -2623,8 +2858,8 @@
         $('#badge-workspaces').hidden = !wsLack;
       }
       $('#notice-go').addEventListener('click', () => show(S.config.ssh.target ? 'workspaces' : 'connection'));
-      $('#toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
-      $('#reconnect').addEventListener('click', () => post('/reconnect'));
+      $('#toggle').addEventListener('click', (e) => act(e.currentTarget, () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'), false));
+      $('#reconnect').addEventListener('click', (e) => act(e.currentTarget, () => post('/reconnect')));
 
       // ——— the jobs running and waiting, when more than one: each with how far it is ———
       function renderActive() {
@@ -2738,7 +2973,11 @@
       });
       $('#elevate-now').addEventListener('click', () => {
         set('elevate-error', '');
-        if (S.running.length || S.queued.length) return set('elevate-error', '渲染站会重新启动。请在没有任务运行或排队时操作。');
+        if (S.running.length || S.queued.length) {
+          shook($('#elevate-now'));
+          return set('elevate-error', '渲染站会重新启动。请在没有任务运行或排队时操作。');
+        }
+        $('#elevate-now').classList.add('pending');
         host.postMessage('elevate');
       });
 
@@ -2776,7 +3015,7 @@
             // what it made, kept on this machine too
             const kept = j.paths?.length ? j.paths : null;
             if (kept) {
-              const b = button('打开', () => showKept(kept[0]));
+              const b = button('打开', () => showKept(kept[0], b.getBoundingClientRect()));
               b.className = 'open';
               row.append(b);
             }
@@ -2809,7 +3048,9 @@
               const inner = document.createElement('div');
               if (kept) {
                 const acts = el('div', 'acts');
-                acts.append(button('在「输出」中查看', () => showKept(kept[0])), button('在文件夹中显示', () => reveal(kept[0], true)));
+                const look = button('在「输出」中查看', () => showKept(kept[0], look.getBoundingClientRect()));
+                const there = button('在文件夹中显示', () => (reveal(kept[0], true), ticked(there)));
+                acts.append(look, there);
                 inner.append(acts);
               }
               inner.append(el('pre', 'out', (j.files?.length ? `已返回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（无输出）').trim()));
@@ -2885,7 +3126,8 @@
                 tile.append(img);
               }
               tile.append(el('span', 'cap', caption(f.name)));
-              tile.addEventListener('click', () => (f.url ? lightbox(items.findIndex((i) => i.path === f.path)) : reveal(f.path)));
+              tile.dataset.path = f.path;
+              tile.addEventListener('click', () => (f.url ? lightbox(items.findIndex((i) => i.path === f.path), tile.getBoundingClientRect()) : reveal(f.path)));
               tiles.append(tile);
             }
             sec.append(head, tiles);
@@ -2895,19 +3137,36 @@
         shelfSeen = new Set(shelf.map((g) => g.name));
       }
       // from a job's row: to its picture in the gallery, large
-      function showKept(path) {
+      function showKept(path, from) {
         const i = items.findIndex((it) => it.path === path);
         if (i < 0) return reveal(path);
         show('gallery');
-        lightbox(i);
+        lightbox(i, from);
       }
-      $('#g-folder').addEventListener('click', () => items[0] && reveal(items[0].path, true));
+      $('#g-folder').addEventListener('click', (e) => items[0] && (reveal(items[0].path, true), ticked(e.currentTarget)));
 
       // ——— one, large ———
       const box = $('#lightbox');
       let at = -1;
-      function lightbox(i) {
+      /** from where it was (a tile, a button) into its place in the lightbox, or `back` there: moved
+       *  and scaled, cropped as a tile crops it */
+      function fly(node, from, back = false) {
+        const to = node.getBoundingClientRect();
+        if (still || !to.width || !from?.width) return false;
+        const k = Math.max(from.width / to.width, from.height / to.height);
+        const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+        const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+        const ix = Math.max(0, (to.width - from.width / k) / 2);
+        const iy = Math.max(0, (to.height - from.height / k) / 2);
+        const there = { transform: `translate(${dx}px, ${dy}px) scale(${k})`, clipPath: `inset(${iy}px ${ix}px round ${10 / k}px)`, opacity: 1 };
+        const here = { transform: 'none', clipPath: 'inset(0px 0px round 8px)', opacity: 1 };
+        node.animate(back ? [here, there] : [there, here], { duration: back ? 420 : 600, easing: OUT, fill: back ? 'forwards' : 'none' });
+        return true;
+      }
+      function lightbox(i, from) {
         if (i < 0 || !items.length) return;
+        // the next or the one before: coming in from its side, the one shown going to the other
+        const side = box.hidden ? 0 : Math.sign(i - at);
         at = (i + items.length) % items.length;
         const it = items[at];
         const media = document.createElement(video(it.name) ? 'video' : 'img');
@@ -2917,8 +3176,23 @@
           media.autoplay = true;
           media.loop = true;
         }
-        media.addEventListener(media.tagName === 'VIDEO' ? 'loadeddata' : 'load', () => requestAnimationFrame(() => media.classList.add('in')), { once: true });
-        $('#lb-stage').replaceChildren(media);
+        media.addEventListener(
+          media.tagName === 'VIDEO' ? 'loadeddata' : 'load',
+          () =>
+            requestAnimationFrame(() => {
+              if (from) media.style.transition = 'none';
+              media.classList.add('in');
+              if (from) fly(media, from);
+              else if (side && !still) media.animate([{ opacity: 0, translate: `${side * 56}px 0` }, { opacity: 1, translate: '0 0' }], { duration: 460, easing: OUT });
+            }),
+          { once: true },
+        );
+        const stage = $('#lb-stage');
+        const shown = stage.lastElementChild;
+        if (shown && side && !still) {
+          shown.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: `${-side * 56}px 0` }], { duration: 320, easing: OUT, fill: 'forwards' }).onfinish = () => shown.remove();
+          stage.append(media);
+        } else stage.replaceChildren(media);
         set('lb-cap', `${it.what}：${it.cap}`);
         set('lb-n', `${at + 1} / ${items.length}`);
         if (box.hidden) {
@@ -2929,18 +3203,24 @@
       function closeBox() {
         box.classList.remove('on');
         box.querySelector('video')?.pause();
+        // back to its tile, if the tile is in sight; else faded where it is
+        const media = $('#lb-stage').lastElementChild;
+        const tile = current === 'gallery' && items[at] ? document.querySelector(`.tile[data-path="${CSS.escape(items[at].path)}"]`) : null;
+        const r = tile?.getBoundingClientRect();
+        const seen = r && r.bottom > 0 && r.top < innerHeight;
+        if (media && !(seen && fly(media, r, true)) && !still) media.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.97)' }], { duration: 260, easing: OUT, fill: 'forwards' });
         setTimeout(() => {
           if (!box.classList.contains('on')) {
             box.hidden = true;
             $('#lb-stage').replaceChildren();
           }
-        }, 300);
+        }, 420);
       }
       $('#lb-prev').addEventListener('click', () => lightbox(at - 1));
       $('#lb-next').addEventListener('click', () => lightbox(at + 1));
       $('#lb-close').addEventListener('click', closeBox);
-      $('#lb-open').addEventListener('click', () => reveal(items[at].path));
-      $('#lb-show').addEventListener('click', () => reveal(items[at].path, true));
+      $('#lb-open').addEventListener('click', (e) => (reveal(items[at].path), ticked(e.currentTarget)));
+      $('#lb-show').addEventListener('click', (e) => (reveal(items[at].path, true), ticked(e.currentTarget)));
       box.addEventListener('click', (e) => {
         if (e.target === box || e.target.id === 'lb-stage') closeBox();
       });
@@ -3056,17 +3336,19 @@
         }[t.state] ?? [t.state, ''];
         set('tun-state', gone ? '渲染站未运行' : state[0]);
         set('tun-detail', gone ? '' : state[1]);
-        set('tun-toggle', t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
+        relabel($('#tun-toggle'), t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
         $('#tun-toggle').classList.toggle('primary', t.state === 'off');
         $('#tun-reconnect').hidden = gone || t.state === 'off' || t.state === 'unset';
         $('#tun-toggle').hidden = gone;
       }
-      $('#tun-toggle').addEventListener('click', () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'));
-      $('#tun-reconnect').addEventListener('click', () => post('/reconnect'));
+      $('#tun-toggle').addEventListener('click', (e) => act(e.currentTarget, () => post(S?.tunnel.state === 'off' ? '/resume' : '/pause'), false));
+      $('#tun-reconnect').addEventListener('click', (e) => act(e.currentTarget, () => post('/reconnect')));
 
       // ——— 设置 · 工作区: a block each, opened to its settings, each change saved at once ———
       let wsKey = '';
       const wsOpen = new Set();
+      // the workspace just added, to rise in
+      let wsArrive = -1;
       // a field typed in and not yet saved: the list is not built again over it
       let wsTyping = false;
       const STATUS = (seen) =>
@@ -3092,7 +3374,7 @@
         }
       }
       function wsCard(w, seen, i) {
-        const card = el('div', 'panel wsc');
+        const card = el('div', `panel wsc${i === wsArrive ? ' arrive' : ''}`);
         card.dataset.i = i;
         const head = el('button', 'wsc-head');
         head.type = 'button';
@@ -3194,11 +3476,15 @@
         remove.type = 'button';
         remove.addEventListener('click', async () => {
           if (!confirm(`移除工作区 ${seen?.name || w.name || w.path}？移除后，服务器无法再运行其中的预设任务；文件夹本身不受影响。`)) return;
+          const going = collapse(card);
           try {
+            await going.finished;
             wsOpen.clear();
             await saveWorkspaces(S.config.workspaces.filter((_, j) => j !== i));
           } catch (e) {
+            going.cancel();
             said(status, e.message);
+            shook(remove);
           }
         });
         foot.append(status, remove);
@@ -3262,18 +3548,31 @@
         set('ws-new-error', '');
       };
       $('#ws-new-cancel').addEventListener('click', closeAdd);
-      $('#ws-new-add').addEventListener('click', async () => {
-        const path = $('#ws-new-path').value.trim();
-        if (!path) return set('ws-new-error', '请填写路径');
-        try {
-          await saveWorkspaces([...S.config.workspaces, { name: $('#ws-new-name').value.trim(), path, env: {} }]);
-          wsOpen.add(S.config.workspaces.length - 1);
-          closeAdd();
-          renderWorkspaces(true);
-        } catch (e) {
-          set('ws-new-error', e.message);
-        }
-      });
+      $('#ws-new-add').addEventListener('click', (e) =>
+        act(
+          e.currentTarget,
+          async () => {
+            const path = $('#ws-new-path').value.trim();
+            if (!path) {
+              set('ws-new-error', '请填写路径');
+              return false;
+            }
+            try {
+              wsArrive = S.config.workspaces.length;
+              await saveWorkspaces([...S.config.workspaces, { name: $('#ws-new-name').value.trim(), path, env: {} }]);
+              wsOpen.add(S.config.workspaces.length - 1);
+              closeAdd();
+              renderWorkspaces(true);
+            } catch (e) {
+              set('ws-new-error', e.message);
+              return false;
+            } finally {
+              wsArrive = -1;
+            }
+          },
+          false,
+        ),
+      );
       $('#ws-new-path').addEventListener('keydown', (e) => e.key === 'Enter' && $('#ws-new-add').click());
 
       // ——— 设置 · 权限与审批: the server's changes to the workspaces, Shell, its allowlist ———
@@ -3296,7 +3595,7 @@
         set('shell-mode', { disabled: '已关闭', auto: 'auto 模式', yolo: 'YOLO 模式' }[shell.mode] ?? shell.mode);
         $('#shell-enabled').checked = shell.mode !== 'disabled';
         $('#shell-yolo').disabled = !shell.admin || shell.mode === 'disabled';
-        set('shell-yolo', shell.mode === 'yolo' ? '关闭 YOLO' : '开启 YOLO');
+        relabel($('#shell-yolo'), shell.mode === 'yolo' ? '关闭 YOLO' : '开启 YOLO');
         set('shell-admin', shell.admin ? '渲染站正以管理员身份运行，可以开启。' : '渲染站当前以普通权限运行：请先在「总览」页单击「以管理员身份重新启动」，并在「用户账户控制」窗口中选择「是」。');
         const key = JSON.stringify(shell.rules);
         if (key === rulesKey) return;
@@ -3310,7 +3609,11 @@
           pre.append(el('span', null, `${rule.cwd}\n`), rule.command);
           const b = el('button', 'link danger', '移除');
           b.type = 'button';
-          b.addEventListener('click', () => shellPost('remove', { index }));
+          b.addEventListener('click', async () => {
+            const going = collapse(li);
+            await going.finished;
+            if (!(await shellPost('remove', { index }))) going.cancel();
+          });
           li.append(pre, b);
           list.append(li);
         });
@@ -3330,19 +3633,24 @@
           const mode = b.dataset.manage;
           if (mode === S.manage.mode) return;
           if (mode === 'allow' && !confirm('选择「无需审批」后，服务器不经批准就能登记工作区、新建文件夹、查看这台电脑的任意文件夹，并运行工作区中的预设任务，这些任务以渲染站运行账户的权限执行。确定吗？')) return;
-          managePost('/manage', { mode });
+          act(b, () => managePost('/manage', { mode }), false);
         });
       $('#shell-enabled').addEventListener('change', (event) => shellPost('enabled', { on: event.target.checked }));
       $('#shell-yolo').addEventListener('click', () => {
         const on = S.shell.mode !== 'yolo';
-        if (!on || confirm('开启后，在这次运行期间，服务器可以用渲染站账户的权限执行任意 Shell 命令，并使用任意工作目录。确定开启 YOLO 吗？')) shellPost('yolo', { on });
+        if (!on || confirm('开启后，在这次运行期间，服务器可以用渲染站账户的权限执行任意 Shell 命令，并使用任意工作目录。确定开启 YOLO 吗？')) act($('#shell-yolo'), () => shellPost('yolo', { on }), false);
       });
 
       // ——— 设置 · 本机, and 更新与关于 ———
       function renderMachine() {
         for (const b of document.querySelectorAll('[data-theme-name]')) b.setAttribute('aria-pressed', b.dataset.themeName === (S.theme === 'cream' ? 'cream' : 'plum'));
         knobUnder($('#theme'));
-        set('par-n', String(S.parallel));
+        const par = $('#par-n');
+        const was = Number(par.textContent);
+        if (was !== S.parallel) {
+          par.textContent = String(S.parallel);
+          if (was && !still) par.animate([{ opacity: 0, translate: `0 ${S.parallel > was ? 9 : -9}px` }, { opacity: 1, translate: '0 0' }], { duration: 380, easing: OUT });
+        }
         $('#par-dec').disabled = S.parallel <= 1;
         $('#par-inc').disabled = S.parallel >= 16;
         $('#autostart-row').hidden = S.platform !== 'win32';
@@ -3358,6 +3666,7 @@
         const text = { idle: '尚未检查更新', checking: '正在检查更新…', current: '已是最新版本' }[u.state] ?? u.message;
         set('u-state', `${text}${u.at && !going ? `（${clock(u.at)}）` : ''}`);
         $('#u-check').disabled = going;
+        $('#u-check').classList.toggle('pending', going);
         // an installed copy updates from the update server; a checkout, from its git branch
         const fromGit = S.version?.kind === 'git';
         set('u-hint', fromGit ? '跟随仓库的新版本自动更新；仓库中有本地改动时不更新' : '有新版本时自动下载并安装；有任务运行时，等任务结束后再更新');
@@ -3365,9 +3674,14 @@
         set('log-path', S.paths?.log ?? '');
         $('#log-open').hidden = !host;
       }
-      for (const b of document.querySelectorAll('[data-theme-name]')) b.addEventListener('click', () => post('/theme', { name: b.dataset.themeName }));
-      $('#par-dec').addEventListener('click', () => post('/parallel', { n: S.parallel - 1 }));
-      $('#par-inc').addEventListener('click', () => post('/parallel', { n: S.parallel + 1 }));
+      for (const b of document.querySelectorAll('[data-theme-name]'))
+        b.addEventListener('click', (e) => {
+          const r = b.getBoundingClientRect();
+          themeAt = e.detail ? [e.clientX, e.clientY] : [r.left + r.width / 2, r.top + r.height / 2];
+          post('/theme', { name: b.dataset.themeName });
+        });
+      $('#par-dec').addEventListener('click', (e) => act(e.currentTarget, () => post('/parallel', { n: S.parallel - 1 }), false));
+      $('#par-inc').addEventListener('click', (e) => act(e.currentTarget, () => post('/parallel', { n: S.parallel + 1 }), false));
       // applied at once; not set back by the state while the change is on its way
       for (const id of ['autostart', 'shortcut', 'autoupdate'])
         $(`#${id}`).addEventListener('change', async (e) => {
@@ -3376,7 +3690,7 @@
           flying.delete(id);
         });
       $('#u-check').addEventListener('click', () => post('/update'));
-      $('#log-open').addEventListener('click', () => host?.postMessage('log'));
+      $('#log-open').addEventListener('click', (e) => (host?.postMessage('log'), ticked(e.currentTarget)));
 
       // ——— the server's requests awaiting approval: one shown at a time ———
       // a request newly shown: its buttons wait a moment, so a click meant for the one before is not taken for it
@@ -3436,12 +3750,12 @@
         }
         if (!dialog.open) dialog.showModal();
       }
-      for (const b of document.querySelectorAll('[data-ws-decision]')) b.addEventListener('click', () => managePost('/manage/decide', { id: S.manage.pending?.id, action: b.dataset.wsDecision }));
+      for (const b of document.querySelectorAll('[data-ws-decision]')) b.addEventListener('click', () => act(b, () => managePost('/manage/decide', { id: S.manage.pending?.id, action: b.dataset.wsDecision }), false));
       $('#ws-review').addEventListener('cancel', (event) => {
         event.preventDefault();
         managePost('/manage/decide', { id: S.manage.pending?.id, action: 'deny' });
       });
-      for (const b of document.querySelectorAll('[data-shell-decision]')) b.addEventListener('click', () => shellPost('decide', { id: S.shell.pending?.id, action: b.dataset.shellDecision }));
+      for (const b of document.querySelectorAll('[data-shell-decision]')) b.addEventListener('click', () => act(b, () => shellPost('decide', { id: S.shell.pending?.id, action: b.dataset.shellDecision }), false));
       $('#shell-review').addEventListener('cancel', (event) => {
         event.preventDefault();
         shellPost('decide', { id: S.shell.pending?.id, action: 'deny' });
@@ -3455,8 +3769,20 @@
           document.documentElement.dataset.theme = theme;
           tellLook();
         };
-        if (document.startViewTransition && !still && S0) document.startViewTransition(apply);
-        else apply();
+        const from = themeAt;
+        themeAt = null;
+        if (!document.startViewTransition || still || !S0) apply();
+        else if (!from) document.startViewTransition(apply);
+        else {
+          // picked here: the new look spreading from where it was, as a circle over the old
+          const root = document.documentElement;
+          root.classList.add('reveal');
+          const t = document.startViewTransition(apply);
+          const [x, y] = from;
+          const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+          t.ready.then(() => root.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] }, { duration: 720, easing: OUT, pseudoElement: '::view-transition-new(root)' })).catch(() => {});
+          t.finished.finally(() => root.classList.remove('reveal'));
+        }
         try {
           localStorage.setItem('station-theme', theme);
         } catch {}
@@ -3480,8 +3806,10 @@
         host.postMessage(`look\t${hex('var(--ground)')}\t${hex('var(--line)')}\t${dark}`);
       }
       matchMedia('(prefers-color-scheme: dark)').addEventListener('change', tellLook);
-      // the first state yet to come: the look is applied as it is, not faded into
+      // the first state yet to come: the look is applied as it is, not faded into; where the look
+      // was picked, to spread from
       let S0 = false;
+      let themeAt = null;
       function render(s) {
         if (s) S = s;
         if (!S) return;
@@ -3533,14 +3861,19 @@
         $('#tb-min').addEventListener('click', () => host.postMessage('min'));
         $('#tb-max').addEventListener('click', () => host.postMessage('max'));
         $('#tb-close').addEventListener('click', () => host.postMessage('close'));
-        $('#in-browser').addEventListener('click', () => host.postMessage('browser'));
+        $('#in-browser').addEventListener('click', (e) => (host.postMessage('browser'), ticked(e.currentTarget)));
         host.addEventListener('message', (event) => {
           const [what, how, code] = String(event.data).split('\t');
           if (what === 'window') {
             // maximized: the button restores, and shows it
             $('#tb-max').setAttribute('aria-label', how === 'max' ? '向下还原' : '最大化');
             $('#grip').hidden = how === 'max';
-            $('#tb-max-icon').setAttribute('d', how === 'max' ? 'M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z' : 'M0.5 0.5h9v9h-9z');
+            const d = how === 'max' ? 'M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z' : 'M0.5 0.5h9v9h-9z';
+            const icon = $('#tb-max-icon');
+            if (icon.getAttribute('d') !== d) {
+              icon.setAttribute('d', d);
+              if (!still) $('#tb-max svg').animate([{ opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1 }], { duration: 260, easing: OUT });
+            }
           } else if (what === 'active') {
             document.documentElement.classList.toggle('inactive', how === '0');
           } else if (what === 'elevate') {
@@ -3552,6 +3885,8 @@
               error: `无法以管理员身份重新启动（错误代码 ${code}）。`,
             }[how];
             set('elevate-error', text ?? '');
+            $('#elevate-now').classList.remove('pending');
+            shook($('#elevate-now'));
           }
         });
         host.postMessage('ready');
