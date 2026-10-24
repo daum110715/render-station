@@ -688,7 +688,10 @@
         color: var(--ink);
       }
       .nav .sub button:not([aria-current]):hover {
-        background: color-mix(in srgb, var(--ink) 5%, transparent);
+        background: color-mix(in srgb, var(--violet) 7%, transparent);
+      }
+      [data-theme='cream'] .nav .sub button:not([aria-current]):hover {
+        background: var(--shade-3);
       }
       /* under the pointer: a plate gliding from one name to the next, under the page's */
       .nav .hover {
@@ -698,7 +701,7 @@
         top: 0;
         height: 40px;
         border-radius: 9px;
-        background: color-mix(in srgb, var(--ink) 5%, transparent);
+        background: color-mix(in srgb, var(--violet) 7%, transparent);
         opacity: 0;
         transition:
           transform 0.35s var(--out),
@@ -706,6 +709,7 @@
       }
       [data-theme='cream'] .nav .hover {
         border-radius: var(--r-ctl);
+        background: var(--shade-3);
       }
       .nav .hover.on {
         opacity: 1;
@@ -880,23 +884,83 @@
       .nav .sub:has(.plate) button[aria-current='page'] {
         background: none;
       }
+      /* the rail's foot: a card of how the station is (nothing to press), its colour the state's; in
+         奶白 raised as the page's plate is, on layers of its amber rather than a shadow */
       .rail-foot {
         display: grid;
-        gap: 6px;
+        gap: 16px;
         margin-top: auto;
-        padding: 0 6px;
+        padding: 0 6px 0 0;
       }
-      .pill {
-        display: inline-flex;
-        align-items: center;
+      .status-card {
+        display: grid;
         gap: 9px;
-        width: fit-content;
-        padding: 5px 13px 5px 11px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--surface);
-        font-size: 12.5px;
-        color: var(--ink-2);
+        padding: 10px 12px 11px;
+        border: var(--border-w) solid color-mix(in srgb, var(--state) 28%, var(--line));
+        border-radius: var(--r-panel);
+        background: color-mix(in srgb, var(--state) 7%, var(--surface));
+        cursor: default;
+      }
+      [data-theme='cream'] .status-card {
+        border-color: var(--shade-1);
+        background: var(--cream);
+        box-shadow: var(--layers-2);
+      }
+      .standing {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        min-width: 0;
+      }
+      .standing .dot {
+        margin-top: 6px;
+      }
+      .standing > span {
+        min-width: 0;
+      }
+      .standing b {
+        display: block;
+        font-weight: 500;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .standing small {
+        display: block;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: var(--ink-3);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* how far: the frames made, the wait before trying again, or a light passing while there is
+         no telling; nothing while there is nothing to wait for */
+      .status-bar {
+        height: 2px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--state) 16%, transparent);
+      }
+      .status-bar i {
+        display: block;
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--state);
+        transition: width 0.45s var(--out);
+      }
+      .status-bar.sweep i {
+        width: 30%;
+        transition: none;
+        animation: pass 1.5s ease-in-out infinite;
+      }
+      @keyframes pass {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(340%);
+        }
       }
       .dot {
         position: relative;
@@ -1353,7 +1417,7 @@
         background: var(--sunk);
       }
       .job:active {
-        background: color-mix(in srgb, var(--ink) 7%, var(--sunk));
+        background: color-mix(in srgb, var(--violet) 10%, var(--sunk));
       }
       /* a job just ended: in at the top, lit a moment in how it went */
       .arrive .job {
@@ -2136,7 +2200,8 @@
         .nav .count,
         .sub,
         .rail-foot .link,
-        .pill span {
+        .standing > span,
+        .status-bar {
           display: none;
         }
         .brand,
@@ -2153,8 +2218,11 @@
           right: 8px;
           top: 8px;
         }
-        .pill {
-          padding: 8px;
+        .standing {
+          justify-content: center;
+        }
+        .status-card {
+          padding: 9px 0;
         }
         .page {
           padding: 26px 20px 36px;
@@ -2289,7 +2357,13 @@
           </div>
         </nav>
         <div class="rail-foot">
-          <span class="pill" id="pill"><i class="dot"></i><span id="chip">正在启动</span></span>
+          <div class="status-card">
+            <div class="standing" aria-live="polite">
+              <i class="dot"></i>
+              <span><b id="chip">正在启动</b><small id="chip-sub"></small></span>
+            </div>
+            <div class="status-bar" id="status-bar" hidden><i id="status-fill"></i></div>
+          </div>
           <button type="button" class="link" id="in-browser" hidden>在浏览器中打开</button>
         </div>
       </aside>
@@ -3004,6 +3078,26 @@
         unfold(wrap, ['busy', 'retry', 'connecting'].includes(mode));
         set('strip-left', left);
         set('strip-right', right);
+
+        // the rail's foot: the state, what it is about, and how far
+        const about = {
+          gone: '后台进程已停止',
+          busy: j ? j.what : `${many} 个任务运行中`,
+          idle: t.since ? `已连接 ${uptime(now - t.since)}` : '已连接',
+          connecting: S.config.ssh.target ? `ssh ${target}` : '',
+          retry: `${secs} 秒后重新连接`,
+          auth: '无法用密钥登录服务器',
+          off: '不接收任务',
+          unset: '尚未填写服务器',
+        }[mode] ?? '';
+        set('chip-sub', about);
+        $('.standing').title = about;
+        const foot = $('#status-bar');
+        const passing = mode === 'connecting' || (mode === 'busy' && !(j?.total > 0));
+        const part = mode === 'busy' && j?.total > 0 ? j.n / j.total : mode === 'retry' && t.wait ? (secs * 1000) / t.wait : null;
+        foot.hidden = !passing && part == null;
+        foot.classList.toggle('sweep', passing);
+        $('#status-fill').style.width = passing ? '' : `${(part ?? 0) * 100}%`;
 
         const toggle = $('#toggle');
         relabel(toggle, t.state === 'off' ? '恢复接收任务' : '暂停接收任务');
