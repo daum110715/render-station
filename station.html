@@ -1308,10 +1308,21 @@
         padding: 0;
         list-style: none;
       }
-      .list > li + li {
+      /* between rows a line as wide as their words (a row reaches past them, for its plate under the
+         pointer), and none beside the row under the pointer */
+      .list > li + li::before {
+        content: '';
+        position: absolute;
+        inset: 0 12px auto;
         border-top: 1px solid var(--line-2);
+        transition: opacity 0.2s;
+      }
+      .list > .job:not(.live):hover::before,
+      .list > .job:not(.live):hover + li::before {
+        opacity: 0;
       }
       .job {
+        position: relative;
         display: grid;
         grid-template-columns: 3.2em minmax(0, 1fr) auto auto auto;
         align-items: center;

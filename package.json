@@ -1,6 +1,6 @@
 {
   "name": "render-station",
-  "version": "0.7.14",
+  "version": "0.7.15",
   "private": true,
   "license": "MIT",
   "description": "Lets agents on a server hand heavy jobs to a Windows machine over a reverse SSH tunnel",
