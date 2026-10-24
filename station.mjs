@@ -493,7 +493,7 @@ const view = () => ({
   autoUpdate: config.autoUpdate !== false,
   clipboard: { on: !!config.clipboard, last: clipLast },
   // the window's look: 'plum' or 'cream'
-  theme: config.theme === 'cream' ? 'cream' : 'plum',
+  theme: ['cream', 'lime'].includes(config.theme) ? config.theme : 'plum',
   paths: { log: LOG },
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
@@ -1008,7 +1008,7 @@ const ui = createServer(async (req, res) => {
       save();
       note('station', data.on ? '同步剪贴板：已开启，复制的文字和图片会同步到服务器' : '同步剪贴板：已关闭');
     } else if (path === '/theme') {
-      if (!['plum', 'cream'].includes(data.name)) throw new Error('name must be plum or cream');
+      if (!['plum', 'cream', 'lime'].includes(data.name)) throw new Error('name must be plum, cream or lime');
       config.theme = data.name;
       save();
     } else if (path === '/update') checkUpdate();

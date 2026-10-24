@@ -7,7 +7,8 @@
     <script>
       // the look chosen last, before anything is drawn (the station's settings say which, once it answers)
       try {
-        document.documentElement.dataset.theme = localStorage.getItem('station-theme') === 'cream' ? 'cream' : 'plum';
+        const theme = localStorage.getItem('station-theme');
+        document.documentElement.dataset.theme = theme === 'cream' || theme === 'lime' ? theme : 'plum';
       } catch {}
     </script>
     <link rel="icon" id="favicon" href="data:," />
@@ -23,8 +24,10 @@
         src: url('/fonts/outfit/files/outfit-latin-wght-normal.woff2') format('woff2-variations');
         unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2022;
       }
-      /* two looks, chosen in 设置 → 本机: 梅紫, warm paper and plum ink as qiqi.help has them, the
-         states in the tray icon's colours, light or dark as the system is; and 奶白, daum.pw's
+      /* three looks, chosen in 设置 → 本机: 梅紫, warm paper and plum ink as qiqi.help has them, the
+         states in the tray icon's colours, light or dark as the system is; 黄绿, 梅紫's frame in pale
+         green-tinged paper, a short run from yellow to green for what is chosen and for 执行中 (the
+         colour between 连接中's yellow and 空闲's green), light or dark too; and 奶白, daum.pw's
          (pw/chat.html): the cream page with its amber wash, the wordmark's face for what matters,
          flat layers of its long shadow under what is pressed, light only */
       :root {
@@ -64,7 +67,7 @@
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
-        :root:not([data-theme='cream']) {
+        :root:not([data-theme='cream'], [data-theme='lime']) {
           --page: #171216;
           --ground: #171216;
           --rail: #120e11;
@@ -81,6 +84,55 @@
           --wait: #f1b74a;
           --bad: #ec6a46;
           --off: #7d6f80;
+          color-scheme: dark;
+        }
+      }
+      :root[data-theme='lime'] {
+        --page: #f7f7f0;
+        --ground: #f7f7f0;
+        --rail: #eef0e2;
+        --surface: #fdfdf8;
+        --sunk: #eef0e4;
+        --ink: #262922;
+        --ink-2: #5e6455;
+        --ink-3: #8b9183;
+        --line: #dde1d0;
+        --line-2: #e8eadc;
+        --lime-a: #d8b437;
+        --lime-b: #6db35a;
+        --violet: #5b8424;
+        --on-violet: #1f2913;
+        --primary: linear-gradient(100deg, var(--lime-a), var(--lime-b));
+        /* the run as words on the paper: deeper, to be read */
+        --run-text: linear-gradient(100deg, #bf9a1c, #43a05a);
+        --ok: #2f9d74;
+        --wait: #d99a1e;
+        --bad: #d4563a;
+        --off: #9a9c8f;
+        --busy: #9aae2f;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root[data-theme='lime'] {
+          --page: #151711;
+          --ground: #151711;
+          --rail: #11130e;
+          --surface: #1c1f17;
+          --sunk: #1a1d15;
+          --ink: #ecefe4;
+          --ink-2: #b4baa6;
+          --ink-3: #8f9585;
+          --line: #333928;
+          --line-2: #24281e;
+          --lime-a: #e4c45a;
+          --lime-b: #7cc477;
+          --violet: #b8d46a;
+          --run-text: var(--primary);
+          --ok: #3dbb8a;
+          --wait: #f1b74a;
+          --bad: #ec6a46;
+          --off: #7d8275;
+          --busy: #b7c84c;
           color-scheme: dark;
         }
       }
@@ -608,9 +660,11 @@
         display: grid;
         gap: 2px;
       }
+      /* from the bottom: the plate under the pointer, the page's plate (raised, its layers over what is
+         flat), the names */
       .nav button {
         position: relative;
-        z-index: 1;
+        z-index: 2;
         display: flex;
         align-items: center;
         gap: 11px;
@@ -633,8 +687,28 @@
       .nav button:hover {
         color: var(--ink);
       }
-      .nav button:not([aria-current]):hover {
+      .nav .sub button:not([aria-current]):hover {
         background: color-mix(in srgb, var(--ink) 5%, transparent);
+      }
+      /* under the pointer: a plate gliding from one name to the next, under the page's */
+      .nav .hover {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 40px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--ink) 5%, transparent);
+        opacity: 0;
+        transition:
+          transform 0.35s var(--out),
+          opacity 0.25s;
+      }
+      [data-theme='cream'] .nav .hover {
+        border-radius: var(--r-ctl);
+      }
+      .nav .hover.on {
+        opacity: 1;
       }
       .nav > button[aria-current='page'] {
         color: var(--on-violet);
@@ -700,6 +774,7 @@
       /* the page shown, a plate sliding under its name */
       .slider {
         position: absolute;
+        z-index: 1;
         left: 0;
         right: 0;
         top: 0;
@@ -708,6 +783,16 @@
         border-radius: 9px;
         background: var(--violet);
         transition: transform 0.45s var(--out);
+      }
+      [data-theme='lime'] .slider {
+        background: var(--primary);
+      }
+      [data-theme='lime'] body[data-mode='busy'] .state-word {
+        width: fit-content;
+        background: var(--run-text);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       [data-theme='cream'] .slider {
         border-color: var(--shade-1);
@@ -1775,7 +1860,9 @@
       [aria-expanded='true'] .chev {
         transform: rotate(90deg);
       }
+      /* room on the right for its fields' layers and focus rings, inside the fold that clips */
       .wsc-body {
+        padding-right: 6px;
         padding-left: 14px;
         border-left: 2px solid var(--line);
         margin-bottom: 14px;
@@ -2104,6 +2191,7 @@
           </div>
         </div>
         <nav class="nav" aria-label="页面">
+          <i class="hover" id="hover" aria-hidden="true"></i>
           <i class="slider" id="slider" aria-hidden="true"></i>
           <button type="button" data-page="home" title="总览">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0" /><path d="M12 15.5l3.6-4.2" /><path d="M4 19h16" /></svg><span>总览</span>
@@ -2322,9 +2410,9 @@
           <p class="lede">这台电脑上的渲染站怎么运行。「以管理员身份运行」在「总览」页的「本机」中设置。</p>
           <div class="rows">
             <div class="row">
-              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色，随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
+              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。黄绿：浅黄绿的纸，选中处和「执行中」用一段黄到绿的渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
               <div class="ctl">
-                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="cream">奶白</button></span>
+                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="lime">黄绿</button><button type="button" data-theme-name="cream">奶白</button></span>
               </div>
             </div>
             <div class="row">
@@ -2691,6 +2779,18 @@
         }
       }
       let topShown = null;
+      // the plate under the pointer: on a name not the page's, put there if it was off, slid if on
+      const hover = $('#hover');
+      $('.nav').addEventListener('pointerover', (e) => {
+        const b = e.target.closest('.nav > button');
+        if (!b || b.getAttribute('aria-current') === 'page') return hover.classList.remove('on');
+        if (!hover.classList.contains('on')) hover.style.transition = 'none';
+        hover.style.transform = `translateY(${b.offsetTop}px)`;
+        hover.offsetWidth;
+        hover.style.transition = '';
+        hover.classList.add('on');
+      });
+      $('.nav').addEventListener('pointerleave', () => hover.classList.remove('on'));
       function show(name) {
         if (!PAGES.includes(name)) name = 'home';
         if (name === current) return;
@@ -2702,6 +2802,7 @@
           else b.removeAttribute('aria-current');
         }
         $('#sub').classList.toggle('open', inSettings);
+        $('#hover').classList.remove('on');
         document.body.dataset.page = name;
         placeSlider();
         const top = inSettings ? 'settings' : name;
@@ -2770,7 +2871,7 @@
         painted = color;
         $('#favicon').href = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="${color}"/><path d="M12.5 9 23.5 16 12.5 23z" fill="#fff"/></svg>`)}`;
       }
-      const COLORS = { idle: '#2a9d80', busy: '#6a4c9e', connecting: '#d99a1e', retry: '#d99a1e', auth: '#d4563a', gone: '#d4563a' };
+      const COLORS = { idle: 'ok', busy: 'busy', connecting: 'wait', retry: 'wait', auth: 'bad', gone: 'bad' };
 
       function renderState() {
         const t = S.tunnel;
@@ -2780,7 +2881,7 @@
         const waiting = S.queued.length ? `，另有 ${S.queued.length} 个任务排队` : '';
         const mode = gone ? 'gone' : many ? 'busy' : t.state === 'up' ? 'idle' : t.state;
         document.body.dataset.mode = mode;
-        paint(COLORS[mode] ?? '#9a8a9d');
+        paint(`#${hex(`var(--${COLORS[mode] ?? 'off'})`)}`);
         const target = S.config.ssh.target + (S.config.ssh.port ? ` -p ${S.config.ssh.port}` : '');
         const secs = t.retryAt ? Math.max(0, Math.ceil((t.retryAt - now) / 1000)) : 0;
         const text = {
@@ -3643,7 +3744,7 @@
 
       // ——— 设置 · 本机, and 更新与关于 ———
       function renderMachine() {
-        for (const b of document.querySelectorAll('[data-theme-name]')) b.setAttribute('aria-pressed', b.dataset.themeName === (S.theme === 'cream' ? 'cream' : 'plum'));
+        for (const b of document.querySelectorAll('[data-theme-name]')) b.setAttribute('aria-pressed', b.dataset.themeName === themeOf(S.theme));
         knobUnder($('#theme'));
         const par = $('#par-n');
         const was = Number(par.textContent);
@@ -3762,8 +3863,9 @@
       });
 
       /** the look the settings name, kept for the next time the page is drawn; changed, faded into */
+      const themeOf = (name) => (name === 'cream' || name === 'lime' ? name : 'plum');
       function applyTheme() {
-        const theme = S.theme === 'cream' ? 'cream' : 'plum';
+        const theme = themeOf(S.theme);
         if (document.documentElement.dataset.theme === theme) return;
         const apply = () => {
           document.documentElement.dataset.theme = theme;
