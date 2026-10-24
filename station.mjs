@@ -491,7 +491,13 @@ const view = () => ({
   update,
   version,
   autoUpdate: config.autoUpdate !== false,
-  clipboard: { on: !!config.clipboard, last: clipLast },
+  clipboard: {
+    on: !!config.clipboard,
+    last: clipLast,
+    going: clipGoing,
+    // copied while there is no getting through: to go once the tunnel is up
+    waiting: clipOutbox && tunnel.state !== 'up' ? { type: clipOutbox.type, size: clipOutbox.data.length } : null,
+  },
   // the window's look: 'plum' or 'cream'
   theme: ['cream', 'lime'].includes(config.theme) ? config.theme : 'plum',
   paths: { log: LOG },
@@ -740,8 +746,10 @@ const CLIP_MAX = 20 * 1024 * 1024;
 const CLIP_KIND = { text: '文字', image: '图片' };
 const bytes = (n) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 const clipDigest = (type, data) => createHash('sha256').update(type).update(data).digest('hex');
-/** the last that went either way ({ way: 'up' | 'down', type, size, at }), for the window */
+/** the last that went either way ({ way: 'up' | 'down', type, size, at, ok, why, again }), and what is
+ *  going now ({ way, type, size, sent, at }), for the window */
 let clipLast = null;
+let clipGoing = null;
 /** what is to go next ({ type, data, digest, tries }); what the server has already, to go no more */
 let clipOutbox = null;
 let clipHave = null;
@@ -768,7 +776,20 @@ function sendClip() {
   let err = '';
   p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
   p.stdin.on('error', () => {});
-  p.stdin.end(item.data);
+  // handed to ssh a piece at a time, as fast as it takes them: how far it is, for the window
+  clipGoing = { way: 'up', type: item.type, size: item.data.length, sent: 0, at: Date.now() };
+  push();
+  let off = 0;
+  const pump = () => {
+    while (off < item.data.length) {
+      const part = item.data.subarray(off, off + 64 * 1024);
+      off += part.length;
+      clipGoing.sent = off;
+      if (!p.stdin.write(part)) return void p.stdin.once('drain', () => (push(), pump()));
+    }
+    p.stdin.end();
+  };
+  pump();
   const limit = setTimeout(() => p.kill(), 120000);
   let ended = false;
   const end = (code) => {
@@ -776,16 +797,19 @@ function sendClip() {
     ended = true;
     clearTimeout(limit);
     clipSending = false;
+    clipGoing = null;
     const what = `${CLIP_KIND[item.type]}，${bytes(item.data.length)}`;
+    const last = { way: 'up', type: item.type, size: item.data.length, at: Date.now() };
     if (code === 0) {
       clipHave = item.digest;
-      clipLast = { way: 'up', type: item.type, size: item.data.length, at: Date.now() };
+      clipLast = { ...last, ok: true };
       note('station', `剪贴板：已同步到服务器（${what}）`);
     } else {
       const why = err.split(/\r?\n/).filter((l) => l.trim()).at(-1) ?? `ssh 退出码 ${code}`;
       // again in a while, unless something newer has been copied meanwhile
       const again = !clipOutbox && ++item.tries < 3;
       if (again) clipOutbox = item;
+      clipLast = { ...last, ok: false, why, again };
       note('station', `剪贴板：同步到服务器失败（${what}）：${why}${again ? '。15 秒后重试' : ''}`);
       if (again) return (clipTimer = setTimeout(sendClip, 15000), push());
     }
@@ -819,17 +843,25 @@ async function clipSet(input) {
   if (!data.length || data.length > CLIP_MAX) throw new Error(`the clipboard takes up to 20 MB, and something: not ${bytes(data.length)}`);
   const file = join(dir, `clip-${randomBytes(6).toString('hex')}`);
   writeFileSync(file, data);
+  // here already, all of it: being put on the clipboard
+  clipGoing = { way: 'down', type, size: data.length, sent: data.length, at: Date.now() };
+  push();
   let code;
   try {
     code = await new Promise((done) => execFile(join(repo, '渲染站.exe'), ['--clip-set', file, type], { windowsHide: true, timeout: 15000 }, (e) => done(e ? (typeof e.code === 'number' ? e.code : -1) : 0)));
   } finally {
     rmSync(file, { force: true });
+    clipGoing = null;
   }
-  if (code === 2) throw new Error('another program holds the clipboard open: try again');
-  if (code === 3) throw new Error('not a picture Windows can read (PNG, JPEG, BMP, GIF…)');
-  if (code) throw new Error(`could not put it on the clipboard (渲染站.exe --clip-set: ${code})`);
+  const last = { way: 'down', type, size: data.length, at: Date.now() };
+  const why = { 2: 'another program holds the clipboard open: try again', 3: 'not a picture Windows can read (PNG, JPEG, BMP, GIF…)' }[code] ?? (code ? `could not put it on the clipboard (渲染站.exe --clip-set: ${code})` : null);
+  if (why) {
+    clipLast = { ...last, ok: false, why: { 2: '剪贴板正被其他程序占用', 3: '不是 Windows 能读取的图片' }[code] ?? `写入失败（${code}）` };
+    push();
+    throw new Error(why);
+  }
   clipHave = clipDigest(type, data);
-  clipLast = { way: 'down', type, size: data.length, at: Date.now() };
+  clipLast = { ...last, ok: true };
   note('station', `剪贴板：服务器写入了${CLIP_KIND[type]}（${bytes(data.length)}）`);
   push();
   return { type, size: data.length };
