@@ -717,9 +717,9 @@
         transform: none;
       }
       /* the rail's icons: one set on one grid (24, drawn within 3 to 21), its lines as heavy as the
-         names' strokes beside them (1.4 of 24 at 20px: some 1.2px), and each a face of its own, a
-         faint tint of its colour (the dial's, the picture's hills, the pulse's ground, the knobs),
-         less faint for the page shown */
+         names' strokes beside them (1.4 of 24 at 20px: some 1.2px); the page shown's with a face of
+         its own in its colour (the dial's, the picture's hills, the pulse's ground, the knobs), the
+         others lines alone, no grey under them */
       .nav svg {
         flex: none;
         width: 20px;
@@ -732,7 +732,7 @@
       }
       .nav svg :is(.tone, .fill) {
         fill: currentColor;
-        fill-opacity: 0.08;
+        fill-opacity: 0;
         transition: fill-opacity 0.3s;
       }
       .nav svg :is(.tone, .dot) {
@@ -743,6 +743,11 @@
       }
       .nav > button[aria-current='page'] svg :is(.tone, .fill) {
         fill-opacity: 0.22;
+      }
+      /* on 黄绿's plate the lines are dark: the face a light on it, not a shade */
+      [data-theme='lime'] .nav > button[aria-current='page'] svg :is(.tone, .fill) {
+        fill: #fff;
+        fill-opacity: 0.45;
       }
       [data-theme='cream'] .nav > button[aria-current='page'] svg {
         color: var(--amber);
