@@ -498,8 +498,8 @@ const view = () => ({
     // copied while there is no getting through: to go once the tunnel is up
     waiting: clipOutbox && tunnel.state !== 'up' ? { type: clipOutbox.type, size: clipOutbox.data.length } : null,
   },
-  // the window's look: 'plum' or 'cream'
-  theme: ['cream', 'lime'].includes(config.theme) ? config.theme : 'plum',
+  // the window's look: 'plum', 'teal' or 'cream' ('lime' is teal's name before 0.7.14)
+  theme: { cream: 'cream', teal: 'teal', lime: 'teal' }[config.theme] ?? 'plum',
   paths: { log: LOG },
   // the page, as it is on disk: a window showing an older one loads it again
   page: statSync(join(here, 'station.html')).mtimeMs,
@@ -1040,7 +1040,7 @@ const ui = createServer(async (req, res) => {
       save();
       note('station', data.on ? '同步剪贴板：已开启，复制的文字和图片会同步到服务器' : '同步剪贴板：已关闭');
     } else if (path === '/theme') {
-      if (!['plum', 'cream', 'lime'].includes(data.name)) throw new Error('name must be plum, cream or lime');
+      if (!['plum', 'cream', 'teal'].includes(data.name)) throw new Error('name must be plum, cream or teal');
       config.theme = data.name;
       save();
     } else if (path === '/update') checkUpdate();

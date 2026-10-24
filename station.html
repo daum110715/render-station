@@ -8,7 +8,7 @@
       // the look chosen last, before anything is drawn (the station's settings say which, once it answers)
       try {
         const theme = localStorage.getItem('station-theme');
-        document.documentElement.dataset.theme = theme === 'cream' || theme === 'lime' ? theme : 'plum';
+        document.documentElement.dataset.theme = { cream: 'cream', teal: 'teal', lime: 'teal' }[theme] ?? 'plum';
       } catch {}
     </script>
     <link rel="icon" id="favicon" href="data:," />
@@ -67,7 +67,7 @@
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
-        :root:not([data-theme='cream'], [data-theme='lime']) {
+        :root:not([data-theme='cream'], [data-theme='teal']) {
           --page: #171216;
           --ground: #171216;
           --rail: #120e11;
@@ -87,7 +87,7 @@
           color-scheme: dark;
         }
       }
-      :root[data-theme='lime'] {
+      :root[data-theme='teal'] {
         --page: #f4f8f6;
         --ground: #f4f8f6;
         --rail: #e9f1ed;
@@ -98,11 +98,11 @@
         --ink-3: #83928c;
         --line: #d4e1dc;
         --line-2: #e3ece8;
-        --lime-a: #8bd6b9;
-        --lime-b: #7fd2cb;
+        --teal-a: #8bd6b9;
+        --teal-b: #7fd2cb;
         --violet: #16806f;
         --on-violet: #0e2925;
-        --primary: linear-gradient(100deg, var(--lime-a), var(--lime-b));
+        --primary: linear-gradient(100deg, var(--teal-a), var(--teal-b));
         /* the run as words on the paper: deeper, to be read */
         --run-text: linear-gradient(100deg, #1f9a6c, #138f8a);
         --ok: #33a05e;
@@ -113,7 +113,7 @@
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
-        :root[data-theme='lime'] {
+        :root[data-theme='teal'] {
           --page: #111614;
           --ground: #111614;
           --rail: #0d1210;
@@ -124,8 +124,8 @@
           --ink-3: #81928b;
           --line: #2a3732;
           --line-2: #1e2824;
-          --lime-a: #81d9b7;
-          --lime-b: #74d5cd;
+          --teal-a: #81d9b7;
+          --teal-b: #74d5cd;
           --violet: #74d6c3;
           --run-text: var(--primary);
           --ok: #45c27a;
@@ -274,23 +274,6 @@
       }
       button:hover {
         border-color: color-mix(in srgb, var(--violet) 55%, var(--line));
-      }
-      /* the pointer over a button: a soft light in it, where the pointer is (the script says where) */
-      button:not(.link, .tb, .tile, .wsc-head, .nav button, .seg button, .chips button)::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--violet) 18%, transparent), transparent 70%);
-        opacity: 0;
-        transition: opacity 0.35s;
-        pointer-events: none;
-      }
-      button.primary::after {
-        background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / 0.32), transparent 70%);
-      }
-      button:hover::after {
-        opacity: 1;
       }
       /* a request under way: an arc turning where the words were; done, a tick drawn there */
       button.pending,
@@ -794,10 +777,10 @@
         background: var(--violet);
         transition: transform 0.45s var(--out);
       }
-      [data-theme='lime'] .slider {
+      [data-theme='teal'] .slider {
         background: var(--primary);
       }
-      [data-theme='lime'] body[data-mode='busy'] .state-word {
+      [data-theme='teal'] body[data-mode='busy'] .state-word {
         width: fit-content;
         background: var(--run-text);
         -webkit-background-clip: text;
@@ -1127,29 +1110,6 @@
       .strip i.on {
         background: var(--state);
       }
-      .strip i.now {
-        animation: now 1.1s ease-in-out infinite alternate;
-      }
-      @keyframes now {
-        to {
-          background: color-mix(in srgb, var(--state) 55%, transparent);
-        }
-      }
-      /* no telling how far: a light passing along */
-      .strip.sweep i {
-        animation: sweep 1.8s ease-in-out infinite;
-        animation-delay: calc(var(--i) * 28ms);
-      }
-      @keyframes sweep {
-        0%,
-        60%,
-        100% {
-          background: var(--track);
-        }
-        25% {
-          background: color-mix(in srgb, var(--state) 60%, transparent);
-        }
-      }
       .strip-meta {
         display: flex;
         flex-wrap: wrap;
@@ -1236,7 +1196,7 @@
         text-overflow: ellipsis;
       }
       /* the clipboard: the last copy on its way, the bar as much of it as is sent; done, full; refused,
-         red; waiting for the tunnel, breathing */
+         red; waiting for the tunnel, a faint yellow */
       .clip-bar {
         position: relative;
         height: 6px;
@@ -1253,36 +1213,13 @@
         background: var(--primary);
         transition: width 0.35s var(--out);
       }
-      .clip-bar.going i::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5), transparent);
-        animation: sheen 1.1s linear infinite;
-      }
-      @keyframes sheen {
-        from {
-          transform: translateX(-100%);
-        }
-        to {
-          transform: translateX(100%);
-        }
-      }
       .clip-bar.bad i {
         background: var(--bad);
       }
       .clip-bar.wait i {
         width: 100% !important;
         background: var(--wait);
-        animation: breathe 1.6s ease-in-out infinite alternate;
-      }
-      @keyframes breathe {
-        from {
-          opacity: 0.15;
-        }
-        to {
-          opacity: 0.45;
-        }
+        opacity: 0.3;
       }
       /* this machine: running as administrator or not, and its last two minutes */
       .machine-row {
@@ -2530,7 +2467,7 @@
             <div class="row">
               <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。青绿：略带青色的浅色纸，选中处和「执行中」用绿与青之间的一小段渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
               <div class="ctl">
-                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="lime">青绿</button><button type="button" data-theme-name="cream">奶白</button></span>
+                <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="teal">青绿</button><button type="button" data-theme-name="cream">奶白</button></span>
               </div>
             </div>
             <div class="row">
@@ -2718,7 +2655,7 @@
         if (!on) a.onfinish = () => (node.hidden = true);
       }
       // ——— touch: whatever is pressed gives under the finger at once, and springs back when let go,
-      // a wide row less than a button; a button's light follows the pointer ———
+      // a wide row less than a button ———
       const SPRING = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
       const GIVE = [
         ['.tb', 1],
@@ -2746,17 +2683,6 @@
       }
       // let go anywhere, even outside the window
       for (const type of ['pointerup', 'pointercancel', 'blur']) addEventListener(type, letGo);
-      addEventListener(
-        'pointermove',
-        (e) => {
-          const b = e.target.closest?.('button');
-          if (!b) return;
-          const r = b.getBoundingClientRect();
-          b.style.setProperty('--mx', `${e.clientX - r.left}px`);
-          b.style.setProperty('--my', `${e.clientY - r.top}px`);
-        },
-        { passive: true },
-      );
       /** what a button asks, under way: after a moment, an arc turning in it; done, a tick drawn there
        *  (unless what it changed shows that itself); refused, a shake */
       async function act(button, run, tick = true) {
@@ -2967,24 +2893,16 @@
 
       // ——— the state, in words, and the frames as they are made ———
       const SEGS = 48;
-      /** a strip of cells: `fill` of them filled (a fraction), or a light passing along (`sweep`) */
-      function strip(node, { fill = 0, sweep = false, segs = SEGS }) {
+      /** a strip of cells, `fill` of them filled (a fraction); none while there is no telling how far */
+      function strip(node, { fill = null, segs = SEGS }) {
+        node.hidden = fill == null;
+        if (fill == null) return;
         if (node.children.length !== segs) {
           node.style.setProperty('--segs', segs);
-          node.replaceChildren(
-            ...Array.from({ length: segs }, (_, i) => {
-              const cell = document.createElement('i');
-              cell.style.setProperty('--i', i);
-              return cell;
-            }),
-          );
+          node.replaceChildren(...Array.from({ length: segs }, () => document.createElement('i')));
         }
-        node.classList.toggle('sweep', sweep);
-        const on = sweep ? 0 : Math.floor(Math.min(1, fill) * segs);
-        [...node.children].forEach((cell, i) => {
-          cell.classList.toggle('on', i < on);
-          cell.classList.toggle('now', !sweep && i === on && fill > 0 && fill < 1);
-        });
+        const on = Math.floor(Math.min(1, fill) * segs);
+        [...node.children].forEach((cell, i) => cell.classList.toggle('on', i < on));
       }
       // the window's icon in the state's colour, as the tray's
       let painted = '';
@@ -3022,7 +2940,7 @@
         set('state-detail', text[2]);
         document.title = `渲染站 · ${text[0]}`;
 
-        // the strip: the frames made, the wait before trying again, or a light passing while there is no telling
+        // the strip: the frames made, or the wait before trying again; nothing while there is no telling
         const wrap = $('#strip-wrap');
         let left = '';
         let right = '';
@@ -3031,17 +2949,11 @@
           left = `${j.n} / ${j.total} ${j.frames ? '帧' : '张'}，${Math.floor((j.n / j.total) * 100)}%`;
           if (j.frames && j.ms) right = `${j.ms} 毫秒 / 帧，预计还需 ${took((j.total - j.n) * j.ms)}`;
           else if (j.n) right = `预计还需 ${took(((j.total - j.n) * (now - j.started)) / j.n)}`;
-        } else if (mode === 'busy') {
-          strip($('#strip'), { sweep: true });
-          left = j ? `已运行 ${took(now - j.started)}` : `${many} 个任务运行中`;
         } else if (mode === 'retry') {
           strip($('#strip'), { fill: t.wait ? (secs * 1000) / t.wait : 0 });
           left = `${secs} 秒后重新连接`;
-        } else if (mode === 'connecting') {
-          strip($('#strip'), { sweep: true });
-          left = t.port ? `服务器端口 ${t.port}` : '';
         }
-        unfold(wrap, ['busy', 'retry', 'connecting'].includes(mode));
+        unfold(wrap, j?.total > 0 || mode === 'retry');
         set('strip-left', left);
         set('strip-right', right);
 
@@ -3126,8 +3038,7 @@
           set(id, `#${x.id}`);
           set(what.firstChild, x.what);
           const bar = what.lastChild;
-          if (x.total > 0) strip(bar, { fill: x.n / x.total, segs: 32 });
-          else strip(bar, { sweep: !x.queued, segs: 32 });
+          strip(bar, { fill: x.total > 0 ? x.n / x.total : null, segs: 32 });
           if (x.queued) set(detail, `已等待 ${took(now - x.at)}`);
           else if (x.total > 0) set(detail, `${x.n} / ${x.total} ${x.frames ? '帧' : '张'}，已运行 ${took(now - x.started)}`);
           else set(detail, `已运行 ${took(now - x.started)}`);
@@ -4043,7 +3954,7 @@
       });
 
       /** the look the settings name, kept for the next time the page is drawn; changed, faded into */
-      const themeOf = (name) => (name === 'cream' || name === 'lime' ? name : 'plum');
+      const themeOf = (name) => ({ cream: 'cream', teal: 'teal', lime: 'teal' })[name] ?? 'plum';
       function applyTheme() {
         const theme = themeOf(S.theme);
         if (document.documentElement.dataset.theme === theme) return;
