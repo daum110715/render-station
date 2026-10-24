@@ -26,8 +26,8 @@
       }
       /* three looks, chosen in 设置 → 本机: 梅紫, warm paper and plum ink as qiqi.help has them, the
          states in the tray icon's colours, light or dark as the system is; 青绿, 梅紫's frame in pale
-         paper with a breath of cyan, a short run from green to cyan for what is chosen and for 执行中
-         (its cyan end, 空闲 its green), light or dark too; and 奶白, daum.pw's: the cream page with its
+         paper with a breath of cyan, the short run in the middle of green to cyan for what is chosen
+         and for 执行中 (a teal, 空闲 a green), light or dark too; and 奶白, daum.pw's: the cream page with its
          amber wash, the wordmark's face for what matters, flat layers of its long shadow under what
          is pressed, light only */
       :root {
@@ -98,18 +98,18 @@
         --ink-3: #83928c;
         --line: #d4e1dc;
         --line-2: #e3ece8;
-        --lime-a: #5cc47e;
-        --lime-b: #2bb5c4;
+        --lime-a: #4dc093;
+        --lime-b: #3ab9af;
         --violet: #16806f;
         --on-violet: #0e2925;
         --primary: linear-gradient(100deg, var(--lime-a), var(--lime-b));
         /* the run as words on the paper: deeper, to be read */
-        --run-text: linear-gradient(100deg, #23955a, #0f8797);
+        --run-text: linear-gradient(100deg, #1f9a6c, #138f8a);
         --ok: #33a05e;
         --wait: #d99a1e;
         --bad: #d4563a;
         --off: #95a19c;
-        --busy: #1fa3b6;
+        --busy: #18a093;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
@@ -124,15 +124,15 @@
           --ink-3: #81928b;
           --line: #2a3732;
           --line-2: #1e2824;
-          --lime-a: #6dd391;
-          --lime-b: #45c8d4;
+          --lime-a: #61d0a5;
+          --lime-b: #51cbc0;
           --violet: #74d6c3;
           --run-text: var(--primary);
           --ok: #45c27a;
           --wait: #f1b74a;
           --bad: #ec6a46;
           --off: #74827c;
-          --busy: #45c4d6;
+          --busy: #4fcbbb;
           color-scheme: dark;
         }
       }
@@ -2528,7 +2528,7 @@
           <p class="lede">这台电脑上的渲染站怎么运行。「以管理员身份运行」在「总览」页的「本机」中设置。</p>
           <div class="rows">
             <div class="row">
-              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。青绿：略带青色的浅色纸，选中处和「执行中」用一段绿到青的渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
+              <div class="text"><b>外观</b><small>梅紫：暖白纸和梅紫墨色。青绿：略带青色的浅色纸，选中处和「执行中」用绿与青之间的一小段渐变。这两套随系统切换浅色和深色。奶白：daum.pw 的奶白底和琥珀色，只有浅色。</small></div>
               <div class="ctl">
                 <span class="seg" id="theme"><button type="button" data-theme-name="plum">梅紫</button><button type="button" data-theme-name="lime">青绿</button><button type="button" data-theme-name="cream">奶白</button></span>
               </div>
