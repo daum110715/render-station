@@ -121,6 +121,13 @@
         --border-w: 1.5px;
         color-scheme: light;
       }
+      /* the state's colour a value of its own, so that it runs from one to the next: the logo, the
+         words, the strip, the overview's tint, all at once */
+      @property --state {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #9a8a9d;
+      }
       * {
         box-sizing: border-box;
       }
@@ -136,6 +143,7 @@
         font: 13.5px/1.65 var(--ui);
         -webkit-font-smoothing: antialiased;
         --state: var(--off);
+        transition: --state 0.7s var(--out);
         /* an app's window: its labels are not text to select, only what may be worth copying is */
         user-select: none;
       }
@@ -380,6 +388,28 @@
         background: var(--primary);
         color: var(--on-violet);
       }
+      /* the choice's plate, sliding from one to the other */
+      .seg {
+        position: relative;
+      }
+      .seg button {
+        position: relative;
+        z-index: 1;
+      }
+      .seg .knob {
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 0;
+        border-radius: 999px;
+        background: var(--primary);
+        transition:
+          transform 0.45s var(--out),
+          width 0.45s var(--out);
+      }
+      .seg:has(.knob) button[aria-pressed='true'] {
+        background: none;
+      }
       .seg b {
         min-width: 2.2em;
         font-weight: 500;
@@ -475,7 +505,6 @@
       }
       .logo circle {
         fill: var(--state);
-        transition: fill 0.5s;
       }
       .logo path {
         fill: #fff;
@@ -518,7 +547,9 @@
         font: var(--hand-w) 16px/1 var(--hand);
         color: var(--ink-2);
         text-align: left;
-        transition: color 0.3s;
+        transition:
+          color 0.3s,
+          background-color 0.25s;
       }
       [data-theme='cream'] .nav button {
         font-size: 14.5px;
@@ -526,6 +557,9 @@
       }
       .nav button:hover {
         color: var(--ink);
+      }
+      .nav button:not([aria-current]):hover {
+        background: color-mix(in srgb, var(--ink) 5%, transparent);
       }
       .nav > button[aria-current='page'] {
         color: var(--on-violet);
@@ -586,6 +620,7 @@
         height: 7px;
         border-radius: 50%;
         background: var(--wait);
+        animation: pop 0.4s var(--out);
       }
       /* the page shown, a plate sliding under its name */
       .slider {
@@ -667,7 +702,6 @@
         height: 8px;
         border-radius: 50%;
         background: var(--state);
-        transition: background-color 0.5s;
       }
       body[data-mode='busy'] .dot::after,
       body[data-mode='connecting'] .dot::after {
@@ -774,6 +808,23 @@
       }
       .err {
         color: var(--bad);
+        animation: rise 0.3s var(--out);
+      }
+      .err:empty {
+        display: none !important;
+      }
+      /* what appears: rising into place, or (a dot) growing */
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: scale(0.3);
+        }
       }
       .empty {
         padding: 22px 0;
@@ -793,7 +844,6 @@
         margin: 0;
         font: var(--hand-w) 46px/1.15 var(--hand);
         color: var(--state);
-        transition: color 0.5s;
       }
       .state-what {
         margin: 4px 0 0;
@@ -1050,6 +1100,23 @@
       .job:hover {
         background: var(--sunk);
       }
+      /* a job just ended: in at the top, lit a moment in how it went */
+      .arrive .job {
+        animation:
+          arrive 0.5s var(--out),
+          flash 1.8s ease-out;
+      }
+      @keyframes arrive {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+      }
+      @keyframes flash {
+        from {
+          background: color-mix(in srgb, var(--flash, var(--ok)) 16%, transparent);
+        }
+      }
       .job:focus-visible {
         outline-offset: -2px;
       }
@@ -1185,7 +1252,16 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: opacity 0.4s;
+        transition:
+          opacity 0.4s,
+          transform 0.6s var(--out);
+      }
+      .tile:hover img,
+      .tile:hover video {
+        transform: scale(1.04);
+      }
+      .group.arrive {
+        animation: rise 0.5s var(--out) both;
       }
       .tile img {
         opacity: 0;
@@ -1415,6 +1491,12 @@
       .ln span {
         overflow-wrap: anywhere;
       }
+      .ln.new {
+        animation: rise 0.35s var(--out);
+      }
+      #to-end {
+        animation: rise 0.3s var(--out);
+      }
       .k-job,
       .k-out {
         --tag: var(--violet);
@@ -1526,7 +1608,7 @@
       .status {
         font-size: 12.5px;
         color: var(--ok);
-        transition: opacity 0.3s;
+        animation: rise 0.3s var(--out);
       }
       .status.err {
         color: var(--bad);
@@ -1664,16 +1746,52 @@
         color: var(--ink);
         box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.5);
       }
+      dialog.review {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+        transition:
+          opacity 0.25s,
+          transform 0.35s var(--out),
+          overlay 0.35s allow-discrete,
+          display 0.35s allow-discrete;
+      }
+      dialog.review[open] {
+        opacity: 1;
+        transform: none;
+      }
+      @starting-style {
+        dialog.review[open] {
+          opacity: 0;
+          transform: translateY(12px) scale(0.98);
+        }
+      }
       dialog.review::backdrop {
+        background: transparent;
+        transition:
+          background-color 0.35s,
+          overlay 0.35s allow-discrete,
+          display 0.35s allow-discrete;
+      }
+      dialog.review[open]::backdrop {
         background: rgb(16 12 22 / 0.48);
+      }
+      @starting-style {
+        dialog.review[open]::backdrop {
+          background: transparent;
+        }
       }
       [data-theme='cream'] dialog.review {
         border: 1.5px solid var(--shade-1);
         border-radius: 18px;
         box-shadow: 6px 8px 0 var(--shade-2), 12px 16px 0 var(--shade-3);
       }
-      [data-theme='cream'] dialog.review::backdrop {
+      [data-theme='cream'] dialog.review[open]::backdrop {
         background: rgb(68 64 60 / 0.22);
+      }
+      @starting-style {
+        [data-theme='cream'] dialog.review[open]::backdrop {
+          background: transparent;
+        }
       }
       .review header {
         padding: 20px 22px 0;
@@ -2250,6 +2368,48 @@
         runs.delete(node);
         set(node, text);
       };
+      const OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+      /** words changed in place: the new ones rising into it */
+      function swap(id, text) {
+        const node = document.getElementById(id);
+        const was = node.textContent;
+        if (was === text) return;
+        node.textContent = text;
+        if (!still && was && was !== '…') node.animate([{ opacity: 0, transform: 'translateY(0.2em)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: OUT });
+      }
+      /** shown or hidden, its height running there rather than what is below it jumping */
+      function unfold(node, on) {
+        if ((node.want ?? !node.hidden) === on) return;
+        node.want = on;
+        for (const a of node.getAnimations()) a.cancel();
+        if (still) return void (node.hidden = !on);
+        node.hidden = false;
+        const cs = getComputedStyle(node);
+        const full = { height: `${node.offsetHeight}px`, opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom, overflow: 'hidden' };
+        const none = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px', overflow: 'hidden' };
+        const a = node.animate(on ? [none, full] : [full, none], { duration: on ? 420 : 320, easing: OUT });
+        if (!on) a.onfinish = () => (node.hidden = true);
+      }
+      /** the plate of a choice of a few (.seg), slid under the one pressed */
+      function knobUnder(group) {
+        let knob = group.querySelector('.knob');
+        if (!knob) {
+          knob = el('i', 'knob');
+          knob.setAttribute('aria-hidden', 'true');
+          group.prepend(knob);
+        }
+        const on = group.querySelector('[aria-pressed="true"]');
+        if (!on?.offsetWidth) return;
+        // put there at first, not slid from nowhere
+        const first = !knob.style.width;
+        if (first) knob.style.transition = 'none';
+        knob.style.width = `${on.offsetWidth}px`;
+        knob.style.transform = `translateX(${on.offsetLeft}px)`;
+        if (first) {
+          knob.offsetWidth;
+          knob.style.transition = '';
+        }
+      }
       const post = (path, body) =>
         fetch(path, { method: 'POST', headers: { 'x-station': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : '' })
           .then((r) => r.json())
@@ -2398,9 +2558,9 @@
           off: ['已暂停', '不接收任务', '隧道已关闭，服务器无法提交任务。单击「恢复接收任务」即可重新连接。'],
           unset: ['未配置', '尚未填写服务器', '在「设置 → 连接」中填写服务器的 SSH 地址后，渲染站会自动连接。'],
         }[mode] ?? [mode, '', ''];
-        set('chip', text[0]);
-        set('state-word', text[0]);
-        set('state-what', text[1]);
+        swap('chip', text[0]);
+        swap('state-word', text[0]);
+        swap('state-what', text[1]);
         set('state-detail', text[2]);
         document.title = `渲染站 · ${text[0]}`;
 
@@ -2423,7 +2583,7 @@
           strip($('#strip'), { sweep: true });
           left = t.port ? `服务器端口 ${t.port}` : '';
         }
-        wrap.hidden = !['busy', 'retry', 'connecting'].includes(mode);
+        unfold(wrap, ['busy', 'retry', 'connecting'].includes(mode));
         set('strip-left', left);
         set('strip-right', right);
 
@@ -2454,7 +2614,7 @@
 
         // what the settings still lack, and where to fill it in
         const notice = $('#notice');
-        notice.hidden = gone || !S.missing.length;
+        unfold(notice, !gone && S.missing.length > 0);
         if (S.missing.length) set('notice-text', `设置尚不完整，缺少${S.missing.join('、')}。补全之前，相关任务无法运行。`);
         const noServer = !S.config.ssh.target;
         const wsLack = S.workspaces.some((w) => w.missing.length || w.error);
@@ -2469,7 +2629,7 @@
       // ——— the jobs running and waiting, when more than one: each with how far it is ———
       function renderActive() {
         const all = [...S.running, ...S.queued.map((q) => ({ ...q, queued: true }))];
-        $('#active-sec').hidden = all.length < 2;
+        unfold($('#active-sec'), all.length >= 2);
         if (all.length < 2) return;
         const now = Date.now();
         set('active-sub', `${S.running.length} 个运行中${S.queued.length ? `，${S.queued.length} 个排队` : ''}，最多同时运行 ${S.parallel} 个`);
@@ -2583,7 +2743,13 @@
       });
 
       // ——— the jobs ———
+      // the jobs listed so far (none yet: the first list does not arrive); the one just opened, to
+      // unfold; the list kept as it is while a job's output folds shut
+      let jobsSeen = null;
+      let justOpened = null;
+      let jobsHeld = false;
       function renderJobs() {
+        if (jobsHeld) return;
         const list = $('#jobs');
         $('#empty').hidden = S.jobs.length > 0;
         set('jobs-sub', S.jobs.length ? `${S.jobs.length} 个，最新的在前` : '');
@@ -2615,8 +2781,21 @@
               row.append(b);
             }
             const flip = () => {
-              open.has(j.id) ? open.delete(j.id) : open.add(j.id);
-              renderJobs();
+              if (!open.has(j.id)) {
+                open.add(j.id);
+                justOpened = j.id;
+                return renderJobs();
+              }
+              open.delete(j.id);
+              const fold = li.querySelector('.fold');
+              if (!fold || still) return renderJobs();
+              row.setAttribute('aria-expanded', 'false');
+              fold.classList.remove('open');
+              jobsHeld = true;
+              setTimeout(() => {
+                jobsHeld = false;
+                renderJobs();
+              }, 360);
             };
             row.addEventListener('click', flip);
             row.addEventListener('keydown', (e) => {
@@ -2636,22 +2815,32 @@
               inner.append(el('pre', 'out', (j.files?.length ? `已返回服务器：${j.files.join('、')}\n\n` : '') + (j.tail || '（无输出）').trim()));
               fold.append(inner);
               li.append(fold);
-              requestAnimationFrame(() => requestAnimationFrame(() => fold.classList.add('open')));
+              if (justOpened === j.id && !still) requestAnimationFrame(() => requestAnimationFrame(() => fold.classList.add('open')));
+              else fold.classList.add('open');
+            }
+            if (jobsSeen && !jobsSeen.has(j.id) && !still) {
+              li.classList.add('arrive');
+              row.style.setProperty('--flash', j.ok ? 'var(--ok)' : 'var(--bad)');
             }
             return li;
           }),
         );
+        jobsSeen = new Set(S.jobs.map((j) => j.id));
+        justOpened = null;
       }
 
       // ——— 输出: the pictures and videos shown, the other files opened by the system ———
       let items = [];
+      // the jobs' groups shown so far (none yet: the first shelf does not arrive)
+      let shelfSeen = null;
       const caption = (name) => name.split('/').pop();
       const video = (name) => /\.(mp4|webm)$/i.test(name);
       function renderShelf() {
         const shelf = S.shelf ?? [];
         const groups = $('#groups');
         const key = shelf.map((g) => g.name).join('|');
-        set('n-gallery', shelf.length ? String(shelf.reduce((n, g) => n + g.files.length, 0)) : '');
+        if (shelf.length) count($('#n-gallery'), shelf.reduce((n, g) => n + g.files.length, 0));
+        else word($('#n-gallery'), '');
         if (groups.dataset.key === key) return;
         groups.dataset.key = key;
         $('#g-empty').hidden = shelf.length > 0;
@@ -2660,7 +2849,7 @@
         items = shelf.flatMap((g) => g.files.filter((f) => f.url).map((f) => ({ ...f, cap: caption(f.name), what: g.what, at: g.at })));
         groups.replaceChildren(
           ...shelf.map((g) => {
-            const sec = el('section', 'group');
+            const sec = el('section', `group${shelfSeen && !shelfSeen.has(g.name) ? ' arrive' : ''}`);
             const head = el('div', 'group-head');
             head.append(el('b', null, g.what), el('span', null, `${day(g.at)}${g.ms ? `，耗时 ${took(g.ms)}` : ''}`));
             const tiles = el('div', 'tiles');
@@ -2703,6 +2892,7 @@
             return sec;
           }),
         );
+        shelfSeen = new Set(shelf.map((g) => g.name));
       }
       // from a job's row: to its picture in the gallery, large
       function showKept(path) {
@@ -2784,6 +2974,7 @@
       const lastOf = new Map();
       function add(news) {
         const stick = atEnd();
+        const live = news.length <= 6 && !still;
         for (const item of news) {
           const prev = item.job ? lastOf.get(item.job) : lines.at(-1);
           if (progress(item) && progress(prev) && lines.includes(prev)) {
@@ -2793,7 +2984,10 @@
           }
           lines.push(item);
           if (item.job) lastOf.set(item.job, item);
-          if (shows(item)) term.append(line(item));
+          if (!shows(item)) continue;
+          const node = line(item);
+          if (live) node.classList.add('new');
+          term.append(node);
         }
         while (lines.length > 600) lines.shift().el?.remove();
         if (stick) term.scrollTo({ top: term.scrollHeight, behavior: still ? 'auto' : 'smooth' });
@@ -2909,11 +3103,13 @@
         head.append(who, el('span', tagClass, tagText));
         head.insertAdjacentHTML('beforeend', '<svg class="chev" viewBox="0 0 14 14" aria-hidden="true"><path d="m5 2.5 4.5 4.5L5 11.5"/></svg>');
         head.addEventListener('click', () => {
-          wsOpen.has(i) ? wsOpen.delete(i) : wsOpen.add(i);
-          renderWorkspaces(true);
+          const on = !wsOpen.has(i);
+          on ? wsOpen.add(i) : wsOpen.delete(i);
+          head.setAttribute('aria-expanded', on);
+          fold.classList.toggle('open', on);
+          fold.inert = !on;
         });
         card.append(head);
-        if (!wsOpen.has(i)) return card;
 
         const body = el('div', 'wsc-body');
         const fields = el('div', 'fields');
@@ -3022,7 +3218,12 @@
             said(statusNow(), e.message);
           }
         });
-        card.append(body);
+        const fold = el('div', `fold${wsOpen.has(i) ? ' open' : ''}`);
+        fold.inert = !wsOpen.has(i);
+        const inner = document.createElement('div');
+        inner.append(body);
+        fold.append(inner);
+        card.append(fold);
         return card;
       }
       /** a workspace as its block has it; an "其他环境变量" line that is not NAME=value, refused */
@@ -3050,12 +3251,12 @@
       }
       $('#ws-add').addEventListener('click', () => {
         $('#ws-add').hidden = true;
-        $('#ws-add-form').hidden = false;
+        unfold($('#ws-add-form'), true);
         $('#ws-new-path').focus();
       });
       const closeAdd = () => {
         $('#ws-add').hidden = false;
-        $('#ws-add-form').hidden = true;
+        unfold($('#ws-add-form'), false);
         $('#ws-new-name').value = '';
         $('#ws-new-path').value = '';
         set('ws-new-error', '');
@@ -3085,6 +3286,7 @@
       function renderAccess() {
         const m = S.manage;
         for (const b of document.querySelectorAll('[data-manage]')) b.setAttribute('aria-pressed', b.dataset.manage === m.mode);
+        knobUnder($('#manage'));
         set('manage-hint', MANAGE[m.mode]);
         const c = S.clipboard;
         if (!flying.has('clipboard')) $('#clipboard').checked = c.on;
@@ -3139,6 +3341,7 @@
       // ——— 设置 · 本机, and 更新与关于 ———
       function renderMachine() {
         for (const b of document.querySelectorAll('[data-theme-name]')) b.setAttribute('aria-pressed', b.dataset.themeName === (S.theme === 'cream' ? 'cream' : 'plum'));
+        knobUnder($('#theme'));
         set('par-n', String(S.parallel));
         $('#par-dec').disabled = S.parallel <= 1;
         $('#par-inc').disabled = S.parallel >= 16;
@@ -3178,6 +3381,8 @@
       // ——— the server's requests awaiting approval: one shown at a time ———
       // a request newly shown: its buttons wait a moment, so a click meant for the one before is not taken for it
       function hold(dialog) {
+        // one after another: the next request's words rising in
+        if (dialog.open && !still) for (const part of dialog.querySelectorAll('header, .body')) part.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 380, easing: OUT });
         const buttons = dialog.querySelectorAll('footer button');
         for (const b of buttons) b.disabled = true;
         setTimeout(() => buttons.forEach((b) => (b.disabled = false)), 600);
